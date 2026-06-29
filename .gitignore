@@ -1,0 +1,43 @@
+# Repository allowlist. Local test fixtures, build outputs, and pack runtime
+# files are ignored by default.
+/*
+
+# Repo metadata
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/README.en.md
+!/TODO.md
+!/LICENSE
+!/docs/
+!/docs/**
+docs/generated/
+!/.github/
+!/.github/workflows/
+!/.github/workflows/**
+!/packages/
+!/packages/npm/
+!/packages/npm/**
+!/packages/npm-platforms/
+!/packages/npm-platforms/**
+
+# Rust package
+!/Cargo.toml
+!/Cargo.lock
+!/src/
+!/src/**
+!/tests/
+!/tests/**
+
+# Common local/build outputs, kept here for clarity even though the allowlist
+# above already ignores them.
+/target/
+/.pw/
+/_*/
+/packages/npm-platforms/**/bkmpw
+/packages/npm-platforms/**/bkmpw.exe
+*.tgz
+*.exe
+*.pdb
+*.log
+*.tmp
