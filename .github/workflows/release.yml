@@ -163,9 +163,9 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           TITLE: BroKnowMyPackwiz ${{ steps.version.outputs.version }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "$TITLE"
-            gh release upload "$TAG" release-assets/* --clobber
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE"
+            gh release upload "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" release-assets/* --title "$TITLE" --generate-notes
+            gh release create "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --title "$TITLE" --generate-notes
           fi
