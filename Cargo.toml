@@ -1,0 +1,26 @@
+[package]
+name = "bro-know-my-packwiz"
+version = "0.1.0"
+edition = "2024"
+description = "Customized Rust tool for this pack's packwiz-style workflow"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/bro-know-my-org/BroKnowMyPackwiz"
+
+[dependencies]
+crc32fast = "1.5.0"
+serde_json = "1.0"
+sha1 = "0.11.0"
+sha2 = "0.11.0"
+ureq = { version = "3.0.12", default-features = false, features = ["rustls"] }
+
+[[bin]]
+name = "bkmpw"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
