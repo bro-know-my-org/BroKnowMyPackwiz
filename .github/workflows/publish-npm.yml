@@ -1,0 +1,220 @@
+name: Publish npm Packages
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version, for example 0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_NAME: bkmpw
+
+jobs:
+  build-platform-package:
+    name: Build npm package ${{ matrix.package_dir }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            package_dir: win32-x64
+            binary: bkmpw.exe
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            package_dir: linux-x64
+            binary: bkmpw
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            package_dir: darwin-x64
+            binary: bkmpw
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            package_dir: darwin-arm64
+            binary: bkmpw
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must look like 1.2.3 or 1.2.3-beta.1, got ${VERSION}" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Rust
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "$TARGET"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Sync Cargo version from tag
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cargoToml = Get-Content -Raw "Cargo.toml"
+          $cargoToml = $cargoToml -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$env:VERSION`""
+          Set-Content -NoNewline -Path "Cargo.toml" -Value $cargoToml
+          cargo generate-lockfile
+
+      - name: Check format
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Prepare platform npm package
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          PACKAGE_DIR: ${{ matrix.package_dir }}
+          BINARY: ${{ matrix.binary }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packagePath = "packages/npm-platforms/$env:PACKAGE_DIR"
+          $pkg = Get-Content -Raw "$packagePath/package.json" | ConvertFrom-Json
+          $pkg.version = $env:VERSION
+          $pkg | ConvertTo-Json -Depth 20 | Set-Content -Path "$packagePath/package.json"
+
+          $source = "target/$env:TARGET/release/$env:BINARY"
+          if (-not (Test-Path -LiteralPath $source)) {
+            throw "release binary was not produced: $source"
+          }
+          Copy-Item -LiteralPath $source -Destination "$packagePath/$env:BINARY"
+
+      - name: Pack platform npm package
+        shell: bash
+        run: npm pack --dry-run
+        working-directory: packages/npm-platforms/${{ matrix.package_dir }}
+
+      - name: Upload platform npm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-platform-${{ matrix.package_dir }}
+          path: packages/npm-platforms/${{ matrix.package_dir }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish npm packages
+    needs: build-platform-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must look like 1.2.3 or 1.2.3-beta.1, got ${VERSION}" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download platform packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: npm-platform-*
+          path: packages/npm-platforms
+
+      - name: Sync main package version
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const path = "packages/npm/package.json";
+          const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+          pkg.version = process.env.VERSION;
+          for (const name of Object.keys(pkg.optionalDependencies)) {
+            pkg.optionalDependencies[name] = process.env.VERSION;
+          }
+          fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
+          NODE
+
+      - name: Publish platform packages
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' package_json; do
+            dir="$(dirname "$package_json")"
+            npm publish "$dir" --access public --provenance
+          done < <(find packages/npm-platforms/npm-platform-* -name package.json -print0)
+
+      - name: Pack main npm package
+        run: npm pack --dry-run
+        working-directory: packages/npm
+
+      - name: Publish main package
+        working-directory: packages/npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
