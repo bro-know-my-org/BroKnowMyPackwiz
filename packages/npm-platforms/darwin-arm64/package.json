@@ -1,0 +1,20 @@
+{
+  "name": "@bro-know-my/packwiz-darwin-arm64",
+  "version": "0.0.0",
+  "description": "macOS arm64 native binary for @bro-know-my/packwiz.",
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bkmpw",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bro-know-my-org/BroKnowMyPackwiz.git"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@bro-know-my/packwiz-linux-x64",
+  "version": "0.0.0",
+  "description": "Linux x64 native binary for @bro-know-my/packwiz.",
+  "license": "MIT",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bkmpw",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bro-know-my-org/BroKnowMyPackwiz.git"
+  }
+}

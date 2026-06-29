@@ -1,0 +1,26 @@
+{
+  "name": "@bro-know-my/packwiz",
+  "version": "0.0.0",
+  "description": "Customized Rust CLI for this pack's packwiz-style workflow.",
+  "license": "MIT",
+  "bin": {
+    "bkmpw": "bin/bkmpw.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@bro-know-my/packwiz-darwin-arm64": "0.0.0",
+    "@bro-know-my/packwiz-darwin-x64": "0.0.0",
+    "@bro-know-my/packwiz-linux-x64": "0.0.0",
+    "@bro-know-my/packwiz-win32-x64": "0.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bro-know-my-org/BroKnowMyPackwiz.git"
+  }
+}
