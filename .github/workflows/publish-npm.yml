@@ -182,6 +182,10 @@ jobs:
           pattern: npm-platform-*
           path: packages/npm-platforms
 
+      - name: Restore executable permissions
+        shell: bash
+        run: find packages/npm-platforms/npm-platform-* -type f -name bkmpw -exec chmod 755 {} +
+
       - name: Sync main package version
         shell: bash
         env:
