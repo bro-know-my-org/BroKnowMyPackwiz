@@ -20,10 +20,18 @@ pub fn api_key(config: &ProjectConfig) -> Option<String> {
         .curseforge
         .api_key
         .as_deref()
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .and_then(normalized_api_key)
         .or_else(|| env::var("CURSEFORGE_API_KEY").ok())
-        .filter(|value| !value.is_empty())
+        .and_then(|value| normalized_api_key(&value))
+}
+
+fn normalized_api_key(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 pub fn resolve_download_url(
@@ -238,6 +246,15 @@ fn json_sha1_hash(value: Option<&Value>) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_api_key_whitespace() {
+        assert_eq!(
+            normalized_api_key("  abc123\r\n").as_deref(),
+            Some("abc123")
+        );
+        assert_eq!(normalized_api_key(" \t "), None);
+    }
 
     #[test]
     fn extracts_download_url() {
