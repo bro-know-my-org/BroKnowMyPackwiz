@@ -5,6 +5,7 @@
 # Repo metadata
 !/.gitignore
 !/.gitattributes
+!/AGENTS.md
 !/README.md
 !/README.en.md
 !/TODO.md
