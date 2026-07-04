@@ -48,9 +48,9 @@ CurseForge:
 bkmpw add-curseforge <pack-root> both <slug-or-project-id>
 ```
 
-All mod add commands write new metadata to `mods/*.pw`. Move the `.pw` file into
-`mods/client`, `mods/server`, or `mods/common` manually when side placement
-should be authoritative.
+All mod add commands write new metadata to `mods/*.pw.toml`. Move the metadata
+file into `mods/client`, `mods/server`, or `mods/common` manually when side
+placement should be authoritative.
 
 ## Add Resource Packs And Shader Packs
 
@@ -59,7 +59,7 @@ bkmpw add-resourcepack <pack-root> "Pack Name" "pack.zip" "https://example/pack.
 bkmpw add-shaderpack <pack-root> "Shader Name" "shader.zip" "https://example/shader.zip" "<sha256>"
 ```
 
-These commands write metadata to `resourcepacks/*.pw` and `shaderpacks/*.pw`.
+These commands write metadata to `resourcepacks/*.pw.toml` and `shaderpacks/*.pw.toml`.
 
 ## Refresh Metadata
 
@@ -115,4 +115,3 @@ If any metadata uses `[export.curseforge] latest = true`, export needs
 The old devtool `prepare-pack` step is intentionally not reimplemented as Rust
 CLI behavior yet. Keep it as a thin script around the current CLI commands if
 the pack still needs that release workflow.
-

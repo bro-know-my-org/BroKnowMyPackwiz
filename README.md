@@ -39,17 +39,17 @@
 - 项目配置从 `.pw/config.toml` 读取。
 - 扫描过滤时先应用 `.gitignore`，再应用配置里的 `.packwizignore`。
 - 元数据默认采用按 side 分桶的目录：
-  - `mods/server/*.pw`
-  - `mods/client/*.pw`
-  - `mods/common/*.pw`
+  - `mods/server/*.pw.toml`
+  - `mods/client/*.pw.toml`
+  - `mods/common/*.pw.toml`
   - `mods/*.jar`
 - 也会扫描 `resourcepacks/*.pw` / `resourcepacks/*.pw.toml` 和
   `shaderpacks/*.pw` / `shaderpacks/*.pw.toml`，裸文件名会安装到 metadata
   所在目录。
-- 兼容直接放在 `mods/*.pw` 的元数据，也兼容旧式 `mods/*.pw.toml`；默认按
+- 兼容直接放在 `mods/*.pw.toml` 的元数据，也兼容旧式 `mods/*.pw`；默认按
   common/both 处理。
 - `add-url` / `add-curseforge` / `add-github` / `add-file` 新增的 mod metadata
-  默认写到 `mods/*.pw`，不自动塞进 `mods/common|client|server`，方便开发者再手动分桶。
+  默认写到 `mods/*.pw.toml`，不自动塞进 `mods/common|client|server`，方便开发者再手动分桶。
 - `refresh` 不会根据文件夹位置改写已有 metadata 的 `side`；metadata 里
   已声明的值优先。
 - `install-local` 优先使用已存在的本地 jar，缺失时才联网。
@@ -121,7 +121,7 @@ jar-root = "mods"
 server-meta = "mods/server"
 client-meta = "mods/client"
 common-meta = "mods/common"
-metadata-extension = "pw"
+metadata-extension = "pw.toml"
 
 [install]
 jobs = 8
@@ -153,7 +153,7 @@ bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>
 bkmpw add-shaderpack <pack-root> <name> <filename> <url> <sha256>
 ```
 
-这两个命令会写 `resourcepacks/*.pw` / `shaderpacks/*.pw`，metadata 里的
+这两个命令会写 `resourcepacks/*.pw.toml` / `shaderpacks/*.pw.toml`，metadata 里的
 `side` 默认是 `client`，裸 `filename` 会下载到同目录。
 
 GitHub Release 添加：

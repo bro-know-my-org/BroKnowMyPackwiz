@@ -1,7 +1,7 @@
 # Metadata Format
 
 The tool accepts packwiz-style `.pw` and `.pw.toml` files under configured
-metadata roots. The default metadata extension for new files is `.pw`.
+metadata roots. The default metadata extension for new files is `.pw.toml`.
 
 ## Basic Fields
 
@@ -110,4 +110,3 @@ default = false
 ```
 
 Optional metadata with `default = false` is skipped by install/sync.
-

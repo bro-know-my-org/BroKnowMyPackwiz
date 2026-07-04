@@ -35,21 +35,21 @@ shaderpacks
 Mod side buckets are supported:
 
 ```text
-mods/common/*.pw
-mods/client/*.pw
-mods/server/*.pw
+mods/common/*.pw.toml
+mods/client/*.pw.toml
+mods/server/*.pw.toml
 ```
 
 New mod metadata from `add-url`, `add-curseforge`, `add-github`, and `add-file`
-must be written to `mods/*.pw`. Do not auto-sort new metadata into side
+must be written to `mods/*.pw.toml`. Do not auto-sort new metadata into side
 buckets; developers move files manually when they want a stronger side signal.
 
 Directory placement has priority over the metadata `side` field:
 
-- `mods/client/*.pw` installs/exports as client.
-- `mods/server/*.pw` installs/exports as server.
-- `mods/common/*.pw` installs/exports as both.
-- Direct `mods/*.pw` falls back to the metadata `side`, or both when unset.
+- `mods/client/*.pw.toml` installs/exports as client.
+- `mods/server/*.pw.toml` installs/exports as server.
+- `mods/common/*.pw.toml` installs/exports as both.
+- Direct `mods/*.pw.toml` falls back to the metadata `side`, or both when unset.
 
 Runtime mod jars are installed to `mods/*.jar`, not inside `mods/common`,
 `mods/client`, or `mods/server`.
@@ -57,8 +57,8 @@ Runtime mod jars are installed to `mods/*.jar`, not inside `mods/common`,
 Resource pack and shader pack metadata use:
 
 ```text
-resourcepacks/*.pw
-shaderpacks/*.pw
+resourcepacks/*.pw.toml
+shaderpacks/*.pw.toml
 ```
 
 Bare filenames in these roots install next to their metadata file.
@@ -122,4 +122,3 @@ GUI is deferred until the CLI workflow is complete. If added later, keep
 `bkmpw` as the scriptable CLI and add a separate GUI binary over shared Rust
 logic. Prefer `egui`/`eframe`; only use Tauri if the app needs web-style UI
 tooling.
-

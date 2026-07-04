@@ -16,10 +16,10 @@ Current expected unit test count after the latest changes is 47.
 
 The following have been verified in temporary directories:
 
-- `add-url` writes new mod metadata to `mods/*.pw`.
-- `add-url` does not write new mod metadata to `mods/common/*.pw`.
-- `add-resourcepack` writes to `resourcepacks/*.pw`.
-- `add-shaderpack` writes to `shaderpacks/*.pw`.
+- `add-url` writes new mod metadata to `mods/*.pw.toml`.
+- `add-url` does not write new mod metadata to `mods/common/*.pw.toml`.
+- `add-resourcepack` writes to `resourcepacks/*.pw.toml`.
+- `add-shaderpack` writes to `shaderpacks/*.pw.toml`.
 - Resource pack and shader pack metadata are included in `index.toml`.
 - `export-curseforge` with `[export.curseforge] latest = true` resolves a real
   CurseForge file through the API and writes it to `manifest.json`.
@@ -70,4 +70,3 @@ Expected behavior:
 - Export succeeds.
 - `manifest.json` contains project ID `238222`.
 - `fileID` is resolved dynamically.
-

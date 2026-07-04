@@ -42,17 +42,17 @@ Binary name: `bkmpw`.
 - Scan filtering applies `.gitignore` first, then the configured
   `.packwizignore`.
 - Metadata layout defaults to side-oriented folders:
-  - `mods/server/*.pw`
-  - `mods/client/*.pw`
-  - `mods/common/*.pw`
+  - `mods/server/*.pw.toml`
+  - `mods/client/*.pw.toml`
+  - `mods/common/*.pw.toml`
   - `mods/*.jar`
 - `resourcepacks/*.pw` / `resourcepacks/*.pw.toml` and
   `shaderpacks/*.pw` / `shaderpacks/*.pw.toml` are also scanned; bare
   filenames install next to their metadata file.
-- Direct `mods/*.pw` and old `mods/*.pw.toml` metadata are still accepted for
+- Direct `mods/*.pw.toml` and old `mods/*.pw` metadata are still accepted for
   compatibility and treated as common/both by default.
 - `add-url` / `add-curseforge` / `add-github` / `add-file` now write new mod
-  metadata to `mods/*.pw` by default instead of auto-sorting into
+  metadata to `mods/*.pw.toml` by default instead of auto-sorting into
   `mods/common|client|server`, so developers can move it manually.
 - `refresh` does not rewrite an existing metadata file's `side`; declared
   metadata wins over folder placement.
@@ -129,7 +129,7 @@ jar-root = "mods"
 server-meta = "mods/server"
 client-meta = "mods/client"
 common-meta = "mods/common"
-metadata-extension = "pw"
+metadata-extension = "pw.toml"
 
 [install]
 jobs = 8
@@ -162,8 +162,9 @@ bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>
 bkmpw add-shaderpack <pack-root> <name> <filename> <url> <sha256>
 ```
 
-These commands write `resourcepacks/*.pw` / `shaderpacks/*.pw`; metadata `side`
-defaults to `client`, and a bare `filename` downloads next to the metadata file.
+These commands write `resourcepacks/*.pw.toml` / `shaderpacks/*.pw.toml`;
+metadata `side` defaults to `client`, and a bare `filename` downloads next to
+the metadata file.
 
 GitHub Release add:
 
