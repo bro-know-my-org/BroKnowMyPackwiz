@@ -12,7 +12,7 @@ jar-root = "mods"
 server-meta = "mods/server"
 client-meta = "mods/client"
 common-meta = "mods/common"
-metadata-extension = "pw"
+metadata-extension = "pw.toml"
 
 [install]
 jobs = 8

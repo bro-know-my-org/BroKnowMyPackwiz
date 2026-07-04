@@ -290,7 +290,14 @@ fn add_shaderpack(args: &[String]) -> Result<(), String> {
 fn add_pack_asset(
     args: &[String],
     command: &str,
-    add_metadata: fn(&std::path::Path, &str, &str, &str, &str) -> Result<PathBuf, String>,
+    add_metadata: fn(
+        &std::path::Path,
+        &PackLayout,
+        &str,
+        &str,
+        &str,
+        &str,
+    ) -> Result<PathBuf, String>,
 ) -> Result<(), String> {
     if args.len() < 5 {
         return Err(format!(
@@ -305,7 +312,7 @@ fn add_pack_asset(
 
     let config = ProjectConfig::load(&root)?;
     let layout = PackLayout::from_config(&config);
-    let created = add_metadata(&root, name, filename, url, hash)?;
+    let created = add_metadata(&root, &layout, name, filename, url, hash)?;
     let refreshed = refresh::refresh(&root, &config, &layout)?;
 
     println!("added {}", created.display());

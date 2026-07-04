@@ -224,9 +224,12 @@ impl GitignoreScope {
 
 pub fn is_metadata_file(rel: &str, layout: &PackLayout) -> bool {
     let extension = layout.metadata_extension.trim_start_matches('.');
-    let direct_suffix = format!(".{extension}");
-    let toml_suffix = format!(".{extension}.toml");
-    (rel.ends_with(&direct_suffix) || rel.ends_with(&toml_suffix))
+    let configured_suffix = format!(".{extension}");
+    let configured_toml_suffix = format!(".{extension}.toml");
+    (rel.ends_with(".pw")
+        || rel.ends_with(".pw.toml")
+        || rel.ends_with(&configured_suffix)
+        || rel.ends_with(&configured_toml_suffix))
         && layout
             .metadata_roots
             .iter()
@@ -323,6 +326,11 @@ mod tests {
         assert_eq!(side_hint("shaderpacks/foo.pw", &layout), SideHint::Client);
         assert!(is_metadata_file("mods/foo.pw.toml", &layout));
         assert!(is_metadata_file("resourcepacks/foo.pw.toml", &layout));
+
+        let mut toml_layout = layout.clone();
+        toml_layout.metadata_extension = "pw.toml".to_string();
+        assert!(is_metadata_file("mods/foo.pw", &toml_layout));
+        assert!(is_metadata_file("mods/foo.pw.toml", &toml_layout));
     }
 
     #[test]

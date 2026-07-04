@@ -92,6 +92,7 @@ pub fn add_url_metadata(
 
 pub fn add_resourcepack_metadata(
     root: &Path,
+    layout: &PackLayout,
     name: &str,
     filename: &str,
     url: &str,
@@ -100,7 +101,7 @@ pub fn add_resourcepack_metadata(
     add_url_metadata_in_dir(
         root,
         Path::new("resourcepacks"),
-        "pw",
+        &layout.metadata_extension,
         &Side::Client,
         name,
         filename,
@@ -111,6 +112,7 @@ pub fn add_resourcepack_metadata(
 
 pub fn add_shaderpack_metadata(
     root: &Path,
+    layout: &PackLayout,
     name: &str,
     filename: &str,
     url: &str,
@@ -119,7 +121,7 @@ pub fn add_shaderpack_metadata(
     add_url_metadata_in_dir(
         root,
         Path::new("shaderpacks"),
-        "pw",
+        &layout.metadata_extension,
         &Side::Client,
         name,
         filename,
@@ -569,7 +571,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(created, root.join("mods").join("example-mod.pw"));
+        assert_eq!(created, root.join("mods").join("example-mod.pw.toml"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -578,7 +580,7 @@ mod tests {
     fn add_mod_metadata_uses_configured_extension() {
         let root = unique_test_dir("bkmpw-add-mod-extension");
         let mut layout = layout();
-        layout.metadata_extension = "pw.toml".to_string();
+        layout.metadata_extension = "pw".to_string();
         let hash = valid_sha256();
 
         let created = add_url_metadata(
@@ -592,7 +594,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(created, root.join("mods").join("example-mod.pw.toml"));
+        assert_eq!(created, root.join("mods").join("example-mod.pw"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -601,8 +603,10 @@ mod tests {
     fn add_pack_asset_metadata_writes_to_asset_root() {
         let root = unique_test_dir("bkmpw-add-asset");
         let hash = valid_sha256();
+        let layout = layout();
         let created = add_resourcepack_metadata(
             &root,
+            &layout,
             "Example Resource Pack",
             "example.zip",
             "https://example.invalid/example.zip",
@@ -613,7 +617,8 @@ mod tests {
 
         assert_eq!(
             created,
-            root.join("resourcepacks").join("example-resource-pack.pw")
+            root.join("resourcepacks")
+                .join("example-resource-pack.pw.toml")
         );
         assert!(text.contains("side = \"client\""));
 
@@ -743,7 +748,7 @@ mod tests {
             server_meta: PathBuf::from("mods/server"),
             client_meta: PathBuf::from("mods/client"),
             common_meta: PathBuf::from("mods/common"),
-            metadata_extension: "pw".to_string(),
+            metadata_extension: "pw.toml".to_string(),
         }
     }
 

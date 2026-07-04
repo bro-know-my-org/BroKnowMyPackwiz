@@ -92,7 +92,7 @@ impl ProjectConfig {
                 server_meta: PathBuf::from("mods/server"),
                 client_meta: PathBuf::from("mods/client"),
                 common_meta: PathBuf::from("mods/common"),
-                metadata_extension: String::from("pw"),
+                metadata_extension: String::from("pw.toml"),
             },
             install: InstallConfig {
                 jobs: 8,
@@ -240,6 +240,7 @@ mod tests {
         assert_eq!(cfg.layout.server_meta, PathBuf::from("mods/server"));
         assert_eq!(cfg.layout.client_meta, PathBuf::from("mods/client"));
         assert_eq!(cfg.layout.common_meta, PathBuf::from("mods/common"));
+        assert_eq!(cfg.layout.metadata_extension, "pw.toml");
         assert_eq!(cfg.install.jobs, 8);
         assert_eq!(cfg.install.retries, 1);
         assert_eq!(cfg.install.retry_delay_seconds, 5);
