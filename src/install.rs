@@ -85,6 +85,12 @@ pub fn install_local(
         BTreeSet::new()
     };
 
+    if cleanup && report.metadata.is_empty() {
+        return Err(
+            "refusing to clean managed files because no metadata files were scanned".to_string(),
+        );
+    }
+
     for entry in report.metadata {
         let metadata_path = join_slash(source_root, &entry.path);
         let metadata = ModMetadata::load(&metadata_path)?;
@@ -1012,6 +1018,66 @@ mod tests {
             fs::read(root.join("mods").join("existing.jar")).unwrap(),
             b"manual"
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cleanup_refuses_empty_metadata_scan_without_old_manifest() {
+        let root = temp_root("cleanup-refuses-empty-metadata-scan-without-old-manifest");
+        fs::write(root.join("pack.toml"), "name = \"test\"\n").unwrap();
+        fs::write(root.join(".packwizignore"), "/*\n").unwrap();
+
+        let err = install_local(
+            &root,
+            &root,
+            &Side::Both,
+            InstallOptions {
+                jobs: 1,
+                retries: 1,
+                retry_delay_seconds: 0,
+                force: false,
+                cleanup: true,
+                preserve_existing: false,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.contains("no metadata files were scanned"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cleanup_refuses_empty_metadata_scan_with_old_manifest() {
+        let root = temp_root("cleanup-refuses-empty-metadata-scan");
+        fs::write(root.join("pack.toml"), "name = \"test\"\n").unwrap();
+        fs::write(root.join(".packwizignore"), "/*\n").unwrap();
+        fs::write(
+            root.join("packwiz.json"),
+            "{\"format\":\"bkmpw:1\",\"files\":[{\"path\":\"mods/old.jar\"}]}",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::write(root.join("mods").join("old.jar"), b"old").unwrap();
+
+        let err = install_local(
+            &root,
+            &root,
+            &Side::Both,
+            InstallOptions {
+                jobs: 1,
+                retries: 1,
+                retry_delay_seconds: 0,
+                force: false,
+                cleanup: true,
+                preserve_existing: false,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.contains("no metadata files were scanned"));
+        assert!(root.join("mods").join("old.jar").exists());
 
         let _ = fs::remove_dir_all(root);
     }
