@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
+use crate::tempfiles;
+
 const HTTP_TIMEOUT_SECONDS: u64 = 120;
 
 #[derive(Debug, Clone)]
@@ -246,15 +248,8 @@ fn unique_tmp_path(path: &Path) -> PathBuf {
         .extension()
         .and_then(|value| value.to_str())
         .map_or(String::new(), |value| format!("{value}."));
-    extension.push_str("bkmpw-download-tmp-");
-    extension.push_str(&std::process::id().to_string());
-    extension.push('-');
-    extension.push_str(
-        &std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |value| value.as_nanos())
-            .to_string(),
-    );
+    extension.push_str(tempfiles::download_temp_marker());
+    extension.push_str(tempfiles::run_id());
     extension.push('-');
     extension.push_str(&COUNTER.fetch_add(1, Ordering::Relaxed).to_string());
     path.with_extension(extension)

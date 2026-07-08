@@ -16,12 +16,17 @@ use crate::scan::ScanReport;
 use crate::sha1::sha1_file_hex;
 use crate::sha256::sha256_file_hex;
 use crate::sha512::sha512_file_hex;
+use crate::tempfiles;
+
+const STALE_TEMP_AFTER: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Debug, Clone)]
 pub struct InstallResult {
     pub installed: usize,
     pub skipped: usize,
     pub removed: usize,
+    pub temp_removed: usize,
+    pub warnings: Vec<String>,
     pub errors: Vec<String>,
 }
 
@@ -75,6 +80,8 @@ pub fn install_local(
     reject_unknown_side(target_side)?;
     let config = ProjectConfig::load(source_root)?;
     let layout = PackLayout::from_config(&config);
+    let _run_guard = tempfiles::start_run(target_root)?;
+    let temp_cleanup = cleanup_stale_temp_files(target_root, &layout, STALE_TEMP_AFTER);
     let report = ScanReport::build(source_root, &config, &layout)?;
     let curseforge_api_key = curseforge::api_key(&config);
     let mut tasks = VecDeque::new();
@@ -157,6 +164,8 @@ pub fn install_local(
         installed: task_count - errors.len(),
         skipped,
         removed,
+        temp_removed: temp_cleanup.removed,
+        warnings: temp_cleanup.warnings,
         errors,
     })
 }
@@ -431,15 +440,8 @@ fn unique_tmp_path(target: &Path) -> PathBuf {
         .extension()
         .and_then(|value| value.to_str())
         .map_or(String::new(), |value| format!("{value}."));
-    extension.push_str("bkmpw-tmp-");
-    extension.push_str(&std::process::id().to_string());
-    extension.push('-');
-    extension.push_str(
-        &std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |value| value.as_nanos())
-            .to_string(),
-    );
+    extension.push_str(tempfiles::install_temp_marker());
+    extension.push_str(tempfiles::run_id());
     extension.push('-');
     extension.push_str(&COUNTER.fetch_add(1, Ordering::Relaxed).to_string());
     target.with_extension(extension)
@@ -547,6 +549,16 @@ fn cleanup_removed_files(
         }
     }
     Ok(removed)
+}
+
+fn cleanup_stale_temp_files(
+    root: &Path,
+    layout: &PackLayout,
+    stale_after: Duration,
+) -> tempfiles::StaleTempCleanup {
+    let mut managed_roots = layout.metadata_roots.clone();
+    managed_roots.push(layout.jar_root.clone());
+    tempfiles::cleanup_stale_temp_files(root, &managed_roots, stale_after)
 }
 
 fn is_safe_manifest_path(path: &str) -> bool {

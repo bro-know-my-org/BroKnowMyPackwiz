@@ -20,6 +20,7 @@ mod self_update;
 mod sha1;
 mod sha256;
 mod sha512;
+mod tempfiles;
 mod update;
 mod zipstore;
 
@@ -702,6 +703,7 @@ fn install_local(args: &[String]) -> Result<(), String> {
     println!("installed files: {}", result.installed);
     println!("skipped files: {}", result.skipped);
     println!("removed files: {}", result.removed);
+    print_install_warnings(&result);
     if !result.errors.is_empty() {
         for err in result.errors {
             eprintln!("install error: {err}");
@@ -807,6 +809,7 @@ fn print_install_result(label: &str, result: install::InstallResult) -> Result<(
     println!("{label} files: {}", result.installed);
     println!("skipped files: {}", result.skipped);
     println!("removed files: {}", result.removed);
+    print_install_warnings(&result);
     if !result.errors.is_empty() {
         for err in result.errors {
             eprintln!("install error: {err}");
@@ -814,6 +817,15 @@ fn print_install_result(label: &str, result: install::InstallResult) -> Result<(
         return Err("install completed with errors".to_string());
     }
     Ok(())
+}
+
+fn print_install_warnings(result: &install::InstallResult) {
+    if result.temp_removed > 0 {
+        eprintln!("removed stale temp files: {}", result.temp_removed);
+    }
+    for warning in &result.warnings {
+        eprintln!("warn: {warning}");
+    }
 }
 
 fn parse_install_options(
