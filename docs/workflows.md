@@ -82,6 +82,15 @@ Range-based split download with `[install].split-download-chunks` chunks.
 Servers that do not support Range requests automatically use the normal
 single-stream download path.
 
+Downloads and local installs write to target-adjacent temporary files first,
+then move completed files into place. If the process is interrupted by Ctrl+C
+or killed, the final jar/zip path is not used for partial content. Later
+`download-files`, `sync`, and `install-files-*` runs automatically remove stale
+`bkmpw` temporary files only when they are at least one hour old and the
+matching run lock under `.bkmpw/runs/` has also stopped refreshing for at least
+one hour. Cleanup failures are reported as warnings and do not block the
+install.
+
 ## Sync To A Runtime Folder
 
 ```powershell
