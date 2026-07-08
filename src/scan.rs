@@ -312,6 +312,8 @@ mod tests {
                 retries: 1,
                 retry_delay_seconds: 5,
                 force: false,
+                split_download_min_bytes: 16 * 1024 * 1024,
+                split_download_chunks: 4,
             },
             curseforge: CurseForgeConfig {
                 api_key: None,
@@ -443,6 +445,8 @@ mod tests {
                 retries: 1,
                 retry_delay_seconds: 5,
                 force: false,
+                split_download_min_bytes: 16 * 1024 * 1024,
+                split_download_chunks: 4,
             },
             curseforge: CurseForgeConfig {
                 api_key: None,

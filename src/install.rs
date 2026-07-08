@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::config::ProjectConfig;
 use crate::curseforge;
-use crate::http::http_get_to_file;
+use crate::http::{HttpDownloadOptions, http_get_to_file_with_options};
 use crate::layout::PackLayout;
 use crate::metadata::{ModMetadata, Side};
 use crate::pathutil::join_slash;
@@ -33,6 +33,8 @@ pub struct InstallOptions {
     pub force: bool,
     pub cleanup: bool,
     pub preserve_existing: bool,
+    pub split_download_min_bytes: u64,
+    pub split_download_chunks: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -332,7 +334,7 @@ fn copy_with_retries(task: &CopyTask, options: &InstallOptions) -> Result<String
     let attempts = options.retries.max(1);
     let mut last_error = None;
     for attempt in 1..=attempts {
-        match copy_atomic(task, options.preserve_existing) {
+        match copy_atomic(task, options) {
             Ok(hash) => return Ok(hash),
             Err(err) => {
                 last_error = Some(err);
@@ -345,7 +347,8 @@ fn copy_with_retries(task: &CopyTask, options: &InstallOptions) -> Result<String
     Err(last_error.unwrap_or_else(|| format!("failed to install {}", task.name)))
 }
 
-fn copy_atomic(task: &CopyTask, preserve_existing: bool) -> Result<String, String> {
+fn copy_atomic(task: &CopyTask, options: &InstallOptions) -> Result<String, String> {
+    let preserve_existing = options.preserve_existing;
     if !task.force
         && let Some(expected) = &task.expected_hash
         && task.target.exists()
@@ -384,9 +387,9 @@ fn copy_atomic(task: &CopyTask, preserve_existing: bool) -> Result<String, Strin
             )
         })?;
     } else if let Some(url) = &task.url {
-        http_get_to_file(url, &tmp)?;
+        http_get_to_file_with_options(url, &tmp, &http_download_options(options))?;
     } else if let Some(curseforge) = &task.curseforge {
-        download_curseforge(curseforge, &tmp)?;
+        download_curseforge(curseforge, &tmp, &http_download_options(options))?;
     } else {
         return Err(format!("missing source file for {}", task.name));
     }
@@ -467,12 +470,23 @@ fn same_path(left: &Path, right: &Path) -> bool {
     }
 }
 
-fn download_curseforge(curseforge: &CurseForgeDownload, tmp: &Path) -> Result<(), String> {
+fn http_download_options(options: &InstallOptions) -> HttpDownloadOptions {
+    HttpDownloadOptions {
+        split_min_bytes: options.split_download_min_bytes,
+        split_chunks: options.split_download_chunks,
+    }
+}
+
+fn download_curseforge(
+    curseforge: &CurseForgeDownload,
+    tmp: &Path,
+    download_options: &HttpDownloadOptions,
+) -> Result<(), String> {
     let mut cdn_error = None;
     if curseforge.cdn_fallback
         && let Some(url) = curseforge::cdn_download_url(curseforge.file_id, &curseforge.filename)
     {
-        match http_get_to_file(&url, tmp) {
+        match http_get_to_file_with_options(&url, tmp, download_options) {
             Ok(()) => return Ok(()),
             Err(err) => cdn_error = Some(err),
         }
@@ -484,7 +498,7 @@ fn download_curseforge(curseforge: &CurseForgeDownload, tmp: &Path) -> Result<()
             curseforge.project_id,
             curseforge.file_id,
         )?;
-        return http_get_to_file(&url, tmp);
+        return http_get_to_file_with_options(&url, tmp, download_options);
     }
 
     Err(cdn_error.unwrap_or_else(|| {
@@ -791,7 +805,7 @@ mod tests {
             managed_target: true,
         };
 
-        copy_atomic(&task, false).unwrap();
+        copy_atomic(&task, &test_install_options()).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"new");
 
         let _ = fs::remove_dir_all(root);
@@ -821,7 +835,7 @@ mod tests {
             managed_target: false,
         };
 
-        copy_atomic(&task, false).unwrap();
+        copy_atomic(&task, &test_install_options()).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"payload");
 
         let _ = fs::remove_dir_all(root);
@@ -852,7 +866,7 @@ mod tests {
             managed_target: false,
         };
 
-        copy_atomic(&task, false).unwrap();
+        copy_atomic(&task, &test_install_options()).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"existing");
 
         let _ = fs::remove_dir_all(root);
@@ -883,7 +897,9 @@ mod tests {
             managed_target: false,
         };
 
-        let err = copy_atomic(&task, true).unwrap_err();
+        let mut options = test_install_options();
+        options.preserve_existing = true;
+        let err = copy_atomic(&task, &options).unwrap_err();
         assert!(err.contains("existing file hash mismatch"));
         assert_eq!(fs::read(&target).unwrap(), b"wrong");
 
@@ -980,7 +996,7 @@ mod tests {
             managed_target: false,
         };
 
-        assert!(copy_atomic(&task, false).is_err());
+        assert!(copy_atomic(&task, &test_install_options()).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"manual");
 
         let _ = fs::remove_dir_all(root);
@@ -1008,6 +1024,8 @@ mod tests {
                 force: false,
                 cleanup: false,
                 preserve_existing: true,
+                split_download_min_bytes: 16 * 1024 * 1024,
+                split_download_chunks: 4,
             },
         )
         .unwrap();
@@ -1039,6 +1057,8 @@ mod tests {
                 force: false,
                 cleanup: true,
                 preserve_existing: false,
+                split_download_min_bytes: 16 * 1024 * 1024,
+                split_download_chunks: 4,
             },
         )
         .unwrap_err();
@@ -1072,6 +1092,8 @@ mod tests {
                 force: false,
                 cleanup: true,
                 preserve_existing: false,
+                split_download_min_bytes: 16 * 1024 * 1024,
+                split_download_chunks: 4,
             },
         )
         .unwrap_err();
@@ -1090,5 +1112,18 @@ mod tests {
         let root = std::env::temp_dir().join(format!("bkmpw-{name}-{nanos}"));
         fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    fn test_install_options() -> InstallOptions {
+        InstallOptions {
+            jobs: 1,
+            retries: 1,
+            retry_delay_seconds: 0,
+            force: false,
+            cleanup: false,
+            preserve_existing: false,
+            split_download_min_bytes: 16 * 1024 * 1024,
+            split_download_chunks: 4,
+        }
     }
 }

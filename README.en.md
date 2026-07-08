@@ -136,6 +136,8 @@ jobs = 8
 retries = 1
 retry-delay-seconds = 5
 force = false
+split-download-min-bytes = 16777216
+split-download-chunks = 4
 
 [curseforge]
 api-key = ""
@@ -151,6 +153,8 @@ Install options:
 - `--force` / `[install].force = true`: ignore preserve and existing-file hash reuse, then copy or download again.
 - `--retries n` / `[install].retries`: attempts per file, default 1.
 - `--retry-delay-seconds n` / `[install].retry-delay-seconds`: seconds to wait before the next attempt, default 5.
+- `[install].split-download-min-bytes`: try HTTP Range chunk downloads when a file is larger than this byte count, default 16777216, or 16 MiB.
+- `[install].split-download-chunks`: chunks per large file, default 4; set it to 1 to effectively disable split downloads. Servers without Range support automatically fall back to the normal single stream.
 - `download-files`: fills files referenced by metadata inside the pack root and never removes unrelated files.
 - `sync` / `install-files-headless` / `install-files-retry`: sync managed files and clean files from the previous `packwiz.json` that are no longer needed under `mods/`, `resourcepacks/`, or `shaderpacks/`; runtime files such as saves and logs are not cleaned.
 - `hash` supports `sha1`, `sha256`, `sha512`, and CurseForge `murmur2`.

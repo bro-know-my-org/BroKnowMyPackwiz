@@ -33,6 +33,8 @@ pub struct InstallConfig {
     pub retries: usize,
     pub retry_delay_seconds: u64,
     pub force: bool,
+    pub split_download_min_bytes: u64,
+    pub split_download_chunks: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +101,8 @@ impl ProjectConfig {
                 retries: 1,
                 retry_delay_seconds: 5,
                 force: false,
+                split_download_min_bytes: 16 * 1024 * 1024,
+                split_download_chunks: 4,
             },
             curseforge: CurseForgeConfig {
                 api_key: None,
@@ -141,6 +145,12 @@ fn apply_value(
             config.install.retry_delay_seconds = parse_u64(value)?
         }
         ("install", "force") => config.install.force = parse_bool(value)?,
+        ("install", "split-download-min-bytes") => {
+            config.install.split_download_min_bytes = parse_u64(value)?
+        }
+        ("install", "split-download-chunks") => {
+            config.install.split_download_chunks = parse_usize(value)?
+        }
         ("curseforge", "api-key") => config.curseforge.api_key = Some(parse_string(value)?),
         ("curseforge", "cdn-fallback") => config.curseforge.cdn_fallback = parse_bool(value)?,
         _ => {}
@@ -245,6 +255,26 @@ mod tests {
         assert_eq!(cfg.install.retries, 1);
         assert_eq!(cfg.install.retry_delay_seconds, 5);
         assert!(!cfg.install.force);
+        assert_eq!(cfg.install.split_download_min_bytes, 16 * 1024 * 1024);
+        assert_eq!(cfg.install.split_download_chunks, 4);
+    }
+
+    #[test]
+    fn parses_split_download_install_config() {
+        let root = unique_test_dir("bkmpw-config-split-download");
+        fs::create_dir_all(root.join(".pw")).unwrap();
+        fs::write(
+            root.join(".pw").join("config.toml"),
+            "[install]\nsplit-download-min-bytes = 1024\nsplit-download-chunks = 3\n",
+        )
+        .unwrap();
+
+        let config = ProjectConfig::load(&root).unwrap();
+
+        assert_eq!(config.install.split_download_min_bytes, 1024);
+        assert_eq!(config.install.split_download_chunks, 3);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

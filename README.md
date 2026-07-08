@@ -128,6 +128,8 @@ jobs = 8
 retries = 1
 retry-delay-seconds = 5
 force = false
+split-download-min-bytes = 16777216
+split-download-chunks = 4
 
 [curseforge]
 api-key = ""
@@ -142,6 +144,8 @@ cdn-fallback = true
 - `--force` / `[install].force = true`：忽略 preserve 和已有文件哈希复用，重新复制或下载。
 - `--retries n` / `[install].retries`：每个文件的尝试次数，默认 1。
 - `--retry-delay-seconds n` / `[install].retry-delay-seconds`：失败后下一次尝试前等待秒数，默认 5。
+- `[install].split-download-min-bytes`：HTTP 文件大于该字节数时尝试 Range 分块下载，默认 16777216，即 16 MiB。
+- `[install].split-download-chunks`：单个大文件的分块数，默认 4；设为 1 可等效关闭分块下载。服务器不支持 Range 时会自动回退普通单流下载。
 - `download-files`：在 pack root 内补齐 metadata 指向的文件，不清理任何无关文件。
 - `sync` / `install-files-headless` / `install-files-retry`：同步受管文件，会根据上一次 `packwiz.json` 清理已不再需要的 `mods/`、`resourcepacks/`、`shaderpacks/` 文件，不清理存档、日志等运行产物。
 - `hash` 命令支持 `sha1`、`sha256`、`sha512` 和 CurseForge `murmur2`。

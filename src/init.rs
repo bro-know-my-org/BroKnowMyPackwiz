@@ -19,6 +19,8 @@ jobs = 8
 retries = 1
 retry-delay-seconds = 5
 force = false
+split-download-min-bytes = 16777216
+split-download-chunks = 4
 
 [curseforge]
 api-key = ""

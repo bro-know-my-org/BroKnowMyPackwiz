@@ -15,6 +15,8 @@ metadata used by the pack.
   `pack.toml`.
 - `install.rs`: implements `download-files`, `sync`, and installer-style local
   install. It owns target path resolution and cleanup rules.
+- `http.rs`: owns HTTP download helpers, including optional Range-based split
+  downloads with single-stream fallback.
 - `ops.rs`: creates and edits metadata files.
 - `update.rs`: updates CurseForge and GitHub metadata.
 - `export_cf.rs`: exports CurseForge ZIPs and maps metadata to manifest files or
@@ -78,6 +80,16 @@ shaderpacks/
 ```
 
 Manual jars or runtime files that are not in `packwiz.json` must not be deleted.
+
+## Download Rules
+
+Install and sync downloads use `[install]` settings from `.pw/config.toml`.
+`jobs` controls file-level parallelism. For individual large HTTP files,
+`split-download-min-bytes` defaults to `16777216` and
+`split-download-chunks` defaults to `4`. When the server supports Range
+requests, files larger than the threshold are fetched in chunks and assembled
+before the existing hash check and atomic replacement step. If HEAD or Range
+support is missing, the downloader falls back to the normal single-stream GET.
 
 ## CurseForge Export
 

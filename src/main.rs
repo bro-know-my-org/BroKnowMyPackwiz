@@ -876,6 +876,8 @@ fn default_install_options(config: &ProjectConfig) -> Result<install::InstallOpt
         force: config.install.force,
         cleanup: false,
         preserve_existing: false,
+        split_download_min_bytes: config.install.split_download_min_bytes,
+        split_download_chunks: config.install.split_download_chunks,
     })
 }
 

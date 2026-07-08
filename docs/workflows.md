@@ -77,6 +77,11 @@ bkmpw download-files <pack-root> 32 --retries 2 --retry-delay-seconds 1
 
 `download-files` does not clean unrelated files.
 
+Files larger than `[install].split-download-min-bytes` default to a
+Range-based split download with `[install].split-download-chunks` chunks.
+Servers that do not support Range requests automatically use the normal
+single-stream download path.
+
 ## Sync To A Runtime Folder
 
 ```powershell

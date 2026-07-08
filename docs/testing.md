@@ -10,7 +10,7 @@ cargo test
 cargo build --release
 ```
 
-Current expected unit test count after the latest changes is 47.
+Current expected unit test count after the latest changes is 121.
 
 ## Smoke Tests Already Run
 
@@ -25,6 +25,8 @@ The following have been verified in temporary directories:
   CurseForge file through the API and writes it to `manifest.json`.
 - Deleting all jars from a copied real pack and running `download-files`
   restored 304 root `mods/*.jar` files with zero nested jars.
+- HTTP Range split downloads are covered by a local test server that verifies
+  HEAD probing, 206 chunk responses, and final file assembly.
 - Side directory priority was verified for client/server installs.
 
 ## Manual Full-Pack Download Smoke Test
