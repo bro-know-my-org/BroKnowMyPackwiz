@@ -37,7 +37,15 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
     for entry in &report.metadata {
         let metadata = ModMetadata::load(&join_slash(root, &entry.path))?;
         let declared_side = side_from_directory_or_metadata(entry.side_hint, &metadata);
+        let target = metadata
+            .filename
+            .as_deref()
+            .map(|filename| install::resolve_pack_file_path(&entry.path, filename, &layout))
+            .transpose()?;
         if !declared_side.installs_on(target_side) {
+            if let Some(target) = target {
+                cf_override_targets.insert(target);
+            }
             continue;
         }
 
@@ -48,12 +56,8 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
                 project_id,
                 file_id,
             });
-            if let Some(filename) = metadata.filename.as_deref() {
-                cf_override_targets.insert(install::resolve_pack_file_path(
-                    &entry.path,
-                    filename,
-                    &layout,
-                )?);
+            if let Some(target) = target {
+                cf_override_targets.insert(target);
             }
         }
     }
@@ -375,6 +379,28 @@ mod tests {
         assert_eq!(count, 1);
         assert!(zip_text.contains("\"projectID\":123456"));
         assert!(!zip_text.contains("overrides/mods/core.jar"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_server_excludes_client_metadata_runtime_jar_from_overrides() {
+        let root = unique_test_dir("bkmpw-export-server-excludes-client-jar");
+        create_pack(&root);
+        fs::create_dir_all(root.join("mods/client")).unwrap();
+        fs::write(
+            root.join("mods/client/client-only.pw.toml"),
+            "filename = \"client-only.jar\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("mods/client-only.jar"), b"jar").unwrap();
+
+        let output = root.join("server.zip");
+        export_curseforge(&root, &output, &Side::Server).unwrap();
+        let bytes = fs::read(&output).unwrap();
+        let zip_text = String::from_utf8_lossy(&bytes);
+
+        assert!(!zip_text.contains("overrides/mods/client-only.jar"));
 
         let _ = fs::remove_dir_all(root);
     }
