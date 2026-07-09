@@ -13,7 +13,7 @@ use crate::scan::{ScanReport, is_metadata_file};
 use crate::zipstore::ZipStore;
 
 pub fn export_server(root: &Path, output: &Path) -> Result<usize, String> {
-    reject_external_symlink(root)?;
+    reject_path_symlink(root)?;
     if let Some(parent) = output.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -42,7 +42,7 @@ pub fn export_server(root: &Path, output: &Path) -> Result<usize, String> {
 }
 
 pub fn export_client(root: &Path, output: &Path, root_name: Option<&str>) -> Result<usize, String> {
-    reject_external_symlink(root)?;
+    reject_path_symlink(root)?;
     if let Some(parent) = output.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -75,7 +75,7 @@ pub fn export_client(root: &Path, output: &Path, root_name: Option<&str>) -> Res
 }
 
 pub fn prepare_server(root: &Path, output_dir: &Path) -> Result<usize, String> {
-    reject_external_symlink(root)?;
+    reject_path_symlink(root)?;
     let config = ProjectConfig::load(root)?;
     let layout = PackLayout::from_config(&config);
     reset_output_dir(root, output_dir, &layout)?;
@@ -101,14 +101,14 @@ pub fn export_server_installer(
     output: &Path,
     bkmpw_binary: &Path,
 ) -> Result<usize, String> {
-    reject_external_symlink(root)?;
+    reject_path_symlink(root)?;
     if !bkmpw_binary.is_file() {
         return Err(format!(
             "bkmpw binary not found: {}",
             bkmpw_binary.display()
         ));
     }
-    reject_external_symlink(bkmpw_binary)?;
+    reject_path_or_ancestor_symlink(bkmpw_binary)?;
     if let Some(parent) = output.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -542,21 +542,23 @@ fn reject_symlink(root: &Path, rel: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn reject_external_symlink(path: &Path) -> Result<(), String> {
+fn reject_path_symlink(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|err| format!("failed to read metadata for {}: {err}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!("refusing to export symlink: {}", path.display()));
+    }
+    Ok(())
+}
+
+fn reject_path_or_ancestor_symlink(path: &Path) -> Result<(), String> {
     let mut ancestors = path.ancestors().collect::<Vec<_>>();
     ancestors.reverse();
     for ancestor in ancestors {
         if ancestor.as_os_str().is_empty() || ancestor == Path::new(".") {
             continue;
         }
-        let metadata = fs::symlink_metadata(ancestor)
-            .map_err(|err| format!("failed to read metadata for {}: {err}", ancestor.display()))?;
-        if metadata.file_type().is_symlink() {
-            return Err(format!(
-                "refusing to export symlink: {}",
-                ancestor.display()
-            ));
-        }
+        reject_path_symlink(ancestor)?;
     }
     Ok(())
 }
@@ -857,6 +859,34 @@ mod tests {
         assert!(err.contains("symlink"));
 
         let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(link_parent);
+    }
+
+    #[test]
+    fn export_server_allows_symlink_parent_outside_pack_root() {
+        let real_parent = unique_test_dir("bkmpw-export-server-real-parent");
+        let link_parent = unique_test_dir("bkmpw-export-server-linked-parent");
+        let parent_link = link_parent.join("parent-link");
+        if create_dir_symlink(&real_parent, &parent_link).is_err() {
+            let _ = fs::remove_dir_all(real_parent);
+            let _ = fs::remove_dir_all(link_parent);
+            return;
+        }
+        let root = parent_link.join("pack");
+        create_pack(&root);
+        fs::create_dir_all(root.join("mods/common")).unwrap();
+        fs::write(root.join("mods/server.jar"), b"server").unwrap();
+        fs::write(
+            root.join("mods/common/server.pw.toml"),
+            "filename = \"server.jar\"\n",
+        )
+        .unwrap();
+
+        let count = export_server(&root, &root.join("server-pack.zip")).unwrap();
+
+        assert!(count > 0);
+
+        let _ = fs::remove_dir_all(real_parent);
         let _ = fs::remove_dir_all(link_parent);
     }
 
