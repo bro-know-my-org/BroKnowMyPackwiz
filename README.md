@@ -86,7 +86,11 @@ bkmpw refresh [pack-root]
 bkmpw list [pack-root]
 bkmpw check [pack-root]
 bkmpw modlist <pack-root> [output-dir]
+bkmpw export-client <pack-root> [output.zip] [root-dir]
 bkmpw export-curseforge <pack-root> [output.zip] [side]
+bkmpw export-server <pack-root> [output.zip]
+bkmpw export-server-installer <pack-root> [output.zip] [bkmpw-binary]
+bkmpw prepare-server <pack-root> [output-dir]
 bkmpw add-url <pack-root> <side> <name> <filename> <url> <sha256>
 bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>
 bkmpw add-shaderpack <pack-root> <name> <filename> <url> <sha256>
@@ -250,6 +254,26 @@ CurseForge 格式的 zip：`metadata:curseforge` 和带 `[export.curseforge]` �
 `manifest.json`，配置和其它发布文件写入 `overrides/`。如果
 `[export.curseforge] latest = true`，会按 `pack.toml` 里的 Minecraft 版本和 loader
 查最新适配文件。zip 使用 store 模式，不压缩，换取零额外依赖和小体积。
+
+`export-server <pack-root> [output.zip]` 会先 refresh，然后生成直接解压使用的服务端包。
+它不写 `manifest.json`，也不套 `overrides/` 目录；服务端和 common metadata 对应的
+实际 jar 会写到 `mods/`，其它被扫描包含且适用于服务端的配置/脚本文件写到 zip 根目录
+对应路径。`mods/client`、`resourcepacks` 和 `shaderpacks` 不会进入服务端包。
+
+`export-client <pack-root> [output.zip] [root-dir]` 会先 refresh，然后生成客户端全量包。
+zip 内会套一层实例目录，默认使用 `pack.toml` 的 `name`，也可以用 `root-dir` 指定；
+client 和 common metadata 对应的实际 jar 会写到该目录的 `mods/` 下，资源包和光影包会按
+扫描结果保留。
+
+`export-server-installer <pack-root> [output.zip] [bkmpw-binary]` 会生成下载型服务端安装包。
+它包含服务端/common metadata、服务端适用的配置/脚本文件、`install-server.bat`、
+`install-server.sh` 和一个 `tools/bkmpw.exe` 二进制；不夹带实际 mod jar。用户解压后运行安装脚本，
+脚本会执行 `bkmpw install-local . . server` 在目标机器下载服务端所需 jar。`bkmpw-binary`
+省略时使用当前正在运行的 `bkmpw` 可执行文件。
+
+`prepare-server <pack-root> [output-dir]` 使用同一套服务端包文件规则，但输出为目录而不是
+zip。默认目录是 `.bkmpw/server-pack`。运行前会删除旧输出目录，避免 CI 补文件、压缩发包时
+混入上次构建遗留内容。
 
 ## 体积策略
 

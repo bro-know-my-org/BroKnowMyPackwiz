@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone)]
@@ -33,12 +33,14 @@ impl<W: Write + Seek> ZipStore<W> {
     }
 
     pub fn add_file(&mut self, name: &str, path: &Path) -> Result<(), String> {
-        let (crc32, size) = crc32_file(path)?;
+        let mut file = fs::File::open(path)
+            .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+        let (crc32, size) = crc32_reader(&mut file, path)?;
         let size = u32::try_from(size)
             .map_err(|_| format!("zip entry too large: {} ({})", name, path.display()))?;
         self.start_entry(name, crc32, size)?;
-        let mut file = fs::File::open(path)
-            .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|err| format!("failed to rewind {}: {err}", path.display()))?;
         std::io::copy(&mut file, &mut self.writer)
             .map_err(|err| format!("failed to write {} to zip: {err}", path.display()))?;
         Ok(())
@@ -161,14 +163,12 @@ fn crc32(bytes: &[u8]) -> u32 {
     crc32fast::hash(bytes)
 }
 
-fn crc32_file(path: &Path) -> Result<(u32, u64), String> {
-    let mut file =
-        fs::File::open(path).map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+fn crc32_reader<R: Read>(reader: &mut R, path: &Path) -> Result<(u32, u64), String> {
     let mut hasher = crc32fast::Hasher::new();
     let mut size = 0u64;
     let mut buf = [0u8; 8192];
     loop {
-        let read = file
+        let read = reader
             .read(&mut buf)
             .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
         if read == 0 {
