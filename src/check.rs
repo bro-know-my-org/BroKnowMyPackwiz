@@ -46,27 +46,6 @@ pub fn check(root: &Path) -> CheckResult {
         }
     }
 
-    for template in [
-        "pack/pack.toml",
-        "pack/.packwizignore.source",
-        "pack/icon.png",
-        "pack/server-icon.png",
-        "pack/start.bat",
-        "pack/start.sh",
-        "pack/variables.txt",
-        "pack/PCL/Logo.png",
-        "pack/PCL/Setup.ini",
-    ] {
-        let path = join_slash(root, template);
-        if path.exists() {
-            result.ok.push(format!("found {template}"));
-        } else {
-            result
-                .warnings
-                .push(format!("missing release template {template}"));
-        }
-    }
-
     let config = match ProjectConfig::load(root) {
         Ok(config) => {
             result
