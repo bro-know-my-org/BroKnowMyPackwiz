@@ -7,7 +7,6 @@
 - [致谢与来源说明](#致谢与来源说明)
 - [这是什么](#这是什么)
 - [和上游 packwiz 的差异](#和上游-packwiz-的差异)
-- [刻意不包含的功能](#刻意不包含的功能)
 - [命令](#命令)
 - [配置](#配置)
 - [体积策略](#体积策略)
@@ -18,21 +17,21 @@
 
 > [!IMPORTANT]
 > 本项目沿用了公开的 packwiz 元数据模型，并借鉴了 packwiz-installer 的
-> 部分安装工作流。它是为当前包工作流定制的 Rust 实现，不是对上游源码
-> 的直接复制或 vendored copy。
+> 部分安装工作流。它是独立实现的 Rust CLI，不是对上游源码的直接复制或
+> vendored copy。
 >
 > - packwiz: https://github.com/packwiz/packwiz
 > - packwiz-installer: https://github.com/packwiz/packwiz-installer
 
-`bro-know-my-packwiz` 是一个面向当前包工作流的定制化 Rust 工具。
+`bro-know-my-packwiz` 是一个面向 packwiz-style 整合包维护与分发流程的 Rust CLI。
 
 二进制名称：`bkmpw`。
 
 ## 这是什么
 
-- 针对当前包使用方式定制的 packwiz-style 元数据刷新与本地安装/下载工具。
-- 带有明确项目默认行为的 pack-oriented 工具。
-- 命令面比上游 packwiz 更小，只保留当前工作流需要的部分。
+- 支持 packwiz-style 元数据刷新、本地安装/下载、CurseForge 导出和全量包/服务端包导出。
+- 带有明确默认布局和可配置行为的 pack-oriented 工具。
+- 命令面比上游 packwiz 更小，聚焦整合包维护、同步和分发流程。
 
 ## 和上游 packwiz 的差异
 
@@ -65,16 +64,6 @@
   可选 jobs 参数控制，优先级依次升高。
 - 安装支持 retry、重试等待时间和 force 覆盖，方便吸收原 devtool 的批量下载习惯。
 - 安装结果会写入一个小型 `packwiz.json` manifest。
-
-## 刻意不包含的功能
-
-- Java bootstrapper 流程。
-- `RequiresBootstrap` 启动强制检查。
-- MultiMC 专用集成。
-- Modrinth provider。
-- `utils markdown`。
-- CurseForge/Modrinth 导出和导入流程。
-- GUI installer UI。
 
 ## 命令
 

@@ -2,7 +2,7 @@
 name = "bro-know-my-packwiz"
 version = "0.1.0"
 edition = "2024"
-description = "Customized Rust tool for this pack's packwiz-style workflow"
+description = "Rust CLI for packwiz-style modpack maintenance and distribution"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/bro-know-my-org/BroKnowMyPackwiz"

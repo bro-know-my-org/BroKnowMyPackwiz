@@ -7,7 +7,6 @@
 - [Attribution / Credits](#attribution--credits)
 - [What This Is](#what-this-is)
 - [Differences From Upstream packwiz](#differences-from-upstream-packwiz)
-- [Deliberately Not Included](#deliberately-not-included)
 - [Commands](#commands)
 - [Config](#config)
 - [Size Policy](#size-policy)
@@ -18,23 +17,24 @@
 
 > [!IMPORTANT]
 > This project intentionally follows the public packwiz metadata model and
-> selected installer workflows. It is a customized Rust implementation tailored
-> to this pack's workflow, not a vendored copy of upstream source code.
+> selected installer workflows. It is an independent Rust CLI implementation,
+> not a vendored copy of upstream source code.
 >
 > - packwiz: https://github.com/packwiz/packwiz
 > - packwiz-installer: https://github.com/packwiz/packwiz-installer
 
-`bro-know-my-packwiz` is a small Rust tool for this pack's customized
-packwiz-style workflow.
+`bro-know-my-packwiz` is a Rust CLI for packwiz-style modpack maintenance and
+distribution workflows.
 
 Binary name: `bkmpw`.
 
 ## What This Is
 
-- A customized Rust implementation of the packwiz-style metadata refresh flow
-  and local install/download flow used by this pack.
-- A pack-oriented tool with deliberate project-specific behavior and defaults.
-- A smaller command surface than upstream packwiz.
+- A packwiz-style metadata refresh, local install/download, CurseForge export,
+  and full client/server package export tool.
+- A pack-oriented tool with deliberate defaults and configurable behavior.
+- A smaller command surface than upstream packwiz, focused on modpack
+  maintenance, sync, and distribution workflows.
 
 ## Differences From Upstream packwiz
 
@@ -73,16 +73,6 @@ Binary name: `bkmpw`.
 - Install supports retry, retry delay, and force overwrite behavior for the
   pack's devtool-style batch download workflow.
 - Installed files are recorded in a small `packwiz.json` manifest.
-
-## Deliberately Not Included
-
-- Java bootstrapper flow.
-- `RequiresBootstrap` startup enforcement.
-- MultiMC-specific integration.
-- Modrinth provider.
-- `utils markdown`.
-- CurseForge/Modrinth export and import workflows.
-- GUI installer UI.
 
 ## Commands
 
