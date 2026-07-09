@@ -133,6 +133,11 @@ jobs:
       actions: read
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Resolve version
         id: version
         shell: bash
@@ -149,6 +154,43 @@ jobs:
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
 
+      - name: Generate release notes
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          TARGET_REF="HEAD"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            TARGET_REF="$TAG"
+          fi
+
+          PREVIOUS_TAG="$(
+            git tag --merged "$TARGET_REF" --list "v[0-9]*" --sort=-v:refname |
+              grep -vxF "$TAG" |
+              head -n 1 || true
+          )"
+
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            RANGE="$PREVIOUS_TAG..$TARGET_REF"
+          else
+            RANGE="$TARGET_REF"
+          fi
+
+          CHANGES="$(git log --no-merges --pretty=format:'- %s (%h)' "$RANGE")"
+
+          {
+            echo "## Changes"
+            echo
+            if [[ -n "$CHANGES" ]]; then
+              echo "$CHANGES"
+            else
+              echo "- No commit changes found."
+            fi
+            echo
+          } > release-notes.md
+
       - name: Download release assets
         uses: actions/download-artifact@v4
         with:
@@ -164,8 +206,8 @@ jobs:
           TITLE: BroKnowMyPackwiz ${{ steps.version.outputs.version }}
         run: |
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes-file release-notes.md
             gh release upload "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --title "$TITLE" --generate-notes
+            gh release create "$TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes-file release-notes.md
           fi
