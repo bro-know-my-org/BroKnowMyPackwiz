@@ -14,6 +14,7 @@ mod murmur2;
 mod ops;
 mod packinfo;
 mod pathutil;
+mod progress;
 mod refresh;
 mod scan;
 mod self_update;

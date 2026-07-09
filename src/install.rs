@@ -8,10 +8,11 @@ use std::time::Duration;
 
 use crate::config::ProjectConfig;
 use crate::curseforge;
-use crate::http::{HttpDownloadOptions, http_get_to_file_with_options};
+use crate::http::{DownloadProgress, HttpDownloadOptions, http_get_to_file_with_options};
 use crate::layout::PackLayout;
 use crate::metadata::{ModMetadata, Side};
 use crate::pathutil::join_slash;
+use crate::progress::ProgressRenderer;
 use crate::scan::ScanReport;
 use crate::sha1::sha1_file_hex;
 use crate::sha256::sha256_file_hex;
@@ -291,14 +292,16 @@ fn run_copy_tasks(
     let installed = Arc::new(Mutex::new(Vec::new()));
     let log = Arc::new(Mutex::new(()));
     let jobs = options.jobs.max(1);
+    let progress = ProgressRenderer::start(jobs);
 
     thread::scope(|scope| {
-        for _ in 0..jobs {
+        for worker_idx in 0..jobs {
             let tasks = Arc::clone(&tasks);
             let errors = Arc::clone(&errors);
             let installed = Arc::clone(&installed);
             let log = Arc::clone(&log);
             let options = options.clone();
+            let progress = progress.as_ref();
             scope.spawn(move || {
                 loop {
                     let task = {
@@ -308,13 +311,22 @@ fn run_copy_tasks(
                     let Some(task) = task else {
                         break;
                     };
-                    log_install(
-                        &log,
-                        format!("processing {} ({})", task.target_rel, task_source(&task)),
-                    );
-                    match copy_with_retries(&task, &options, &log) {
+                    let task_progress = if let Some(progress) = progress {
+                        Some(progress.slot_progress(worker_idx, &task.target_rel))
+                    } else {
+                        log_install(
+                            &log,
+                            format!("processing {} ({})", task.target_rel, task_source(&task)),
+                        );
+                        None
+                    };
+                    match copy_with_retries(&task, &options, &log, task_progress.clone()) {
                         Ok(hash) => {
-                            log_install(&log, format!("done {}", task.target_rel));
+                            if let Some(progress) = progress {
+                                progress.finish_slot(worker_idx, false);
+                            } else {
+                                log_install(&log, format!("done {}", task.target_rel));
+                            }
                             let mut guard = installed.lock().expect("installed mutex poisoned");
                             guard.push(InstalledFile {
                                 name: task.name,
@@ -325,7 +337,13 @@ fn run_copy_tasks(
                         Err(err) => {
                             let err =
                                 format!("{} ({}): {err}", task.target_rel, task_source(&task));
-                            log_install(&log, format!("failed {err}"));
+                            if let Some(progress) = progress {
+                                progress.finish_slot(worker_idx, true);
+                                progress.log(&format!("failed {err}"));
+                                progress.clear_slot(worker_idx);
+                            } else {
+                                log_install(&log, format!("failed {err}"));
+                            }
                             let mut guard = errors.lock().expect("copy error mutex poisoned");
                             guard.push(err);
                         }
@@ -352,21 +370,27 @@ fn copy_with_retries(
     task: &CopyTask,
     options: &InstallOptions,
     log: &Mutex<()>,
+    progress: Option<Arc<dyn DownloadProgress>>,
 ) -> Result<String, String> {
     let attempts = options.retries.max(1);
     let mut last_error = None;
     for attempt in 1..=attempts {
-        match copy_atomic(task, options) {
+        if let Some(progress) = &progress {
+            progress.reset();
+        }
+        match copy_atomic(task, options, progress.clone()) {
             Ok(hash) => return Ok(hash),
             Err(err) => {
-                log_install(
-                    log,
-                    format!(
-                        "failed attempt {attempt}/{attempts} for {} ({}): {err}",
-                        task.target_rel,
-                        task_source(task)
-                    ),
-                );
+                if progress.is_none() {
+                    log_install(
+                        log,
+                        format!(
+                            "failed attempt {attempt}/{attempts} for {} ({}): {err}",
+                            task.target_rel,
+                            task_source(task)
+                        ),
+                    );
+                }
                 last_error = Some(err);
                 if attempt < attempts && options.retry_delay_seconds > 0 {
                     thread::sleep(Duration::from_secs(options.retry_delay_seconds));
@@ -401,7 +425,11 @@ fn task_source(task: &CopyTask) -> String {
     "missing source".to_string()
 }
 
-fn copy_atomic(task: &CopyTask, options: &InstallOptions) -> Result<String, String> {
+fn copy_atomic(
+    task: &CopyTask,
+    options: &InstallOptions,
+    progress: Option<Arc<dyn DownloadProgress>>,
+) -> Result<String, String> {
     let preserve_existing = options.preserve_existing;
     if !task.force
         && let Some(expected) = &task.expected_hash
@@ -433,17 +461,26 @@ fn copy_atomic(task: &CopyTask, options: &InstallOptions) -> Result<String, Stri
 
     let tmp = unique_tmp_path(&task.target);
     if let Some(source) = valid_local_source(task)? {
-        fs::copy(source, &tmp).map_err(|err| {
+        let source_size = fs::metadata(source)
+            .map_err(|err| format!("failed to stat {}: {err}", source.display()))?
+            .len();
+        if let Some(progress) = &progress {
+            progress.set_total(source_size);
+        }
+        let copied = fs::copy(source, &tmp).map_err(|err| {
             format!(
                 "failed to copy {} to {}: {err}",
                 source.display(),
                 tmp.display()
             )
         })?;
+        if let Some(progress) = &progress {
+            progress.add_bytes(copied);
+        }
     } else if let Some(url) = &task.url {
-        http_get_to_file_with_options(url, &tmp, &http_download_options(options))?;
+        http_get_to_file_with_options(url, &tmp, &http_download_options(options, progress))?;
     } else if let Some(curseforge) = &task.curseforge {
-        download_curseforge(curseforge, &tmp, &http_download_options(options))?;
+        download_curseforge(curseforge, &tmp, &http_download_options(options, progress))?;
     } else {
         return Err(format!("missing source file for {}", task.name));
     }
@@ -517,10 +554,14 @@ fn same_path(left: &Path, right: &Path) -> bool {
     }
 }
 
-fn http_download_options(options: &InstallOptions) -> HttpDownloadOptions {
+fn http_download_options(
+    options: &InstallOptions,
+    progress: Option<Arc<dyn DownloadProgress>>,
+) -> HttpDownloadOptions {
     HttpDownloadOptions {
         split_min_bytes: options.split_download_min_bytes,
         split_chunks: options.split_download_chunks,
+        progress,
     }
 }
 
@@ -862,7 +903,7 @@ mod tests {
             managed_target: true,
         };
 
-        copy_atomic(&task, &test_install_options()).unwrap();
+        copy_atomic(&task, &test_install_options(), None).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"new");
 
         let _ = fs::remove_dir_all(root);
@@ -892,7 +933,7 @@ mod tests {
             managed_target: false,
         };
 
-        copy_atomic(&task, &test_install_options()).unwrap();
+        copy_atomic(&task, &test_install_options(), None).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"payload");
 
         let _ = fs::remove_dir_all(root);
@@ -923,7 +964,7 @@ mod tests {
             managed_target: false,
         };
 
-        copy_atomic(&task, &test_install_options()).unwrap();
+        copy_atomic(&task, &test_install_options(), None).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"existing");
 
         let _ = fs::remove_dir_all(root);
@@ -956,7 +997,7 @@ mod tests {
 
         let mut options = test_install_options();
         options.preserve_existing = true;
-        let err = copy_atomic(&task, &options).unwrap_err();
+        let err = copy_atomic(&task, &options, None).unwrap_err();
         assert!(err.contains("existing file hash mismatch"));
         assert_eq!(fs::read(&target).unwrap(), b"wrong");
 
@@ -1053,7 +1094,7 @@ mod tests {
             managed_target: false,
         };
 
-        assert!(copy_atomic(&task, &test_install_options()).is_err());
+        assert!(copy_atomic(&task, &test_install_options(), None).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"manual");
 
         let _ = fs::remove_dir_all(root);

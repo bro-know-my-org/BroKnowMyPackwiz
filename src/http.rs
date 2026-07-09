@@ -1,6 +1,7 @@
 use std::fs;
-use std::io::{Read, copy};
+use std::io::{Read, Write, copy};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
@@ -9,11 +10,19 @@ use std::time::Duration;
 use crate::tempfiles;
 
 const HTTP_TIMEOUT_SECONDS: u64 = 120;
+const DOWNLOAD_BUFFER_SIZE: usize = 64 * 1024;
 
-#[derive(Debug, Clone)]
+pub trait DownloadProgress: Send + Sync {
+    fn reset(&self);
+    fn set_total(&self, total: u64);
+    fn add_bytes(&self, bytes: u64);
+}
+
+#[derive(Clone)]
 pub struct HttpDownloadOptions {
     pub split_min_bytes: u64,
     pub split_chunks: usize,
+    pub progress: Option<Arc<dyn DownloadProgress>>,
 }
 
 impl Default for HttpDownloadOptions {
@@ -21,6 +30,7 @@ impl Default for HttpDownloadOptions {
         Self {
             split_min_bytes: u64::MAX,
             split_chunks: 1,
+            progress: None,
         }
     }
 }
@@ -38,25 +48,38 @@ pub fn http_get_to_file_with_options(
         && let Some(length) = probe_content_length(url)
         && length > options.split_min_bytes
     {
-        match split_http_get_to_file(url, path, length, options.split_chunks) {
+        match split_http_get_to_file(url, path, length, options.split_chunks, &options.progress) {
             Ok(()) => return Ok(()),
-            Err(_) => {}
+            Err(_) => {
+                if let Some(progress) = &options.progress {
+                    progress.reset();
+                }
+            }
         }
     }
-    single_http_get_to_file(url, path)
+    single_http_get_to_file(url, path, &options.progress)
 }
 
 fn should_try_split(options: &HttpDownloadOptions) -> bool {
     options.split_chunks > 1 && options.split_min_bytes < u64::MAX
 }
 
-fn single_http_get_to_file(url: &str, path: &Path) -> Result<(), String> {
+fn single_http_get_to_file(
+    url: &str,
+    path: &Path,
+    progress: &Option<Arc<dyn DownloadProgress>>,
+) -> Result<(), String> {
     let mut response = agent()
         .get(url)
         .header("User-Agent", "bkmpw")
         .call()
         .map_err(|err| format!("HTTP GET failed for {url}: {err}"))?;
     ensure_success(url, response.status())?;
+    if let Some(total) = response_content_length(&response) {
+        if let Some(progress) = progress {
+            progress.set_total(total);
+        }
+    }
     let mut body = response.body_mut().as_reader();
     let tmp = unique_tmp_path(path);
     let mut file = fs::OpenOptions::new()
@@ -64,7 +87,7 @@ fn single_http_get_to_file(url: &str, path: &Path) -> Result<(), String> {
         .create_new(true)
         .open(&tmp)
         .map_err(|err| format!("failed to create {}: {err}", tmp.display()))?;
-    if let Err(err) = copy(&mut body, &mut file) {
+    if let Err(err) = copy_with_progress(&mut body, &mut file, progress.as_deref()) {
         let _ = fs::remove_file(&tmp);
         return Err(format!(
             "failed to download {url} to {}: {err}",
@@ -95,6 +118,10 @@ fn probe_content_length(url: &str) -> Option<u64> {
     if !response.status().is_success() {
         return None;
     }
+    response_content_length(&response)
+}
+
+fn response_content_length(response: &ureq::http::Response<ureq::Body>) -> Option<u64> {
     response
         .headers()
         .get("Content-Length")
@@ -107,10 +134,14 @@ fn split_http_get_to_file(
     path: &Path,
     length: u64,
     requested_chunks: usize,
+    progress: &Option<Arc<dyn DownloadProgress>>,
 ) -> Result<(), String> {
     let ranges = byte_ranges(length, requested_chunks);
     if ranges.len() < 2 {
-        return single_http_get_to_file(url, path);
+        return single_http_get_to_file(url, path, progress);
+    }
+    if let Some(progress) = progress {
+        progress.set_total(length);
     }
 
     let tmp = unique_tmp_path(path);
@@ -124,8 +155,9 @@ fn split_http_get_to_file(
         let mut handles = Vec::new();
         for (idx, ((start, end), chunk_path)) in ranges.iter().zip(chunk_paths.iter()).enumerate() {
             let chunk_path = chunk_path.clone();
+            let progress = progress.clone();
             handles.push(scope.spawn(move || {
-                download_range_to_file(url, &chunk_path, *start, *end)
+                download_range_to_file(url, &chunk_path, *start, *end, &progress)
                     .map_err(|err| format!("chunk {} ({}-{}): {err}", idx + 1, start, end))
             }));
         }
@@ -177,7 +209,13 @@ fn byte_ranges(length: u64, requested_chunks: usize) -> Vec<(u64, u64)> {
     ranges
 }
 
-fn download_range_to_file(url: &str, path: &Path, start: u64, end: u64) -> Result<(), String> {
+fn download_range_to_file(
+    url: &str,
+    path: &Path,
+    start: u64,
+    end: u64,
+    progress: &Option<Arc<dyn DownloadProgress>>,
+) -> Result<(), String> {
     let range = format!("bytes={start}-{end}");
     let mut response = agent()
         .get(url)
@@ -197,7 +235,7 @@ fn download_range_to_file(url: &str, path: &Path, start: u64, end: u64) -> Resul
         .create_new(true)
         .open(path)
         .map_err(|err| format!("failed to create {}: {err}", path.display()))?;
-    let written = copy(&mut body, &mut file).map_err(|err| {
+    let written = copy_with_progress(&mut body, &mut file, progress.as_deref()).map_err(|err| {
         format!(
             "failed to download range {range} to {}: {err}",
             path.display()
@@ -211,6 +249,27 @@ fn download_range_to_file(url: &str, path: &Path, start: u64, end: u64) -> Resul
     }
     file.sync_all()
         .map_err(|err| format!("failed to flush {}: {err}", path.display()))
+}
+
+fn copy_with_progress(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    progress: Option<&dyn DownloadProgress>,
+) -> std::io::Result<u64> {
+    let mut buffer = [0u8; DOWNLOAD_BUFFER_SIZE];
+    let mut written = 0;
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        writer.write_all(&buffer[..read])?;
+        written += read as u64;
+        if let Some(progress) = progress {
+            progress.add_bytes(read as u64);
+        }
+    }
+    Ok(written)
 }
 
 fn assemble_chunks(chunk_paths: &[PathBuf], tmp: &Path, expected_len: u64) -> Result<(), String> {
@@ -351,6 +410,7 @@ mod tests {
             &HttpDownloadOptions {
                 split_min_bytes: 16,
                 split_chunks: 4,
+                progress: None,
             },
         )
         .unwrap();
