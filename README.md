@@ -78,7 +78,7 @@ bkmpw modlist <pack-root> [output-dir]
 bkmpw export-client <pack-root> [output.zip] [root-dir]
 bkmpw export-curseforge <pack-root> [output.zip] [side]
 bkmpw export-server <pack-root> [output.zip]
-bkmpw export-server-installer <pack-root> [output.zip] [bkmpw-binary]
+bkmpw export-server-installer <pack-root> [output.zip]
 bkmpw prepare-server <pack-root> [output-dir]
 bkmpw add-url <pack-root> <side> <name> <filename> <url> <sha256>
 bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>
@@ -114,6 +114,7 @@ jar-root = "mods"
 server-meta = "mods/server"
 client-meta = "mods/client"
 common-meta = "mods/common"
+root-overlays = "roots"
 metadata-extension = "pw.toml"
 
 [install]
@@ -244,21 +245,35 @@ CurseForge 格式的 zip：`metadata:curseforge` 和带 `[export.curseforge]` �
 `[export.curseforge] latest = true`，会按 `pack.toml` 里的 Minecraft 版本和 loader
 查最新适配文件。zip 使用 store 模式，不压缩，换取零额外依赖和小体积。
 
+根目录 overlay：
+
+```text
+roots/common/   # 客户端包和服务端包都会铺到目标根目录
+roots/client/   # 只进入 export-client 的实例根目录
+roots/server/   # 只进入 export-server 和 export-server-installer 的服务端根目录
+```
+
+例如 `roots/common/icon.png` 导出到客户端包时会变成 `<实例目录>/icon.png`，
+导出到服务端包时会变成 `icon.png`。如果 `roots/common` 和目标 side 目录里有同名文件，
+目标 side 目录优先。
+
 `export-server <pack-root> [output.zip]` 会先 refresh，然后生成直接解压使用的服务端包。
 它不写 `manifest.json`，也不套 `overrides/` 目录；服务端和 common metadata 对应的
 实际 jar 会写到 `mods/`，其它被扫描包含且适用于服务端的配置/脚本文件写到 zip 根目录
-对应路径。`mods/client`、`resourcepacks` 和 `shaderpacks` 不会进入服务端包。
+对应路径。`roots/common` 和 `roots/server` 的内容会铺到 zip 根目录。
+`mods/client`、`resourcepacks` 和 `shaderpacks` 不会进入服务端包。
 
 `export-client <pack-root> [output.zip] [root-dir]` 会先 refresh，然后生成客户端全量包。
 zip 内会套一层实例目录，默认使用 `pack.toml` 的 `name`，也可以用 `root-dir` 指定；
 client 和 common metadata 对应的实际 jar 会写到该目录的 `mods/` 下，资源包和光影包会按
-扫描结果保留。
+扫描结果保留。`roots/common` 和 `roots/client` 的内容会铺到该实例目录根部。
 
-`export-server-installer <pack-root> [output.zip] [bkmpw-binary]` 会生成下载型服务端安装包。
-它包含服务端/common metadata、服务端适用的配置/脚本文件、`install-server.bat`、
-`install-server.sh` 和一个 `tools/bkmpw.exe` 二进制；不夹带实际 mod jar。用户解压后运行安装脚本，
-脚本会执行 `bkmpw install-local . . server` 在目标机器下载服务端所需 jar。`bkmpw-binary`
-省略时使用当前正在运行的 `bkmpw` 可执行文件。
+`export-server-installer <pack-root> [output.zip]` 会生成下载型服务端安装包。
+它包含服务端/common metadata、服务端适用的配置/脚本文件、`roots/common` 和
+`roots/server` 铺到根目录后的文件，以及 `install-server.bat`、`install-server.sh`；
+不夹带实际 mod jar，也不夹带本机 `bkmpw` 二进制。用户解压后运行安装脚本，脚本会从
+GitHub latest release 下载当前平台的 `bkmpw`、校验 `.sha256`，再执行
+`bkmpw install-local . . server` 在目标机器下载服务端所需 jar。
 
 `prepare-server <pack-root> [output-dir]` 使用同一套服务端包文件规则，但输出为目录而不是
 zip。默认目录是 `.bkmpw/server-pack`。运行前会删除旧输出目录，避免 CI 补文件、压缩发包时

@@ -87,7 +87,7 @@ bkmpw modlist <pack-root> [output-dir]
 bkmpw export-client <pack-root> [output.zip] [root-dir]
 bkmpw export-curseforge <pack-root> [output.zip] [side]
 bkmpw export-server <pack-root> [output.zip]
-bkmpw export-server-installer <pack-root> [output.zip] [bkmpw-binary]
+bkmpw export-server-installer <pack-root> [output.zip]
 bkmpw prepare-server <pack-root> [output-dir]
 bkmpw add-url <pack-root> <side> <name> <filename> <url> <sha256>
 bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>
@@ -123,6 +123,7 @@ jar-root = "mods"
 server-meta = "mods/server"
 client-meta = "mods/client"
 common-meta = "mods/common"
+root-overlays = "roots"
 metadata-extension = "pw.toml"
 
 [install]
@@ -260,25 +261,40 @@ under `overrides/`. If `[export.curseforge] latest = true`, the file ID is
 resolved from the Minecraft version and loader in `pack.toml`. The zip uses
 store mode instead of compression to avoid extra dependencies.
 
+Root overlays:
+
+```text
+roots/common/   # copied to both client and server roots
+roots/client/   # copied only to the export-client instance root
+roots/server/   # copied only to export-server and export-server-installer roots
+```
+
+For example, `roots/common/icon.png` becomes `<instance>/icon.png` in a client
+pack and `icon.png` in a server pack. If `roots/common` and the target-side
+overlay contain the same path, the target-side file wins.
+
 `export-server <pack-root> [output.zip]` refreshes first, then writes a direct
 server pack. It does not write `manifest.json` or wrap files in `overrides/`.
 Runtime jars for server/common metadata are written to `mods/`, and other
 included server-applicable config/script files keep their root-relative paths.
-`mods/client`, `resourcepacks`, and `shaderpacks` are excluded.
+`roots/common` and `roots/server` are overlaid onto the zip root. `mods/client`,
+`resourcepacks`, and `shaderpacks` are excluded.
 
 `export-client <pack-root> [output.zip] [root-dir]` refreshes first, then writes
 a full client pack. Files are wrapped in an instance root directory, defaulting
 to the `name` from `pack.toml` unless `root-dir` is provided. Runtime jars for
 client/common metadata are written under that directory's `mods/`, and included
-resource packs and shader packs keep their scanned paths.
+resource packs and shader packs keep their scanned paths. `roots/common` and
+`roots/client` are overlaid onto that instance root.
 
-`export-server-installer <pack-root> [output.zip] [bkmpw-binary]` writes a
-download-based server installer pack. It includes server/common metadata,
-server-applicable config/script files, `install-server.bat`, `install-server.sh`,
-and a `tools/bkmpw.exe` binary, but not runtime mod jars. After extraction, the
-install scripts run `bkmpw install-local . . server` to download the server jars
-on the target machine. When `bkmpw-binary` is omitted, the current `bkmpw`
-executable is bundled.
+`export-server-installer <pack-root> [output.zip]` writes a download-based server
+installer pack. It includes server/common metadata, server-applicable
+config/script files, `roots/common` and `roots/server` overlaid onto the root,
+plus `install-server.bat` and `install-server.sh`; it does not include runtime
+mod jars or the local `bkmpw` binary. After extraction, the install scripts
+download the platform-appropriate `bkmpw` from the GitHub latest release, verify
+its `.sha256`, then run `bkmpw install-local . . server` to download the server
+jars on the target machine.
 
 `prepare-server <pack-root> [output-dir]` uses the same server-pack file rules,
 but writes a directory instead of a zip. The default directory is
