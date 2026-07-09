@@ -12,6 +12,7 @@ jar-root = "mods"
 server-meta = "mods/server"
 client-meta = "mods/client"
 common-meta = "mods/common"
+root-overlays = "roots"
 metadata-extension = "pw.toml"
 
 [install]
@@ -61,6 +62,10 @@ pub fn init_pack(root: &Path) -> Result<InitResult, String> {
     ensure_dir(&root.join("mods").join("common"), &mut result)?;
     ensure_dir(&root.join("resourcepacks"), &mut result)?;
     ensure_dir(&root.join("shaderpacks"), &mut result)?;
+    ensure_dir(&root.join("roots"), &mut result)?;
+    ensure_dir(&root.join("roots").join("common"), &mut result)?;
+    ensure_dir(&root.join("roots").join("client"), &mut result)?;
+    ensure_dir(&root.join("roots").join("server"), &mut result)?;
 
     write_if_missing(
         &root.join(".pw").join("config.toml"),
@@ -116,6 +121,9 @@ mod tests {
         assert!(root.join("mods").is_dir());
         assert!(root.join("resourcepacks").is_dir());
         assert!(root.join("shaderpacks").is_dir());
+        assert!(root.join("roots").join("common").is_dir());
+        assert!(root.join("roots").join("client").is_dir());
+        assert!(root.join("roots").join("server").is_dir());
 
         let _ = fs::remove_dir_all(root);
     }

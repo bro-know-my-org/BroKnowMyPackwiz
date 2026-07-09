@@ -351,6 +351,7 @@ mod tests {
             server_meta: PathBuf::from("mods/server"),
             client_meta: PathBuf::from("mods/client"),
             common_meta: PathBuf::from("mods/common"),
+            root_overlays: PathBuf::from("roots"),
             metadata_extension: "pw".to_string(),
         };
 

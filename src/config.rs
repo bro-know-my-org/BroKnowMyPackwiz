@@ -24,6 +24,7 @@ pub struct LayoutConfig {
     pub server_meta: PathBuf,
     pub client_meta: PathBuf,
     pub common_meta: PathBuf,
+    pub root_overlays: PathBuf,
     pub metadata_extension: String,
 }
 
@@ -94,6 +95,7 @@ impl ProjectConfig {
                 server_meta: PathBuf::from("mods/server"),
                 client_meta: PathBuf::from("mods/client"),
                 common_meta: PathBuf::from("mods/common"),
+                root_overlays: PathBuf::from("roots"),
                 metadata_extension: String::from("pw.toml"),
             },
             install: InstallConfig {
@@ -138,6 +140,7 @@ fn apply_value(
         ("layout", "server-meta") => config.layout.server_meta = parse_string_path(value)?,
         ("layout", "client-meta") => config.layout.client_meta = parse_string_path(value)?,
         ("layout", "common-meta") => config.layout.common_meta = parse_string_path(value)?,
+        ("layout", "root-overlays") => config.layout.root_overlays = parse_string_path(value)?,
         ("layout", "metadata-extension") => config.layout.metadata_extension = parse_string(value)?,
         ("install", "jobs") => config.install.jobs = parse_usize(value)?,
         ("install", "retries") => config.install.retries = parse_usize(value)?,
@@ -250,6 +253,7 @@ mod tests {
         assert_eq!(cfg.layout.server_meta, PathBuf::from("mods/server"));
         assert_eq!(cfg.layout.client_meta, PathBuf::from("mods/client"));
         assert_eq!(cfg.layout.common_meta, PathBuf::from("mods/common"));
+        assert_eq!(cfg.layout.root_overlays, PathBuf::from("roots"));
         assert_eq!(cfg.layout.metadata_extension, "pw.toml");
         assert_eq!(cfg.install.jobs, 8);
         assert_eq!(cfg.install.retries, 1);

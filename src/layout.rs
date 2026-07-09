@@ -10,6 +10,7 @@ pub struct PackLayout {
     pub server_meta: PathBuf,
     pub client_meta: PathBuf,
     pub common_meta: PathBuf,
+    pub root_overlays: PathBuf,
     pub metadata_extension: String,
 }
 
@@ -27,6 +28,7 @@ impl PackLayout {
             server_meta: normalize_pathbuf(&config.layout.server_meta),
             client_meta: normalize_pathbuf(&config.layout.client_meta),
             common_meta: normalize_pathbuf(&config.layout.common_meta),
+            root_overlays: normalize_pathbuf(&config.layout.root_overlays),
             metadata_extension: config.layout.metadata_extension.clone(),
         }
     }

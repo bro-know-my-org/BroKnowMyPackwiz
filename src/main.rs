@@ -108,7 +108,7 @@ fn print_help() {
     println!("  bkmpw export-client <pack-root> [output.zip] [root-dir]");
     println!("  bkmpw export-curseforge <pack-root> [output.zip] [side]");
     println!("  bkmpw export-server <pack-root> [output.zip]");
-    println!("  bkmpw export-server-installer <pack-root> [output.zip] [bkmpw-binary]");
+    println!("  bkmpw export-server-installer <pack-root> [output.zip]");
     println!(
         "  bkmpw download-files <pack-root> [jobs] [--force] [--retries n] [--retry-delay-seconds n]"
     );
@@ -229,6 +229,7 @@ fn inspect(root: Option<PathBuf>) -> Result<(), String> {
     println!("layout.server-meta: {}", layout.server_meta.display());
     println!("layout.client-meta: {}", layout.client_meta.display());
     println!("layout.common-meta: {}", layout.common_meta.display());
+    println!("layout.root-overlays: {}", layout.root_overlays.display());
     println!("layout.jar-root: {}", layout.jar_root.display());
 
     Ok(())
@@ -698,11 +699,11 @@ fn export_server_cmd(args: &[String]) -> Result<(), String> {
 }
 
 fn export_server_installer_cmd(args: &[String]) -> Result<(), String> {
-    let (root, output, binary) = parse_export_server_installer_args(args)?;
+    let (root, output) = parse_export_server_installer_args(args)?;
     let config = ProjectConfig::load(&root)?;
     let layout = PackLayout::from_config(&config);
     let refreshed = refresh::refresh(&root, &config, &layout)?;
-    let files = export_server::export_server_installer(&root, &output, &binary)?;
+    let files = export_server::export_server_installer(&root, &output)?;
 
     println!("refreshed {}", refreshed.index_path.display());
     println!("exported {}", output.display());
@@ -735,24 +736,16 @@ fn parse_export_server_args(args: &[String]) -> Result<(PathBuf, PathBuf), Strin
     Ok((root, output))
 }
 
-fn parse_export_server_installer_args(
-    args: &[String],
-) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+fn parse_export_server_installer_args(args: &[String]) -> Result<(PathBuf, PathBuf), String> {
     if args.is_empty() {
-        return Err(
-            "usage: bkmpw export-server-installer <pack-root> [output.zip] [bkmpw-binary]"
-                .to_string(),
-        );
+        return Err("usage: bkmpw export-server-installer <pack-root> [output.zip]".to_string());
     }
     let root = PathBuf::from(&args[0]);
     let output = args
         .get(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("server-installer.zip"));
-    let binary = args.get(2).map(PathBuf::from).map(Ok).unwrap_or_else(|| {
-        env::current_exe().map_err(|err| format!("failed to determine bkmpw binary path: {err}"))
-    })?;
-    Ok((root, output, binary))
+    Ok((root, output))
 }
 
 fn prepare_server_cmd(args: &[String]) -> Result<(), String> {
@@ -1188,7 +1181,7 @@ mod tests {
     fn export_server_installer_defaults_output_inside_pack_root() {
         let args = vec!["pack".to_string()];
 
-        let (_, output, _) = parse_export_server_installer_args(&args).unwrap();
+        let (_, output) = parse_export_server_installer_args(&args).unwrap();
 
         assert_eq!(output, PathBuf::from("pack").join("server-installer.zip"));
     }

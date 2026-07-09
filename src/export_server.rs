@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,9 +30,9 @@ pub fn export_server(root: &Path, output: &Path) -> Result<usize, String> {
         .map_err(|err| format!("failed to create {}: {err}", temp_output.display()))?;
     let mut zip = ZipStore::new(file);
     let result = (|| {
-        for rel in &entries {
-            reject_symlink(root, rel)?;
-            zip.add_file(rel, &join_slash(root, rel))?;
+        for entry in &entries {
+            reject_symlink(root, &entry.source_rel)?;
+            zip.add_file(&entry.target_rel, &join_slash(root, &entry.source_rel))?;
         }
         zip.finish()?;
         replace_output(&temp_output, output)?;
@@ -63,9 +63,12 @@ pub fn export_client(root: &Path, output: &Path, root_name: Option<&str>) -> Res
         .map_err(|err| format!("failed to create {}: {err}", temp_output.display()))?;
     let mut zip = ZipStore::new(file);
     let result = (|| {
-        for rel in &entries {
-            reject_symlink(root, rel)?;
-            zip.add_file(&format!("{root_name}/{rel}"), &join_slash(root, rel))?;
+        for entry in &entries {
+            reject_symlink(root, &entry.source_rel)?;
+            zip.add_file(
+                &format!("{root_name}/{}", entry.target_rel),
+                &join_slash(root, &entry.source_rel),
+            )?;
         }
         zip.finish()?;
         replace_output(&temp_output, output)?;
@@ -83,32 +86,26 @@ pub fn prepare_server(root: &Path, output_dir: &Path) -> Result<usize, String> {
         collect_direct_entries(root, &Side::Server, output_rel_in_root(root, output_dir)?)?;
     fs::create_dir_all(output_dir)
         .map_err(|err| format!("failed to create {}: {err}", output_dir.display()))?;
-    for rel in &entries {
-        reject_symlink(root, rel)?;
-        let target = join_slash(output_dir, rel);
+    for entry in &entries {
+        reject_symlink(root, &entry.source_rel)?;
+        let target = join_slash(output_dir, &entry.target_rel);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)
                 .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
         }
-        fs::copy(join_slash(root, rel), &target)
-            .map_err(|err| format!("failed to copy {rel} to {}: {err}", target.display()))?;
+        fs::copy(join_slash(root, &entry.source_rel), &target).map_err(|err| {
+            format!(
+                "failed to copy {} to {}: {err}",
+                entry.source_rel,
+                target.display()
+            )
+        })?;
     }
     Ok(entries.len())
 }
 
-pub fn export_server_installer(
-    root: &Path,
-    output: &Path,
-    bkmpw_binary: &Path,
-) -> Result<usize, String> {
+pub fn export_server_installer(root: &Path, output: &Path) -> Result<usize, String> {
     reject_path_symlink(root)?;
-    if !bkmpw_binary.is_file() {
-        return Err(format!(
-            "bkmpw binary not found: {}",
-            bkmpw_binary.display()
-        ));
-    }
-    reject_path_or_ancestor_symlink(bkmpw_binary)?;
     if let Some(parent) = output.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -116,7 +113,6 @@ pub fn export_server_installer(
             .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
     }
     let entries = collect_installer_entries(root, output_rel_in_root(root, output)?)?;
-    let binary_name = "tools/bkmpw.exe";
 
     let temp_output = temp_zip_path(output);
     let file = fs::OpenOptions::new()
@@ -126,16 +122,15 @@ pub fn export_server_installer(
         .map_err(|err| format!("failed to create {}: {err}", temp_output.display()))?;
     let mut zip = ZipStore::new(file);
     let result = (|| {
-        for rel in &entries {
-            reject_symlink(root, rel)?;
-            zip.add_file(rel, &join_slash(root, rel))?;
+        for entry in &entries {
+            reject_symlink(root, &entry.source_rel)?;
+            zip.add_file(&entry.target_rel, &join_slash(root, &entry.source_rel))?;
         }
-        zip.add_file(binary_name, bkmpw_binary)?;
         zip.add_bytes("install-server.bat", install_server_bat().as_bytes())?;
         zip.add_bytes("install-server.sh", install_server_sh().as_bytes())?;
         zip.finish()?;
         replace_output(&temp_output, output)?;
-        Ok(entries.len() + 3)
+        Ok(entries.len() + 2)
     })();
     cleanup_temp_on_error(result, &temp_output)
 }
@@ -144,7 +139,7 @@ fn collect_direct_entries(
     root: &Path,
     target_side: &Side,
     output_rel: Option<String>,
-) -> Result<BTreeSet<String>, String> {
+) -> Result<Vec<PackEntry>, String> {
     collect_entries(
         root,
         target_side,
@@ -160,7 +155,7 @@ fn collect_direct_entries(
 fn collect_installer_entries(
     root: &Path,
     output_rel: Option<String>,
-) -> Result<BTreeSet<String>, String> {
+) -> Result<Vec<PackEntry>, String> {
     collect_entries(
         root,
         &Side::Server,
@@ -180,16 +175,22 @@ struct CollectOptions {
     include_packwiz_files: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PackEntry {
+    source_rel: String,
+    target_rel: String,
+}
+
 fn collect_entries(
     root: &Path,
     target_side: &Side,
     output_rel: Option<String>,
     options: CollectOptions,
-) -> Result<BTreeSet<String>, String> {
+) -> Result<Vec<PackEntry>, String> {
     let config = ProjectConfig::load(root)?;
     let layout = PackLayout::from_config(&config);
     let report = ScanReport::build(root, &config, &layout)?;
-    let mut entries = BTreeSet::new();
+    let mut entries = BTreeMap::new();
     let mut metadata_targets = BTreeSet::new();
 
     for entry in &report.metadata {
@@ -208,7 +209,7 @@ fn collect_entries(
             continue;
         }
         if options.include_metadata {
-            entries.insert(entry.path.clone());
+            insert_entry(&mut entries, entry.path.clone(), entry.path.clone());
         }
         if options.include_runtime_jars {
             if !join_slash(root, &target).is_file() {
@@ -217,11 +218,14 @@ fn collect_entries(
                     entry.path
                 ));
             }
-            entries.insert(target);
+            insert_entry(&mut entries, target.clone(), target);
         }
     }
 
     for rel in &report.included {
+        if is_root_overlay_source(rel, &layout) {
+            continue;
+        }
         if !options.include_runtime_jars
             && rel.ends_with(".jar")
             && crate::pathutil::is_under_slash(rel, &layout.jar_root.to_string_lossy())
@@ -237,7 +241,7 @@ fn collect_entries(
         if !server_entry_side(rel, &layout).installs_on(target_side) {
             continue;
         }
-        entries.insert(rel.clone());
+        insert_entry(&mut entries, rel.clone(), rel.clone());
     }
 
     if options.include_packwiz_files {
@@ -251,12 +255,128 @@ fn collect_entries(
                 continue;
             }
             if join_slash(root, rel).is_file() {
-                entries.insert(rel.to_string());
+                insert_entry(&mut entries, rel.to_string(), rel.to_string());
             }
         }
     }
 
-    Ok(entries)
+    add_root_overlays(
+        root,
+        &layout,
+        target_side,
+        output_rel.as_deref(),
+        &mut entries,
+    )?;
+
+    Ok(entries
+        .into_iter()
+        .map(|(target_rel, source_rel)| PackEntry {
+            source_rel,
+            target_rel,
+        })
+        .collect())
+}
+
+fn insert_entry(entries: &mut BTreeMap<String, String>, source_rel: String, target_rel: String) {
+    entries.insert(target_rel, source_rel);
+}
+
+fn is_root_overlay_source(rel: &str, layout: &PackLayout) -> bool {
+    let root_overlays = layout.root_overlays.to_string_lossy();
+    crate::pathutil::is_under_slash(rel, &root_overlays)
+}
+
+fn add_root_overlays(
+    root: &Path,
+    layout: &PackLayout,
+    target_side: &Side,
+    output_rel: Option<&str>,
+    entries: &mut BTreeMap<String, String>,
+) -> Result<(), String> {
+    let overlays_rel = crate::pathutil::normalize_slash(&layout.root_overlays.to_string_lossy());
+    if overlays_rel.is_empty() || overlays_rel == "." {
+        return Ok(());
+    }
+    let overlays_root = join_slash(root, &overlays_rel);
+    if !overlays_root.exists() {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(&overlays_root).map_err(|err| {
+        format!(
+            "failed to read metadata for {}: {err}",
+            overlays_root.display()
+        )
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!("refusing to export symlink: {overlays_rel}"));
+    }
+    if !metadata.is_dir() {
+        return Err(format!(
+            "root overlay path is not a directory: {}",
+            overlays_root.display()
+        ));
+    }
+    // Only side buckets are overlays; files directly under the overlays root are ignored.
+    for side in overlay_dirs(target_side, &overlays_rel) {
+        if join_slash(root, &side).is_dir() {
+            collect_overlay_entries(root, &side, &side, output_rel, entries)?;
+        }
+    }
+    Ok(())
+}
+
+fn overlay_dirs(target_side: &Side, overlays_rel: &str) -> Vec<String> {
+    let mut dirs = vec![format!("{overlays_rel}/common")];
+    match target_side {
+        Side::Client => dirs.push(format!("{overlays_rel}/client")),
+        Side::Server => dirs.push(format!("{overlays_rel}/server")),
+        Side::Both => {
+            dirs.push(format!("{overlays_rel}/client"));
+            dirs.push(format!("{overlays_rel}/server"));
+        }
+        Side::Unknown(_) => {}
+    }
+    dirs
+}
+
+fn collect_overlay_entries(
+    root: &Path,
+    overlay_rel: &str,
+    current_rel: &str,
+    output_rel: Option<&str>,
+    entries: &mut BTreeMap<String, String>,
+) -> Result<(), String> {
+    let current = join_slash(root, current_rel);
+    let dir = fs::read_dir(&current)
+        .map_err(|err| format!("failed to read {}: {err}", current.display()))?;
+    for item in dir {
+        let item = item.map_err(|err| format!("failed to read directory entry: {err}"))?;
+        let path = item.path();
+        let rel = crate::pathutil::relative_slash(root, &path)?;
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|err| format!("failed to read metadata for {}: {err}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!("refusing to export symlink: {rel}"));
+        }
+        if metadata.is_dir() {
+            collect_overlay_entries(root, overlay_rel, &rel, output_rel, entries)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            continue;
+        }
+        let target_rel = rel
+            .strip_prefix(overlay_rel)
+            .and_then(|value| value.strip_prefix('/'))
+            .ok_or_else(|| format!("invalid root overlay path: {rel}"))?
+            .to_string();
+        crate::pathutil::safe_slash_path(&target_rel)?;
+        if is_output_path(&target_rel, output_rel) {
+            continue;
+        }
+        insert_entry(entries, rel, target_rel);
+    }
+    Ok(())
 }
 
 fn side_from_directory_or_metadata(hint: crate::scan::SideHint, metadata: &ModMetadata) -> Side {
@@ -373,6 +493,7 @@ fn reject_pack_content_output_dir(
     protected.insert(layout.server_meta.clone());
     protected.insert(layout.client_meta.clone());
     protected.insert(layout.common_meta.clone());
+    protected.insert(layout.root_overlays.clone());
     for metadata_root in &layout.metadata_roots {
         protected.insert(metadata_root.clone());
     }
@@ -551,18 +672,6 @@ fn reject_path_symlink(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn reject_path_or_ancestor_symlink(path: &Path) -> Result<(), String> {
-    let mut ancestors = path.ancestors().collect::<Vec<_>>();
-    ancestors.reverse();
-    for ancestor in ancestors {
-        if ancestor.as_os_str().is_empty() || ancestor == Path::new(".") {
-            continue;
-        }
-        reject_path_symlink(ancestor)?;
-    }
-    Ok(())
-}
-
 fn default_client_root_name(root: &Path) -> Result<String, String> {
     let info = PackInfo::load(root)?;
     let name = info.name.unwrap_or_else(|| "minecraft-pack".to_string());
@@ -570,22 +679,64 @@ fn default_client_root_name(root: &Path) -> Result<String, String> {
 }
 
 fn install_server_bat() -> &'static str {
-    "@echo off\r\n\
-     setlocal\r\n\
-     cd /d \"%~dp0\"\r\n\
-     set \"JOBS=%~1\"\r\n\
-     if \"%JOBS%\"==\"\" set \"JOBS=8\"\r\n\
-     tools\\bkmpw.exe install-local . . server %JOBS% --retries 3 --retry-delay-seconds 5\r\n\
-     exit /b %errorlevel%\r\n"
+    concat!(
+        "@echo off\r\n",
+        "setlocal\r\n",
+        "cd /d \"%~dp0\"\r\n",
+        "set \"JOBS=%~1\"\r\n",
+        "if \"%JOBS%\"==\"\" set \"JOBS=8\"\r\n",
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$ErrorActionPreference='Stop'; ",
+        "$repo='",
+        "bro-know-my-org/BroKnowMyPackwiz",
+        "'; ",
+        "$api='https://api.github.com/repos/'+$repo+'/releases/latest'; ",
+        "$release=Invoke-RestMethod -Headers @{'User-Agent'='bkmpw-installer'} -Uri $api; ",
+        "$tag=$release.tag_name; ",
+        "$asset='bkmpw-'+$tag+'-x86_64-pc-windows-msvc.exe'; ",
+        "$dir='tools'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; ",
+        "$bin=Join-Path $dir 'bkmpw.exe'; $sum=$bin+'.sha256'; ",
+        "$base='https://github.com/'+$repo+'/releases/download/'+$tag+'/'; ",
+        "Invoke-WebRequest -UseBasicParsing -Uri ($base+$asset) -OutFile $bin; ",
+        "Invoke-WebRequest -UseBasicParsing -Uri ($base+$asset+'.sha256') -OutFile $sum; ",
+        "$expected=(Get-Content -Raw $sum).Split()[0]; ",
+        "$actual=(Get-FileHash -Algorithm SHA256 $bin).Hash.ToLowerInvariant(); ",
+        "if ($actual -ne $expected.ToLowerInvariant()) { throw 'bkmpw checksum mismatch' }\"\r\n",
+        "if errorlevel 1 exit /b %errorlevel%\r\n",
+        "tools\\bkmpw.exe install-local . . server %JOBS% --retries 3 --retry-delay-seconds 5\r\n",
+        "exit /b %errorlevel%\r\n",
+    )
 }
 
 fn install_server_sh() -> &'static str {
-    "#!/usr/bin/env sh\n\
-     set -eu\n\
-     cd \"$(dirname \"$0\")\"\n\
-     JOBS=\"${1:-8}\"\n\
-     chmod +x ./tools/bkmpw.exe 2>/dev/null || true\n\
-     ./tools/bkmpw.exe install-local . . server \"$JOBS\" --retries 3 --retry-delay-seconds 5\n"
+    concat!(
+        "#!/usr/bin/env sh\n",
+        "set -eu\n",
+        "cd \"$(dirname \"$0\")\"\n",
+        "JOBS=\"${1:-8}\"\n",
+        "REPO=\"",
+        "bro-know-my-org/BroKnowMyPackwiz",
+        "\"\n",
+        "OS=\"$(uname -s)\"\n",
+        "ARCH=\"$(uname -m)\"\n",
+        "case \"$OS/$ARCH\" in\n",
+        "  Linux/x86_64) TARGET=\"x86_64-unknown-linux-gnu\" ;;\n",
+        "  Darwin/x86_64) TARGET=\"x86_64-apple-darwin\" ;;\n",
+        "  Darwin/arm64|Darwin/aarch64) TARGET=\"aarch64-apple-darwin\" ;;\n",
+        "  *) echo \"unsupported platform: $OS/$ARCH\" >&2; exit 1 ;;\n",
+        "esac\n",
+        "TAG=\"$(curl -fsSL -H 'User-Agent: bkmpw-installer' \"https://api.github.com/repos/$REPO/releases/latest\" | sed -n 's/.*\"tag_name\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n 1)\"\n",
+        "if [ -z \"$TAG\" ]; then echo \"failed to resolve latest bkmpw release\" >&2; exit 1; fi\n",
+        "ASSET=\"bkmpw-$TAG-$TARGET\"\n",
+        "BASE=\"https://github.com/$REPO/releases/download/$TAG\"\n",
+        "mkdir -p tools\n",
+        "curl -fsSL \"$BASE/$ASSET\" -o tools/bkmpw\n",
+        "curl -fsSL \"$BASE/$ASSET.sha256\" -o tools/bkmpw.sha256\n",
+        "EXPECTED=\"$(awk '{print $1}' tools/bkmpw.sha256)\"\n",
+        "if command -v sha256sum >/dev/null 2>&1; then ACTUAL=\"$(sha256sum tools/bkmpw | awk '{print $1}')\"; else ACTUAL=\"$(shasum -a 256 tools/bkmpw | awk '{print $1}')\"; fi\n",
+        "if [ \"$(printf '%s' \"$ACTUAL\" | tr 'A-F' 'a-f')\" != \"$(printf '%s' \"$EXPECTED\" | tr 'A-F' 'a-f')\" ]; then echo \"bkmpw checksum mismatch\" >&2; exit 1; fi\n",
+        "chmod +x ./tools/bkmpw\n",
+        "./tools/bkmpw install-local . . server \"$JOBS\" --retries 3 --retry-delay-seconds 5\n",
+    )
 }
 
 #[cfg(test)]
@@ -633,6 +784,36 @@ mod tests {
         assert!(!zip_text.contains("mods/common/server.pw.toml"));
         assert!(zip_text.contains("config/client-client.toml"));
         assert!(!zip_text.contains("resourcepacks/client.zip"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_server_applies_common_and_server_root_overlays() {
+        let root = unique_test_dir("bkmpw-export-server-overlays");
+        create_pack(&root);
+        fs::create_dir_all(root.join("roots/common/config")).unwrap();
+        fs::create_dir_all(root.join("roots/server/config")).unwrap();
+        fs::create_dir_all(root.join("roots/client")).unwrap();
+        fs::write(root.join("roots/common/icon.png"), b"icon").unwrap();
+        fs::write(root.join("roots/common/config/shared.toml"), b"base").unwrap();
+        fs::write(root.join("roots/server/config/shared.toml"), b"server").unwrap();
+        fs::write(root.join("roots/server/start.bat"), b"start").unwrap();
+        fs::write(root.join("roots/client/options.txt"), b"client").unwrap();
+
+        let output = root.join("server-pack.zip");
+        export_server(&root, &output).unwrap();
+        let bytes = fs::read(&output).unwrap();
+        let zip_text = String::from_utf8_lossy(&bytes);
+
+        assert!(zip_text.contains("icon.png"));
+        assert!(zip_text.contains("config/shared.toml"));
+        assert!(zip_text.contains("server"));
+        assert!(!zip_text.contains("base"));
+        assert!(zip_text.contains("start.bat"));
+        assert!(!zip_text.contains("options.txt"));
+        assert!(!zip_text.contains("roots/common"));
+        assert!(!zip_text.contains("roots/server"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -691,6 +872,31 @@ mod tests {
     }
 
     #[test]
+    fn export_client_applies_common_and_client_root_overlays_inside_root_dir() {
+        let root = unique_test_dir("bkmpw-export-client-overlays");
+        create_pack(&root);
+        fs::create_dir_all(root.join("roots/common")).unwrap();
+        fs::create_dir_all(root.join("roots/client")).unwrap();
+        fs::create_dir_all(root.join("roots/server")).unwrap();
+        fs::write(root.join("roots/common/icon.png"), b"common-icon").unwrap();
+        fs::write(root.join("roots/client/options.txt"), b"client").unwrap();
+        fs::write(root.join("roots/server/start.sh"), b"server").unwrap();
+
+        let output = root.join("client-full.zip");
+        export_client(&root, &output, Some("PackRoot")).unwrap();
+        let bytes = fs::read(&output).unwrap();
+        let zip_text = String::from_utf8_lossy(&bytes);
+
+        assert!(zip_text.contains("PackRoot/icon.png"));
+        assert!(zip_text.contains("PackRoot/options.txt"));
+        assert!(!zip_text.contains("PackRoot/start.sh"));
+        assert!(!zip_text.contains("PackRoot/roots/common"));
+        assert!(!zip_text.contains("PackRoot/roots/client"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn export_server_installer_contains_metadata_and_runner_without_runtime_jar() {
         let root = unique_test_dir("bkmpw-export-server-installer");
         create_pack(&root);
@@ -702,78 +908,22 @@ mod tests {
             "filename = \"server.jar\"\n",
         )
         .unwrap();
-        let binary_root = unique_test_dir("bkmpw-export-server-installer-bin");
-        let binary = binary_root.join("bkmpw-test.exe");
-        fs::write(&binary, b"bkmpw").unwrap();
 
         let output = root.join("server-installer.zip");
-        export_server_installer(&root, &output, &binary).unwrap();
+        export_server_installer(&root, &output).unwrap();
         let bytes = fs::read(&output).unwrap();
         let zip_text = String::from_utf8_lossy(&bytes);
 
         assert!(zip_text.contains("install-server.bat"));
         assert!(zip_text.contains("install-server.sh"));
-        assert!(zip_text.contains("tools/bkmpw.exe"));
+        assert!(zip_text.contains("releases/latest"));
+        assert!(!zip_text.contains("tools/bkmpw.exe"));
         assert!(zip_text.contains("mods/common/server.pw.toml"));
         assert!(zip_text.contains("pack.toml"));
         assert!(!zip_text.contains("mods/server.jar"));
         assert!(!zip_text.contains("mods/manual.jar"));
 
         let _ = fs::remove_dir_all(root);
-        let _ = fs::remove_dir_all(binary_root);
-    }
-
-    #[test]
-    fn export_server_installer_rejects_symlink_binary() {
-        let root = unique_test_dir("bkmpw-export-server-installer-symlink-bin");
-        let binary_root = unique_test_dir("bkmpw-export-server-installer-symlink-target");
-        create_pack(&root);
-        let binary = binary_root.join("bkmpw-real.exe");
-        let binary_link = binary_root.join("bkmpw-link.exe");
-        fs::write(&binary, b"exe").unwrap();
-        if create_file_symlink(&binary, &binary_link).is_err() {
-            let _ = fs::remove_dir_all(root);
-            let _ = fs::remove_dir_all(binary_root);
-            return;
-        }
-
-        let err = export_server_installer(&root, &root.join("server-installer.zip"), &binary_link)
-            .unwrap_err();
-
-        assert!(err.contains("symlink"));
-
-        let _ = fs::remove_dir_all(root);
-        let _ = fs::remove_dir_all(binary_root);
-    }
-
-    #[test]
-    fn export_server_installer_rejects_symlink_binary_parent() {
-        let root = unique_test_dir("bkmpw-export-server-installer-symlink-bin-parent");
-        let binary_root = unique_test_dir("bkmpw-export-server-installer-symlink-parent");
-        let outside = unique_test_dir("bkmpw-export-server-installer-real-bin-parent");
-        create_pack(&root);
-        let binary = outside.join("bkmpw.exe");
-        let binary_link_parent = binary_root.join("tools-link");
-        fs::write(&binary, b"exe").unwrap();
-        if create_dir_symlink(&outside, &binary_link_parent).is_err() {
-            let _ = fs::remove_dir_all(root);
-            let _ = fs::remove_dir_all(binary_root);
-            let _ = fs::remove_dir_all(outside);
-            return;
-        }
-
-        let err = export_server_installer(
-            &root,
-            &root.join("server-installer.zip"),
-            &binary_link_parent.join("bkmpw.exe"),
-        )
-        .unwrap_err();
-
-        assert!(err.contains("symlink"));
-
-        let _ = fs::remove_dir_all(root);
-        let _ = fs::remove_dir_all(binary_root);
-        let _ = fs::remove_dir_all(outside);
     }
 
     #[test]
@@ -785,6 +935,7 @@ mod tests {
             server_meta: PathBuf::from("mods/server"),
             client_meta: PathBuf::from("mods/client"),
             common_meta: PathBuf::from("mods/common"),
+            root_overlays: PathBuf::from("roots"),
             metadata_extension: "pw.toml".to_string(),
         };
 
@@ -973,15 +1124,5 @@ mod tests {
     #[cfg(windows)]
     fn create_dir_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
         std::os::windows::fs::symlink_dir(target, link)
-    }
-
-    #[cfg(unix)]
-    fn create_file_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
-        std::os::unix::fs::symlink(target, link)
-    }
-
-    #[cfg(windows)]
-    fn create_file_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
-        std::os::windows::fs::symlink_file(target, link)
     }
 }
