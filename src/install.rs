@@ -289,6 +289,7 @@ fn run_copy_tasks(
     let tasks = Arc::new(Mutex::new(tasks));
     let errors = Arc::new(Mutex::new(Vec::new()));
     let installed = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::new(Mutex::new(()));
     let jobs = options.jobs.max(1);
 
     thread::scope(|scope| {
@@ -296,6 +297,7 @@ fn run_copy_tasks(
             let tasks = Arc::clone(&tasks);
             let errors = Arc::clone(&errors);
             let installed = Arc::clone(&installed);
+            let log = Arc::clone(&log);
             let options = options.clone();
             scope.spawn(move || {
                 loop {
@@ -306,9 +308,13 @@ fn run_copy_tasks(
                     let Some(task) = task else {
                         break;
                     };
-                    eprintln!("processing {}", task.target_rel);
-                    match copy_with_retries(&task, &options) {
+                    log_install(
+                        &log,
+                        format!("processing {} ({})", task.target_rel, task_source(&task)),
+                    );
+                    match copy_with_retries(&task, &options, &log) {
                         Ok(hash) => {
+                            log_install(&log, format!("done {}", task.target_rel));
                             let mut guard = installed.lock().expect("installed mutex poisoned");
                             guard.push(InstalledFile {
                                 name: task.name,
@@ -317,6 +323,9 @@ fn run_copy_tasks(
                             });
                         }
                         Err(err) => {
+                            let err =
+                                format!("{} ({}): {err}", task.target_rel, task_source(&task));
+                            log_install(&log, format!("failed {err}"));
                             let mut guard = errors.lock().expect("copy error mutex poisoned");
                             guard.push(err);
                         }
@@ -339,13 +348,25 @@ fn run_copy_tasks(
     (installed, errors)
 }
 
-fn copy_with_retries(task: &CopyTask, options: &InstallOptions) -> Result<String, String> {
+fn copy_with_retries(
+    task: &CopyTask,
+    options: &InstallOptions,
+    log: &Mutex<()>,
+) -> Result<String, String> {
     let attempts = options.retries.max(1);
     let mut last_error = None;
     for attempt in 1..=attempts {
         match copy_atomic(task, options) {
             Ok(hash) => return Ok(hash),
             Err(err) => {
+                log_install(
+                    log,
+                    format!(
+                        "failed attempt {attempt}/{attempts} for {} ({}): {err}",
+                        task.target_rel,
+                        task_source(task)
+                    ),
+                );
                 last_error = Some(err);
                 if attempt < attempts && options.retry_delay_seconds > 0 {
                     thread::sleep(Duration::from_secs(options.retry_delay_seconds));
@@ -354,6 +375,30 @@ fn copy_with_retries(task: &CopyTask, options: &InstallOptions) -> Result<String
         }
     }
     Err(last_error.unwrap_or_else(|| format!("failed to install {}", task.name)))
+}
+
+fn log_install(log: &Mutex<()>, message: String) {
+    let _guard = log.lock().unwrap_or_else(|err| err.into_inner());
+    eprintln!("{message}");
+}
+
+fn task_source(task: &CopyTask) -> String {
+    if let Some(source) = task.source.as_ref().filter(|source| source.exists()) {
+        if same_path(source, &task.target) {
+            return "local (source equals target)".to_string();
+        }
+        return format!("local {}", source.display());
+    }
+    if let Some(url) = &task.url {
+        return format!("url {url}");
+    }
+    if let Some(curseforge) = &task.curseforge {
+        return format!(
+            "curseforge project {} file {}",
+            curseforge.project_id, curseforge.file_id
+        );
+    }
+    "missing source".to_string()
 }
 
 fn copy_atomic(task: &CopyTask, options: &InstallOptions) -> Result<String, String> {
@@ -1048,6 +1093,57 @@ mod tests {
             fs::read(root.join("mods").join("existing.jar")).unwrap(),
             b"manual"
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn task_source_reports_url_when_local_source_is_missing() {
+        let root = temp_root("task-source-reports-url");
+        let task = CopyTask {
+            name: "remote".to_string(),
+            source: Some(root.join("mods").join("remote.jar")),
+            url: Some("https://example.com/remote.jar".to_string()),
+            curseforge: None,
+            target: root.join("mods").join("remote.jar"),
+            target_rel: "mods/remote.jar".to_string(),
+            expected_hash: None,
+            preserve: false,
+            force: false,
+            managed_target: false,
+        };
+
+        assert_eq!(
+            task_source(&task),
+            "url https://example.com/remote.jar".to_string()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn task_source_reports_curseforge_when_metadata_download_is_used() {
+        let root = temp_root("task-source-reports-curseforge");
+        let task = CopyTask {
+            name: "cf".to_string(),
+            source: None,
+            url: None,
+            curseforge: Some(CurseForgeDownload {
+                api_key: None,
+                cdn_fallback: true,
+                project_id: 123,
+                file_id: 456,
+                filename: "cf.jar".to_string(),
+            }),
+            target: root.join("mods").join("cf.jar"),
+            target_rel: "mods/cf.jar".to_string(),
+            expected_hash: None,
+            preserve: false,
+            force: false,
+            managed_target: false,
+        };
+
+        assert_eq!(task_source(&task), "curseforge project 123 file 456");
 
         let _ = fs::remove_dir_all(root);
     }
