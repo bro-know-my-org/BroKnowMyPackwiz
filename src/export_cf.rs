@@ -25,6 +25,7 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
     let pack = PackInfo::load(root)?;
     let mut cf_files = Vec::new();
     let mut cf_override_targets = std::collections::BTreeSet::new();
+    let mut managed_runtime_jars = std::collections::BTreeSet::new();
     let mut overrides = Vec::new();
     if let Some(parent) = output.parent()
         && !parent.as_os_str().is_empty()
@@ -42,6 +43,12 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
             .as_deref()
             .map(|filename| install::resolve_pack_file_path(&entry.path, filename, &layout))
             .transpose()?;
+        if metadata.optional && !metadata.option_default {
+            if let Some(target) = target {
+                cf_override_targets.insert(target);
+            }
+            continue;
+        }
         if !declared_side.installs_on(target_side) {
             if let Some(target) = target {
                 cf_override_targets.insert(target);
@@ -59,14 +66,20 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
             if let Some(target) = target {
                 cf_override_targets.insert(target);
             }
+        } else if let Some(target) = target {
+            managed_runtime_jars.insert(target);
         }
     }
 
     for rel in &report.included {
-        if skip_override(rel, &layout)
-            || cf_override_targets.contains(rel)
-            || output_rel.as_deref() == Some(rel.as_str())
-        {
+        if skip_override(rel, &layout) || output_rel.as_deref() == Some(rel.as_str()) {
+            continue;
+        }
+        if is_runtime_jar(rel, &layout) {
+            if !managed_runtime_jars.contains(rel) {
+                continue;
+            }
+        } else if cf_override_targets.contains(rel) {
             continue;
         }
         if !override_side(rel, &layout).installs_on(target_side) {
@@ -201,6 +214,11 @@ fn skip_override(rel: &str, layout: &PackLayout) -> bool {
         || rel == "index.toml"
         || rel == ".pw/config.toml"
         || is_metadata_file(rel, layout)
+}
+
+fn is_runtime_jar(rel: &str, layout: &PackLayout) -> bool {
+    rel.ends_with(".jar")
+        && crate::pathutil::is_under_slash(rel, &layout.jar_root.to_string_lossy())
 }
 
 fn manifest_json(pack: &PackInfo, files: &[CfManifestFile]) -> String {
@@ -401,6 +419,84 @@ mod tests {
         let zip_text = String::from_utf8_lossy(&bytes);
 
         assert!(!zip_text.contains("overrides/mods/client-only.jar"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_excludes_unmanaged_runtime_jar_from_overrides() {
+        let root = unique_test_dir("bkmpw-export-excludes-unmanaged-jar");
+        create_pack(&root);
+        fs::write(root.join("mods").join("private-dev.jar"), b"jar").unwrap();
+        fs::write(root.join("options.txt"), b"options").unwrap();
+
+        let output = root.join("out.zip");
+        export_curseforge(&root, &output, &Side::Both).unwrap();
+        let bytes = fs::read(&output).unwrap();
+        let zip_text = String::from_utf8_lossy(&bytes);
+
+        assert!(zip_text.contains("overrides/options.txt"));
+        assert!(!zip_text.contains("overrides/mods/private-dev.jar"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_keeps_metadata_runtime_jar_without_curseforge_mapping_as_override() {
+        let root = unique_test_dir("bkmpw-export-keeps-local-jar");
+        create_pack(&root);
+        fs::create_dir_all(root.join("mods/common")).unwrap();
+        fs::write(root.join("mods").join("local.jar"), b"jar").unwrap();
+        fs::write(
+            root.join("mods/common/local.pw.toml"),
+            "filename = \"local.jar\"\n\
+             [download]\n\
+             url = \"https://example.invalid/local.jar\"\n\
+             hash-format = \"sha256\"\n\
+             hash = \"abc\"\n",
+        )
+        .unwrap();
+
+        let output = root.join("out.zip");
+        export_curseforge(&root, &output, &Side::Both).unwrap();
+        let bytes = fs::read(&output).unwrap();
+        let zip_text = String::from_utf8_lossy(&bytes);
+
+        assert!(zip_text.contains("overrides/mods/local.jar"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn managed_runtime_jar_override_survives_deselected_optional_duplicate_target() {
+        let root = unique_test_dir("bkmpw-export-keeps-duplicate-local-jar");
+        create_pack(&root);
+        fs::create_dir_all(root.join("mods/common")).unwrap();
+        fs::write(root.join("mods").join("local.jar"), b"jar").unwrap();
+        fs::write(
+            root.join("mods/common/local.pw.toml"),
+            "filename = \"local.jar\"\n\
+             [download]\n\
+             url = \"https://example.invalid/local.jar\"\n\
+             hash-format = \"sha256\"\n\
+             hash = \"abc\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("mods/common/optional-local.pw.toml"),
+            "filename = \"local.jar\"\n\
+             [option]\n\
+             optional = true\n\
+             default = false\n",
+        )
+        .unwrap();
+
+        let output = root.join("out.zip");
+        export_curseforge(&root, &output, &Side::Both).unwrap();
+        let bytes = fs::read(&output).unwrap();
+        let zip_text = String::from_utf8_lossy(&bytes);
+
+        assert!(zip_text.contains("overrides/mods/local.jar"));
 
         let _ = fs::remove_dir_all(root);
     }
