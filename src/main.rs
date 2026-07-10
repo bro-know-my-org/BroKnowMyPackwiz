@@ -9,6 +9,7 @@ mod ignore;
 mod init;
 mod install;
 mod layout;
+mod machine;
 mod metadata;
 mod modlist;
 mod murmur2;
@@ -36,12 +37,27 @@ use scan::ScanReport;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
-    let args: Vec<String> = env::args().skip(1).collect();
+    let raw_args: Vec<String> = env::args().skip(1).collect();
+    let (args, machine_format) = match machine::parse_format_args(raw_args) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            eprintln!("error: {err}");
+            std::process::exit(2);
+        }
+    };
     let Some(command) = args.first() else {
         print_help();
         return;
     };
     let rest = &args[1..];
+
+    if let Some(format) = machine_format {
+        let exit_code = machine::run(command, rest, format, VERSION);
+        if exit_code != 0 {
+            std::process::exit(exit_code);
+        }
+        return;
+    }
 
     let result = match command.as_str() {
         "-h" | "--help" | "help" => {
@@ -50,6 +66,10 @@ fn main() {
         }
         "-V" | "--version" | "version" => {
             println!("bkmpw {VERSION}");
+            Ok(())
+        }
+        "protocol-version" => {
+            println!("{}", machine::PROTOCOL_VERSION);
             Ok(())
         }
         "add-url" => add_url(rest),
@@ -135,6 +155,9 @@ fn print_help() {
     println!("  bkmpw unpin <pack-root> <name>");
     println!("  bkmpw --help");
     println!("  bkmpw --version");
+    println!("  bkmpw protocol-version [--json]");
+    println!("  bkmpw <command> --json");
+    println!("  bkmpw <command> --json-lines");
 }
 
 fn first_path(args: &[String]) -> Option<PathBuf> {

@@ -9,6 +9,7 @@ for the public README.
   pack.
 - [Metadata Format](metadata-format.md): supported `.pw` fields and local
   extensions.
+- [Machine Protocol](machine-protocol.md): JSON and JSON Lines output for
+  desktop shells and process integrations.
 - [Testing](testing.md): verification commands and smoke tests that have been
   run.
-

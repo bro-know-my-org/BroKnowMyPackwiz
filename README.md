@@ -9,6 +9,7 @@
 - [和上游 packwiz 的差异](#和上游-packwiz-的差异)
 - [命令](#命令)
 - [配置](#配置)
+- [机器接口](#机器接口)
 - [体积策略](#体积策略)
 
 ## 致谢与来源说明
@@ -278,6 +279,26 @@ GitHub latest release 下载当前平台的 `bkmpw`、校验 `.sha256`，再执�
 `prepare-server <pack-root> [output-dir]` 使用同一套服务端包文件规则，但输出为目录而不是
 zip。默认目录是 `.bkmpw/server-pack`。运行前会删除旧输出目录，避免 CI 补文件、压缩发包时
 混入上次构建遗留内容。
+
+## 机器接口
+
+桌面壳、CI 和其它进程集成可以使用稳定的机器输出，不需要解析普通终端文本：
+
+```text
+bkmpw protocol-version --json
+bkmpw inspect . --json
+bkmpw check . --json
+bkmpw update . --all --json-lines
+```
+
+`--json` 在 stdout 输出一个 JSON 对象；`--json-lines` 输出可实时读取的
+`started`、`progress`、`completed` / `failed` 事件。诊断和底层下载进度仍写入
+stderr。机器模式保留正常退出码，例如 `check` 校验失败时仍退出 2，但会返回完整的
+结构化检查结果。
+
+协议版本独立于 CLI 版本。接入方应先读取 `protocol-version`，并忽略协议对象中未知的
+可选字段。完整字段、兼容规则和支持命令见
+[`docs/machine-protocol.md`](docs/machine-protocol.md)。
 
 ## 体积策略
 

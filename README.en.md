@@ -9,6 +9,7 @@
 - [Differences From Upstream packwiz](#differences-from-upstream-packwiz)
 - [Commands](#commands)
 - [Config](#config)
+- [Machine Interface](#machine-interface)
 - [Size Policy](#size-policy)
 
 ## Attribution / Credits
@@ -300,6 +301,29 @@ jars on the target machine.
 but writes a directory instead of a zip. The default directory is
 `.bkmpw/server-pack`. Existing output is removed before writing, so CI can add
 extra files and compress the directory without carrying stale build contents.
+
+## Machine Interface
+
+Desktop shells, CI jobs, and other process integrations can request structured
+output instead of parsing terminal text:
+
+```text
+bkmpw protocol-version --json
+bkmpw inspect . --json
+bkmpw check . --json
+bkmpw update . --all --json-lines
+```
+
+`--json` writes one JSON object to stdout. `--json-lines` streams `started`,
+`progress`, and terminal `completed` / `failed` events. Diagnostics and
+lower-level download progress remain on stderr. Machine mode preserves normal
+exit codes; for example, a failed `check` exits with status 2 while still
+returning the complete structured check result.
+
+The protocol version is independent of the CLI version. Integrations should
+query `protocol-version` and ignore unknown optional fields. See
+[`docs/machine-protocol.md`](docs/machine-protocol.md) for the schema,
+compatibility rules, and supported commands.
 
 ## Size Policy
 
