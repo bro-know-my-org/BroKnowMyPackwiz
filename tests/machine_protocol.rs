@@ -35,6 +35,37 @@ fn bkmpw() -> Command {
 }
 
 #[test]
+#[cfg(windows)]
+fn repairs_a_quoted_pack_root_split_by_a_launcher() {
+    let parent = TemporaryRoot::new("split-quoted-root");
+    let root = parent.path().join("pack with spaces");
+    let root = root.to_str().unwrap();
+    let initialized = bkmpw().args(["init", root]).output().unwrap();
+    assert!(
+        initialized.status.success(),
+        "{}",
+        String::from_utf8_lossy(&initialized.stderr)
+    );
+
+    let split_at = root.find(' ').unwrap();
+    let first = format!("\"{}", &root[..split_at]);
+    let second = format!("{}\"", &root[split_at + 1..]);
+
+    let output = bkmpw()
+        .args(["install-files-headless", &first, &second, "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(root.ends_with("pack with spaces"));
+    assert!(PathBuf::from(root).join("pack.toml").is_file());
+}
+
+#[test]
 fn protocol_version_is_discoverable_as_json() {
     let output = bkmpw()
         .args(["protocol-version", "--json"])

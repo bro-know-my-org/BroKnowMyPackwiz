@@ -1,4 +1,6 @@
 mod check;
+#[cfg(any(windows, test))]
+mod cli_args;
 mod config;
 mod curseforge;
 mod export_cf;
@@ -45,6 +47,8 @@ fn main() {
             std::process::exit(2);
         }
     };
+    #[cfg(windows)]
+    let args = cli_args::repair_legacy_windows_pack_root(args);
     let Some(command) = args.first() else {
         print_help();
         return;
