@@ -46,6 +46,11 @@ fn repairs_a_quoted_pack_root_split_by_a_launcher() {
         "{}",
         String::from_utf8_lossy(&initialized.stderr)
     );
+    fs::write(
+        PathBuf::from(root).join("mods/path-repair-fixture.pw.toml"),
+        "[option]\noptional = true\ndefault = false\n",
+    )
+    .unwrap();
 
     let split_at = root.find(' ').unwrap();
     let first = format!("\"{}", &root[..split_at]);
@@ -58,7 +63,8 @@ fn repairs_a_quoted_pack_root_split_by_a_launcher() {
 
     assert!(
         output.status.success(),
-        "{}",
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(root.ends_with("pack with spaces"));
