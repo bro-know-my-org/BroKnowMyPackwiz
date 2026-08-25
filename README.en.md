@@ -2,6 +2,9 @@
 
 [中文 README](README.md)
 
+> [!NOTE]
+> This repository is still actively maintained. Longer gaps between commits usually mean there are no known issues to fix and no new feature ideas at the moment—not that the project is abandoned. Feature requests and improvement ideas are welcome, so feel free to open an issue and make a wish!
+
 ## Contents
 
 - [Attribution / Credits](#attribution--credits)
