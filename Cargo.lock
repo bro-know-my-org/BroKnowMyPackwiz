@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "bro-know-my-packwiz"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crc32fast",
  "serde_json",
