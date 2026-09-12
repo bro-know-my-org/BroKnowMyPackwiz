@@ -26,7 +26,7 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
     let mut cf_files = Vec::new();
     let mut cf_override_targets = std::collections::BTreeSet::new();
     let mut managed_runtime_jars = std::collections::BTreeSet::new();
-    let mut overrides = Vec::new();
+    let mut overrides = std::collections::BTreeSet::new();
     if let Some(parent) = output.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -34,6 +34,7 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
             .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
     }
     let output_rel = output_rel_in_root(root, output);
+    let output_abs = output.canonicalize().ok();
 
     for entry in &report.metadata {
         let metadata = ModMetadata::load(&join_slash(root, &entry.path))?;
@@ -85,26 +86,52 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
         if !override_side(rel, &layout).installs_on(target_side) {
             continue;
         }
-        overrides.push(rel.clone());
+        overrides.insert(rel.clone());
+    }
+    // Managed non-CF files must be bundled even when runtime files are ignored.
+    for target in &managed_runtime_jars {
+        reject_symlink(root, target)?;
+        let target_path = join_slash(root, target);
+        if output_rel
+            .as_ref()
+            .is_some_and(|out| out.eq_ignore_ascii_case(target))
+            || output_abs
+                .as_ref()
+                .is_some_and(|out| target_path.canonicalize().ok().as_ref() == Some(out))
+        {
+            return Err(format!(
+                "output path collides with required override file: {target}"
+            ));
+        }
+        if !target_path.is_file() {
+            return Err(format!("missing required override file: {target}"));
+        }
+        overrides.insert(target.clone());
     }
     cf_files.sort_by(|a, b| {
         a.project_id
             .cmp(&b.project_id)
             .then(a.file_id.cmp(&b.file_id))
     });
-    overrides.sort();
 
-    let file = fs::File::create(output)
-        .map_err(|err| format!("failed to create {}: {err}", output.display()))?;
-    let mut zip = ZipStore::new(file);
-    zip.add_bytes("manifest.json", manifest_json(&pack, &cf_files).as_bytes())?;
-    for rel in &overrides {
-        reject_symlink(root, rel)?;
-        let zip_name = format!("overrides/{rel}");
-        zip.add_file(&zip_name, &join_slash(root, rel))?;
-    }
-    zip.finish()?;
-    Ok(cf_files.len())
+    let temp_output = crate::export_server::temp_zip_path(output);
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp_output)
+        .map_err(|err| format!("failed to create {}: {err}", temp_output.display()))?;
+    let result = (|| {
+        let mut zip = ZipStore::new(file);
+        zip.add_bytes("manifest.json", manifest_json(&pack, &cf_files).as_bytes())?;
+        for rel in &overrides {
+            reject_symlink(root, rel)?;
+            zip.add_file(&format!("overrides/{rel}"), &join_slash(root, rel))?;
+        }
+        zip.finish()?;
+        crate::export_server::replace_output(&temp_output, output)?;
+        Ok(cf_files.len())
+    })();
+    crate::export_server::cleanup_temp_on_error(result, &temp_output)
 }
 
 fn reject_unknown_side(side: &Side) -> Result<(), String> {
@@ -148,13 +175,7 @@ fn override_side(rel: &str, layout: &PackLayout) -> Side {
 }
 
 fn reject_symlink(root: &Path, rel: &str) -> Result<(), String> {
-    let path = join_slash(root, rel);
-    let metadata = fs::symlink_metadata(&path)
-        .map_err(|err| format!("failed to read metadata for {}: {err}", path.display()))?;
-    if metadata.file_type().is_symlink() {
-        return Err(format!("refusing to export symlink: {rel}"));
-    }
-    Ok(())
+    crate::export_server::reject_symlink(root, rel)
 }
 
 fn side_from_directory_or_metadata(hint: crate::scan::SideHint, metadata: &ModMetadata) -> Side {
@@ -446,6 +467,7 @@ mod tests {
     fn export_keeps_metadata_runtime_jar_without_curseforge_mapping_as_override() {
         let root = unique_test_dir("bkmpw-export-keeps-local-jar");
         create_pack(&root);
+        fs::write(root.join(".packwizignore"), "mods/*.jar\n").unwrap();
         fs::create_dir_all(root.join("mods/common")).unwrap();
         fs::write(root.join("mods").join("local.jar"), b"jar").unwrap();
         fs::write(
@@ -465,6 +487,45 @@ mod tests {
 
         assert!(zip_text.contains("overrides/mods/local.jar"));
 
+        let result = export_curseforge(&root, &root.join("mods/local.jar"), &Side::Both);
+        assert!(result.unwrap_err().contains("output path collides"));
+        assert_eq!(fs::read(root.join("mods/local.jar")).unwrap(), b"jar");
+
+        let result = export_curseforge(&root, &root.join("mods/LOCAL.jar"), &Side::Both);
+        assert!(result.unwrap_err().contains("output path collides"));
+        assert_eq!(fs::read(root.join("mods/local.jar")).unwrap(), b"jar");
+
+        fs::remove_file(&output).unwrap();
+        fs::hard_link(root.join("mods/local.jar"), &output).unwrap();
+        export_curseforge(&root, &output, &Side::Both).unwrap();
+        assert_eq!(fs::read(root.join("mods/local.jar")).unwrap(), b"jar");
+        assert!(
+            String::from_utf8_lossy(&fs::read(&output).unwrap())
+                .contains("overrides/mods/local.jar")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn ignored_managed_override_rejects_symlink_parent_before_replacing_output() {
+        let root = unique_test_dir("bkmpw-export-cf-symlink-parent");
+        create_pack(&root);
+        fs::create_dir_all(root.join("private")).unwrap();
+        fs::write(root.join("private/local.jar"), "private").unwrap();
+        std::os::unix::fs::symlink(root.join("private"), root.join("mods/link")).unwrap();
+        fs::write(root.join(".packwizignore"), "mods/link\nprivate\n").unwrap();
+        fs::write(
+            root.join("mods/local.pw.toml"),
+            "filename = \"mods/link/local.jar\"\n",
+        )
+        .unwrap();
+        let output = root.join("out.zip");
+        fs::write(&output, "previous-artifact").unwrap();
+        let result = export_curseforge(&root, &output, &Side::Both);
+        assert!(result.unwrap_err().contains("symlink"));
+        assert_eq!(fs::read_to_string(output).unwrap(), "previous-artifact");
         let _ = fs::remove_dir_all(root);
     }
 

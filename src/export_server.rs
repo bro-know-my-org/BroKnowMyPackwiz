@@ -531,7 +531,7 @@ fn stale_output_dir_path(output_dir: &Path) -> PathBuf {
     }
 }
 
-fn temp_zip_path(output: &Path) -> PathBuf {
+pub(crate) fn temp_zip_path(output: &Path) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let suffix = format!(
@@ -548,17 +548,36 @@ fn temp_zip_path(output: &Path) -> PathBuf {
     }
 }
 
-fn replace_output(temp_output: &Path, output: &Path) -> Result<(), String> {
-    match fs::rename(temp_output, output) {
+pub(crate) fn replace_output(temp_output: &Path, output: &Path) -> Result<(), String> {
+    replace_output_with(temp_output, output, |from, to| fs::rename(from, to))
+}
+
+fn replace_output_with(
+    temp_output: &Path,
+    output: &Path,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), String> {
+    match rename(temp_output, output) {
         Ok(()) => Ok(()),
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists && output.exists() => {
-            fs::remove_file(output)
-                .map_err(|err| format!("failed to replace {}: {err}", output.display()))?;
-            fs::rename(temp_output, output).map_err(|err| {
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists && output.is_file() => {
+            let backup = temp_zip_path(output);
+            rename(output, &backup)
+                .map_err(|err| format!("failed to back up {}: {err}", output.display()))?;
+            if let Err(err) = rename(temp_output, output) {
+                if let Err(restore) = rename(&backup, output) {
+                    return Err(format!(
+                        "failed to replace {}: {err}; restore failed: {restore}; previous output retained at {}",
+                        output.display(),
+                        backup.display()
+                    ));
+                }
+                return Err(format!("failed to replace {}: {err}", output.display()));
+            }
+            fs::remove_file(&backup).map_err(|err| {
                 format!(
-                    "failed to move {} to {}: {err}",
-                    temp_output.display(),
-                    output.display()
+                    "replaced {}, but failed to remove previous output backup {}: {err}",
+                    output.display(),
+                    backup.display()
                 )
             })
         }
@@ -570,7 +589,10 @@ fn replace_output(temp_output: &Path, output: &Path) -> Result<(), String> {
     }
 }
 
-fn cleanup_temp_on_error<T>(result: Result<T, String>, temp_output: &Path) -> Result<T, String> {
+pub(crate) fn cleanup_temp_on_error<T>(
+    result: Result<T, String>,
+    temp_output: &Path,
+) -> Result<T, String> {
     if result.is_err() {
         let _ = fs::remove_file(temp_output);
     }
@@ -634,7 +656,7 @@ fn output_rel_in_root(root: &Path, output: &Path) -> Result<Option<String>, Stri
     Ok(rel)
 }
 
-fn reject_symlink(root: &Path, rel: &str) -> Result<(), String> {
+pub(crate) fn reject_symlink(root: &Path, rel: &str) -> Result<(), String> {
     safe_slash_path(rel)?;
     let rel_path = Path::new(rel);
     let mut ancestors = rel_path.ancestors().collect::<Vec<_>>();
@@ -741,6 +763,35 @@ fn install_server_sh() -> &'static str {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn replacement_fallback_restores_previous_archive_on_failure() {
+        for fail in [false, true] {
+            let root = unique_test_dir("bkmpw-replace-fallback");
+            fs::create_dir_all(&root).unwrap();
+            let output = root.join("out.zip");
+            let temp = root.join("new.zip");
+            fs::write(&output, "old").unwrap();
+            fs::write(&temp, "new").unwrap();
+            let mut calls = 0;
+            let result = replace_output_with(&temp, &output, |from, to| {
+                calls += 1;
+                match calls {
+                    1 => Err(std::io::ErrorKind::AlreadyExists.into()),
+                    3 if fail => Err(std::io::ErrorKind::PermissionDenied.into()),
+                    _ => fs::rename(from, to),
+                }
+            });
+            let result = cleanup_temp_on_error(result, &temp);
+            assert_eq!(result.is_err(), fail);
+            assert_eq!(
+                fs::read_to_string(&output).unwrap(),
+                if fail { "old" } else { "new" }
+            );
+            assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
     use std::fs;
     use std::path::{Path, PathBuf};
 
