@@ -617,7 +617,7 @@ fn normalized_existing_or_future_path(path: &Path) -> Result<PathBuf, String> {
     Ok(parent.join(name))
 }
 
-fn output_rel_in_root(root: &Path, output: &Path) -> Result<Option<String>, String> {
+pub(crate) fn output_rel_in_root(root: &Path, output: &Path) -> Result<Option<String>, String> {
     let root_abs = root
         .canonicalize()
         .map_err(|err| format!("failed to resolve root {}: {err}", root.display()))?;

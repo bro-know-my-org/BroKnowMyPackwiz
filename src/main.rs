@@ -20,6 +20,7 @@ mod packinfo;
 mod pathutil;
 mod progress;
 mod refresh;
+mod release;
 mod scan;
 mod self_update;
 mod sha1;
