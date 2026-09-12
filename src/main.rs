@@ -99,6 +99,7 @@ fn main() {
         "modlist" => write_modlist(rest),
         "pin" => pin_or_unpin(rest, true),
         "prepare-server" => prepare_server_cmd(rest),
+        "prepare-pack" => prepare_pack_cmd(rest),
         "remove" | "rm" => remove(rest),
         "scan" => scan(first_path(rest)),
         "self-update" | "update-self" => self_update_cmd(rest),
@@ -148,6 +149,7 @@ fn print_help() {
     println!("  bkmpw list [pack-root]");
     println!("  bkmpw modlist <pack-root> [output-dir]");
     println!("  bkmpw prepare-server <pack-root> [output-dir]");
+    println!("  bkmpw prepare-pack <pack-root>");
     println!("  bkmpw pin <pack-root> <name>");
     println!("  bkmpw remove <pack-root> <name>");
     println!("  bkmpw scan [pack-root]");
@@ -689,12 +691,10 @@ fn export_curseforge(args: &[String]) -> Result<(), String> {
     }
     let (root, output, side) = parse_export_curseforge_args(args)?;
     reject_unknown_side(&side)?;
-    let config = ProjectConfig::load(&root)?;
-    let layout = PackLayout::from_config(&config);
-    let refreshed = refresh::refresh(&root, &config, &layout)?;
-    let files = export_cf::export_curseforge(&root, &output, &side)?;
+    let prepared = release::PreparedPack::new(&root, &output, true)?;
+    let files = export_cf::export_curseforge(&prepared.root, &output, &side)?;
 
-    println!("refreshed {}", refreshed.index_path.display());
+    print_release_preparation(&prepared);
     println!("exported {}", output.display());
     println!("curseforge files: {files}");
     Ok(())
@@ -702,12 +702,10 @@ fn export_curseforge(args: &[String]) -> Result<(), String> {
 
 fn export_client_cmd(args: &[String]) -> Result<(), String> {
     let (root, output, root_name) = parse_export_client_args(args)?;
-    let config = ProjectConfig::load(&root)?;
-    let layout = PackLayout::from_config(&config);
-    let refreshed = refresh::refresh(&root, &config, &layout)?;
-    let files = export_server::export_client(&root, &output, root_name.as_deref())?;
+    let prepared = release::PreparedPack::new(&root, &output, true)?;
+    let files = export_server::export_client(&prepared.root, &output, root_name.as_deref())?;
 
-    println!("refreshed {}", refreshed.index_path.display());
+    print_release_preparation(&prepared);
     println!("exported {}", output.display());
     println!("client pack files: {files}");
     Ok(())
@@ -715,12 +713,10 @@ fn export_client_cmd(args: &[String]) -> Result<(), String> {
 
 fn export_server_cmd(args: &[String]) -> Result<(), String> {
     let (root, output) = parse_export_server_args(args)?;
-    let config = ProjectConfig::load(&root)?;
-    let layout = PackLayout::from_config(&config);
-    let refreshed = refresh::refresh(&root, &config, &layout)?;
-    let files = export_server::export_server(&root, &output)?;
+    let prepared = release::PreparedPack::new(&root, &output, true)?;
+    let files = export_server::export_server(&prepared.root, &output)?;
 
-    println!("refreshed {}", refreshed.index_path.display());
+    print_release_preparation(&prepared);
     println!("exported {}", output.display());
     println!("server pack files: {files}");
     Ok(())
@@ -728,14 +724,29 @@ fn export_server_cmd(args: &[String]) -> Result<(), String> {
 
 fn export_server_installer_cmd(args: &[String]) -> Result<(), String> {
     let (root, output) = parse_export_server_installer_args(args)?;
-    let config = ProjectConfig::load(&root)?;
-    let layout = PackLayout::from_config(&config);
-    let refreshed = refresh::refresh(&root, &config, &layout)?;
-    let files = export_server::export_server_installer(&root, &output)?;
+    let prepared = release::PreparedPack::new(&root, &output, false)?;
+    let files = export_server::export_server_installer(&prepared.root, &output)?;
 
-    println!("refreshed {}", refreshed.index_path.display());
+    print_release_preparation(&prepared);
     println!("exported {}", output.display());
     println!("server installer files: {files}");
+    Ok(())
+}
+
+fn print_release_preparation(prepared: &release::PreparedPack) {
+    if prepared.staged {
+        println!("prepared and validated release snapshot");
+    } else {
+        println!("refreshed {}", prepared.refreshed.index_path.display());
+    }
+}
+
+fn prepare_pack_cmd(args: &[String]) -> Result<(), String> {
+    if args.len() != 1 {
+        return Err("usage: bkmpw prepare-pack <pack-root>".into());
+    }
+    let files = release::prepare_pack(&PathBuf::from(&args[0]))?;
+    println!("prepared template files: {files}");
     Ok(())
 }
 

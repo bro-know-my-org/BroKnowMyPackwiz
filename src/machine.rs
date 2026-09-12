@@ -237,6 +237,17 @@ fn dispatch(
         "export-server-installer" => export_server_installer(args, emitter),
         "export-curseforge" => export_curseforge(args, emitter),
         "prepare-server" => prepare_server(args, emitter),
+        "prepare-pack" => {
+            if args.len() != 1 {
+                return Err("usage: bkmpw prepare-pack <pack-root>".into());
+            }
+            let root = PathBuf::from(&args[0]);
+            emitter.progress("preparing", "expanding release templates")?;
+            let files = crate::release::prepare_pack(&root)?;
+            Ok(CommandResult::success(
+                json!({"packRoot": path(&root), "files": files}),
+            ))
+        }
         other => Err(format!(
             "command does not support machine output in protocol v{PROTOCOL_VERSION}: {other}"
         )),
@@ -645,10 +656,13 @@ fn export_client(args: &[String], emitter: &mut Emitter<'_>) -> Result<CommandRe
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("client-full.zip"));
     let root_name = args.get(2).map(String::as_str);
-    let refreshed = refresh_pack(&root, emitter)?;
+    emitter.progress("refreshing", "rebuilding pack index")?;
+    let prepared = crate::release::PreparedPack::new(&root, &output, true)?;
     emitter.progress("exporting", "writing client archive")?;
-    let files = export_server::export_client(&root, &output, root_name)?;
-    Ok(export_result(&root, &output, refreshed, files, "client"))
+    let files = export_server::export_client(&prepared.root, &output, root_name)?;
+    Ok(release_export_result(
+        &root, &output, &prepared, files, "client",
+    ))
 }
 
 fn export_server_command(
@@ -656,10 +670,13 @@ fn export_server_command(
     emitter: &mut Emitter<'_>,
 ) -> Result<CommandResult, String> {
     let (root, output) = export_paths(args, "server-pack.zip", "export-server")?;
-    let refreshed = refresh_pack(&root, emitter)?;
+    emitter.progress("refreshing", "rebuilding pack index")?;
+    let prepared = crate::release::PreparedPack::new(&root, &output, true)?;
     emitter.progress("exporting", "writing server archive")?;
-    let files = export_server::export_server(&root, &output)?;
-    Ok(export_result(&root, &output, refreshed, files, "server"))
+    let files = export_server::export_server(&prepared.root, &output)?;
+    Ok(release_export_result(
+        &root, &output, &prepared, files, "server",
+    ))
 }
 
 fn export_server_installer(
@@ -667,13 +684,14 @@ fn export_server_installer(
     emitter: &mut Emitter<'_>,
 ) -> Result<CommandResult, String> {
     let (root, output) = export_paths(args, "server-installer.zip", "export-server-installer")?;
-    let refreshed = refresh_pack(&root, emitter)?;
+    emitter.progress("refreshing", "rebuilding pack index")?;
+    let prepared = crate::release::PreparedPack::new(&root, &output, false)?;
     emitter.progress("exporting", "writing server installer archive")?;
-    let files = export_server::export_server_installer(&root, &output)?;
-    Ok(export_result(
+    let files = export_server::export_server_installer(&prepared.root, &output)?;
+    Ok(release_export_result(
         &root,
         &output,
-        refreshed,
+        &prepared,
         files,
         "server-installer",
     ))
@@ -700,13 +718,14 @@ fn export_curseforge(args: &[String], emitter: &mut Emitter<'_>) -> Result<Comma
     } else {
         (root.join("curseforge-export.zip"), Side::Both)
     };
-    let refreshed = refresh_pack(&root, emitter)?;
+    emitter.progress("refreshing", "rebuilding pack index")?;
+    let prepared = crate::release::PreparedPack::new(&root, &output, true)?;
     emitter.progress("exporting", "writing CurseForge archive")?;
-    let files = export_cf::export_curseforge(&root, &output, &side)?;
-    Ok(export_result(
+    let files = export_cf::export_curseforge(&prepared.root, &output, &side)?;
+    Ok(release_export_result(
         &root,
         &output,
-        refreshed,
+        &prepared,
         files,
         "curseforge",
     ))
@@ -738,6 +757,22 @@ fn refresh_pack(root: &Path, emitter: &mut Emitter<'_>) -> Result<refresh::Refre
     let config = ProjectConfig::load(root)?;
     let layout = PackLayout::from_config(&config);
     refresh::refresh(root, &config, &layout)
+}
+
+fn release_export_result(
+    root: &Path,
+    output: &Path,
+    prepared: &crate::release::PreparedPack,
+    files: usize,
+    kind: &str,
+) -> CommandResult {
+    let mut result = export_result(root, output, prepared.refreshed.clone(), files, kind);
+    result.data["releaseStaged"] = json!(prepared.staged);
+    result.data["refresh"]["temporary"] = json!(prepared.staged);
+    if prepared.staged {
+        result.data["refresh"]["indexPath"] = Value::Null;
+    }
+    result
 }
 
 fn export_result(
