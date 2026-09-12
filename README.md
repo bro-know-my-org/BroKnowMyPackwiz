@@ -84,6 +84,7 @@ bkmpw export-curseforge <pack-root> [output.zip] [side]
 bkmpw export-server <pack-root> [output.zip]
 bkmpw export-server-installer <pack-root> [output.zip]
 bkmpw prepare-server <pack-root> [output-dir]
+bkmpw prepare-pack <pack-root>
 bkmpw add-url <pack-root> <side> <name> <filename> <url> <sha256>
 bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>
 bkmpw add-shaderpack <pack-root> <name> <filename> <url> <sha256>
@@ -101,6 +102,10 @@ bkmpw install-files-retry <pack-root> [attempts] [delay-seconds]
 bkmpw install-local <source-root> <target-root> <side> [jobs] [--force] [--retries n] [--retry-delay-seconds n]
 bkmpw hash <sha1|sha256|sha512|murmur2> <file>
 ```
+
+四种 `export-*` 支持通过 `[release]` 配置启用发布准备：在临时目录展开模板、
+校验元数据并刷新索引，不覆盖开发实例。`prepare-pack` 用于显式展开本地模板。
+配置示例和行为说明见 [发布流程](docs/workflows.md#release-preparation-all-four-exports)。
 
 ## 配置
 

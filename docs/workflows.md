@@ -124,8 +124,53 @@ bkmpw export-curseforge <pack-root> <output.zip> both
 If any metadata uses `[export.curseforge] latest = true`, export needs
 `CURSEFORGE_API_KEY` or `[curseforge].api-key`.
 
-## Prepare Pack
+## Release Preparation (All Four Exports)
 
-The old devtool `prepare-pack` step is intentionally not reimplemented as Rust
-CLI behavior yet. Keep it as a thin script around the current CLI commands if
-the pack still needs that release workflow.
+Enable isolated release preparation in `.pw/config.toml`:
+
+```toml
+[release]
+enabled = true
+template-dir = "pack"
+template-files = "pack.toml,icon.png,start.sh,start.bat,variables.txt,PCL/Setup.ini"
+```
+
+`export-client`, `export-curseforge`, `export-server`, and
+`export-server-installer` keep their existing arguments. When enabled, each
+copies publish inputs into a temporary directory, overlays the listed template
+files, validates metadata and target collisions, refreshes the temporary index,
+and exports. The source workspace's pack descriptor, index and runtime files
+are not modified. Temporary files are removed on success or ordinary failure.
+Allow enough temporary disk space for the publish files and local managed files.
+
+Template paths are relative to `template-dir`, and preserve their relative
+destination in the archive. Every listed file is required; symlinks, parent
+traversal and reserved bookkeeping destinations are rejected. Explicit template
+files are included even if their generated copies are gitignored. Template
+destinations cannot contain ignore wildcards (`*` or `?`). Runtime template
+filenames must match the metadata target spelling, including ASCII case.
+Included workspace files that differ from template destinations only by ASCII
+case are rejected too. Existing side
+and root-overlay rules still apply. Omit both template fields for preparation
+without templates. Without `enabled = true`, exports retain their legacy refresh
+behavior. No dependency updates or downloads are added: full exports require
+their local managed files; the server installer needs no local runtime jars.
+CurseForge-mapped files still use manifest IDs, while other managed files are
+bundled as overrides even when ignored by the scan rules.
+
+For an explicit local template expansion, run `bkmpw prepare-pack <pack-root>`.
+This overwrites the listed development-root files and refreshes the local index.
+Copy/refresh failures restore the affected files from backups. If restoration
+itself fails, the error reports the retained backup directory for recovery.
+Template directories must be separate from managed metadata/runtime directories,
+overlays and bookkeeping. Exclude other template source files from the publish
+scan (for example, add `pack/` to `.packwizignore`); unlisted publish inputs in a
+template directory are rejected. Template sources/destinations cannot be export
+outputs. In-pack archive outputs must also avoid root-overlay target paths;
+ambiguous output paths are rejected before writing, including ASCII case aliases. Reserved ASCII paths are checked without regard to case for portability.
+Project-specific generators, such as CDPR's KubeJS integrity manifest, can run
+before export in a thin project script.
+
+JSON exports use the same preparation path. `data.releaseStaged` and
+`data.refresh.temporary` identify a temporary index; `data.refresh.indexPath` is null for staged exports
+because that index is removed when the command finishes. `prepare-pack` also supports JSON and JSON Lines.

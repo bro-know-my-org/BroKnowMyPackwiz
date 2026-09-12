@@ -729,3 +729,190 @@ fn prepare_pack_replaces_hardlinks_without_modifying_outside_files() {
         );
     }
 }
+
+#[test]
+fn disabled_release_preserves_json_lines_refresh_event() {
+    let root = release_fixture();
+    fs::write(
+        root.path().join(".pw/config.toml"),
+        "[release]\nenabled = false\n",
+    )
+    .unwrap();
+    fs::copy(
+        root.path().join("pack/pack.toml"),
+        root.path().join("pack.toml"),
+    )
+    .unwrap();
+    for command in [
+        "export-client",
+        "export-server",
+        "export-curseforge",
+        "export-server-installer",
+    ] {
+        let output = bkmpw()
+            .arg(command)
+            .arg(root.path())
+            .arg(root.path().join("result.zip"))
+            .arg("--json-lines")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{command}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let events: Vec<Value> = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(events[1]["event"], "progress");
+        assert_eq!(events[1]["phase"], "refreshing");
+        assert_eq!(events[1]["message"], "rebuilding pack index");
+        let data = &events.last().unwrap()["data"];
+        assert_eq!(data["releaseStaged"], false);
+        assert_eq!(data["refresh"]["temporary"], false);
+        assert_eq!(
+            fs::canonicalize(data["refresh"]["indexPath"].as_str().unwrap()).unwrap(),
+            fs::canonicalize(root.path().join("index.toml")).unwrap()
+        );
+    }
+}
+
+#[test]
+fn release_rejects_case_aliased_runtime_templates() {
+    let root = release_fixture();
+    let config_path = root.path().join(".pw/config.toml");
+    let config = fs::read_to_string(&config_path).unwrap();
+    fs::write(
+        &config_path,
+        config.replace("PCL/Setup.ini", "PCL/Setup.ini,mods/LOCAL.jar"),
+    )
+    .unwrap();
+    fs::create_dir_all(root.path().join("pack/mods")).unwrap();
+    fs::write(root.path().join("pack/mods/LOCAL.jar"), "template-runtime").unwrap();
+    for present in [true, false] {
+        if !present {
+            fs::remove_file(root.path().join("mods/local.jar")).unwrap();
+        }
+        for command in [
+            "export-client",
+            "export-server",
+            "export-curseforge",
+            "export-server-installer",
+        ] {
+            let zip = root.path().join("result.zip");
+            fs::write(&zip, "previous-artifact").unwrap();
+            let output = bkmpw()
+                .arg(command)
+                .arg(root.path())
+                .arg(&zip)
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("case differs from managed runtime target")
+            );
+            assert_eq!(fs::read_to_string(&zip).unwrap(), "previous-artifact");
+        }
+    }
+    fs::write(
+        &config_path,
+        config.replace(
+            "PCL/Setup.ini",
+            "PCL/Setup.ini,mods/LOCAL.jar,mods/local.jar",
+        ),
+    )
+    .unwrap();
+    let output = bkmpw()
+        .arg("prepare-pack")
+        .arg(root.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("duplicate release template destination")
+    );
+}
+
+#[test]
+fn release_rejects_output_shadowing_root_overlay_target() {
+    let root = release_fixture();
+    fs::write(
+        root.path().join("roots/server/server.properties"),
+        "release-properties",
+    )
+    .unwrap();
+    for name in ["server.properties", "SERVER.PROPERTIES"] {
+        let output_path = root.path().join(name);
+        fs::write(&output_path, "previous-artifact").unwrap();
+        for command in [
+            "export-client",
+            "export-server",
+            "export-curseforge",
+            "export-server-installer",
+        ] {
+            let output = bkmpw()
+                .arg(command)
+                .arg(root.path())
+                .arg(&output_path)
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("collides with release overlay target")
+            );
+            assert_eq!(
+                fs::read_to_string(&output_path).unwrap(),
+                "previous-artifact"
+            );
+        }
+    }
+}
+
+#[test]
+fn release_rejects_publish_input_alias_of_exact_runtime_template() {
+    let root = release_fixture();
+    let config_path = root.path().join(".pw/config.toml");
+    let config = fs::read_to_string(&config_path).unwrap();
+    fs::write(
+        &config_path,
+        config.replace("PCL/Setup.ini", "PCL/Setup.ini,mods/Local.jar"),
+    )
+    .unwrap();
+    fs::create_dir_all(root.path().join("pack/mods")).unwrap();
+    fs::write(root.path().join("pack/mods/Local.jar"), "template-runtime").unwrap();
+    let metadata_path = root.path().join("mods/local.pw.toml");
+    let metadata = fs::read_to_string(&metadata_path).unwrap();
+    fs::write(&metadata_path, metadata.replace("local.jar", "Local.jar")).unwrap();
+    let ignore_path = root.path().join(".packwizignore");
+    let ignores = fs::read_to_string(&ignore_path).unwrap();
+    fs::write(&ignore_path, format!("{ignores}\n!/mods/local.jar\n")).unwrap();
+    for command in [
+        "export-client",
+        "export-server",
+        "export-curseforge",
+        "export-server-installer",
+    ] {
+        let zip = root.path().join("result.zip");
+        fs::write(&zip, "previous-artifact").unwrap();
+        let output = bkmpw()
+            .arg(command)
+            .arg(root.path())
+            .arg(&zip)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("template case differs from publish input")
+        );
+        assert_eq!(fs::read_to_string(&zip).unwrap(), "previous-artifact");
+        assert_eq!(
+            fs::read_to_string(root.path().join("mods/local.jar")).unwrap(),
+            "managed-runtime-marker"
+        );
+    }
+}

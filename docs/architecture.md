@@ -13,6 +13,8 @@ metadata used by the pack.
 - `metadata.rs`: parses packwiz-style `.pw` metadata plus local extensions.
 - `refresh.rs`: writes `index.toml` and updates the `[index]` hash in
   `pack.toml`.
+- `release.rs`: shared export preparation for text and machine CLI entry points;
+  stages configured templates and publish inputs, validates and refreshes them.
 - `install.rs`: implements `download-files`, `sync`, and installer-style local
   install. It owns target path resolution and cleanup rules.
 - `http.rs`: owns HTTP download helpers, including optional Range-based split
