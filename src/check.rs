@@ -23,6 +23,18 @@ impl CheckResult {
 }
 
 pub fn check(root: &Path) -> CheckResult {
+    check_impl(root, false, &BTreeSet::new())
+}
+
+pub fn check_release(root: &Path, templates: &BTreeSet<String>) -> CheckResult {
+    let templates = templates
+        .iter()
+        .map(|path| path.to_ascii_lowercase())
+        .collect();
+    check_impl(root, true, &templates)
+}
+
+fn check_impl(root: &Path, release: bool, templates: &BTreeSet<String>) -> CheckResult {
     let mut result = CheckResult {
         ok: Vec::new(),
         warnings: Vec::new(),
@@ -37,7 +49,12 @@ pub fn check(root: &Path) -> CheckResult {
     }
     result.ok.push(format!("pack root: {}", root.display()));
 
-    for required in ["pack.toml", "index.toml", ".packwizignore", ".gitignore"] {
+    let required_files: &[&str] = if release {
+        &["pack.toml"]
+    } else {
+        &["pack.toml", "index.toml", ".packwizignore", ".gitignore"]
+    };
+    for required in required_files {
         let path = root.join(required);
         if path.exists() {
             result.ok.push(format!("found {required}"));
@@ -87,7 +104,9 @@ pub fn check(root: &Path) -> CheckResult {
         .included
         .iter()
         .filter(|rel| !crate::scan::is_metadata_file(rel, &layout))
-        .filter(|rel| !managed_files.contains(*rel))
+        .filter(|rel| {
+            !managed_files.contains(*rel) && !templates.contains(&rel.to_ascii_lowercase())
+        })
         .cloned()
         .collect::<BTreeSet<_>>();
     let mut targets: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -173,7 +192,9 @@ pub fn check(root: &Path) -> CheckResult {
         }
     }
 
-    check_git_ignore(root, &layout, &mut result);
+    if !release {
+        check_git_ignore(root, &layout, &mut result);
+    }
 
     result
 }
@@ -291,6 +312,8 @@ mod tests {
                 .iter()
                 .any(|item| item.contains("metadata target collides"))
         );
+        let released = check_release(&root, &BTreeSet::from(["mods/FOO.jar".into()]));
+        assert!(released.is_ok(), "{:?}", released.errors);
 
         let _ = fs::remove_dir_all(root);
     }

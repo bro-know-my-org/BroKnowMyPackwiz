@@ -8,6 +8,14 @@ pub struct ProjectConfig {
     pub layout: LayoutConfig,
     pub install: InstallConfig,
     pub curseforge: CurseForgeConfig,
+    pub release: ReleaseConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ReleaseConfig {
+    pub enabled: bool,
+    pub template_dir: Option<PathBuf>,
+    pub template_files: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +118,7 @@ impl ProjectConfig {
                 api_key: None,
                 cdn_fallback: true,
             },
+            release: ReleaseConfig::default(),
         }
     }
 }
@@ -121,6 +130,11 @@ fn apply_value(
     value: &str,
 ) -> Result<(), String> {
     match (section, key) {
+        ("release", "enabled") => config.release.enabled = parse_bool(value)?,
+        ("release", "template-dir") => {
+            config.release.template_dir = Some(parse_string_path(value)?)
+        }
+        ("release", "template-files") => config.release.template_files = parse_string_list(value)?,
         ("scan", "use-gitignore") => config.scan.use_gitignore = parse_bool(value)?,
         ("scan", "packwizignore") => config.scan.packwizignore = parse_string_path(value)?,
         ("layout", "metadata-root") => {
@@ -134,7 +148,7 @@ fn apply_value(
                 .metadata_roots
                 .first()
                 .cloned()
-                .ok_or_else(|| "expected at least one metadata root".to_string())?;
+                .ok_or_else(|| "expected at least one path".to_string())?;
         }
         ("layout", "jar-root") => config.layout.jar_root = parse_string_path(value)?,
         ("layout", "server-meta") => config.layout.server_meta = parse_string_path(value)?,
@@ -216,7 +230,7 @@ fn parse_string_list(value: &str) -> Result<Vec<PathBuf>, String> {
         })
         .collect::<Result<Vec<_>, String>>()?;
     if roots.is_empty() {
-        return Err("expected at least one metadata root".to_string());
+        return Err("expected at least one path".to_string());
     }
     Ok(roots)
 }

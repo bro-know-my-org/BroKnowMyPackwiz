@@ -290,6 +290,7 @@ mod tests {
     fn direct_mods_metadata_is_common_compat() {
         let config = ProjectConfig {
             source: PathBuf::from(".pw/config.toml"),
+            release: Default::default(),
             scan: ScanConfig {
                 use_gitignore: true,
                 packwizignore: PathBuf::from(".packwizignore"),
@@ -424,6 +425,7 @@ mod tests {
     fn test_config() -> ProjectConfig {
         ProjectConfig {
             source: PathBuf::from(".pw/config.toml"),
+            release: Default::default(),
             scan: ScanConfig {
                 use_gitignore: true,
                 packwizignore: PathBuf::from(".packwizignore"),
