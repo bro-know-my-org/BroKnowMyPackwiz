@@ -10,11 +10,66 @@ pub struct WriteLocks {
     _files: Vec<File>,
 }
 
+pub fn for_command(command: &str, args: &[String]) -> Result<Option<WriteLocks>> {
+    if !matches!(
+        command,
+        "init"
+            | "refresh"
+            | "pin"
+            | "unpin"
+            | "remove"
+            | "rm"
+            | "update"
+            | "add-url"
+            | "add-file"
+            | "add-curseforge"
+            | "add-github"
+            | "add-resourcepack"
+            | "add-shaderpack"
+            | "download-files"
+            | "sync"
+            | "install-local"
+            | "install-files"
+            | "install-files-headless"
+            | "install-files-retry"
+            | "export-client"
+            | "export-server"
+            | "export-server-installer"
+            | "export-curseforge"
+            | "prepare-pack"
+            | "prepare-server"
+            | "modlist"
+    ) {
+        return Ok(None);
+    }
+    let root = args
+        .first()
+        .map(PathBuf::from)
+        .unwrap_or(std::env::current_dir()?);
+    let mut paths = vec![root];
+    if matches!(
+        command,
+        "sync"
+            | "install-local"
+            | "prepare-server"
+            | "modlist"
+            | "export-client"
+            | "export-server"
+            | "export-server-installer"
+            | "export-curseforge"
+    ) {
+        if let Some(target) = args.get(1) {
+            paths.push(PathBuf::from(target));
+        }
+    }
+    WriteLocks::acquire(&durable::user_state()?, &paths).map(Some)
+}
+
 impl WriteLocks {
     pub fn acquire(state: &Path, paths: &[PathBuf]) -> Result<Self> {
         let mut paths = paths
             .iter()
-            .map(|p| durable::absolute(p))
+            .map(|p| durable::canonical(p))
             .collect::<Result<Vec<_>>>()?;
         paths.sort();
         paths.dedup();

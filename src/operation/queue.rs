@@ -78,7 +78,7 @@ pub struct Queue {
 
 impl Queue {
     pub fn open(root: &Path, state: &Path) -> Result<Self> {
-        let root = durable::absolute(root)?;
+        let root = durable::canonical(root)?;
         let id = root_key(&root);
         let file = state.join("queues").join(format!("{id}.json"));
         let lease = WriteLocks::acquire(state, &[state.join("queue-leases").join(&id)])?;

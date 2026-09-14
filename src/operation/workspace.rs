@@ -16,7 +16,7 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn create(original: &Path, staged: &Path, control: &Control) -> Result<Self> {
-        let original = durable::absolute(original)?;
+        let original = durable::canonical(original)?;
         let staged = durable::absolute(staged)?;
         if staged.starts_with(&original) || original.starts_with(&staged) {
             return Err(Error::new(

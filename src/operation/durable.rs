@@ -124,6 +124,17 @@ pub fn absolute(path: &Path) -> Result<PathBuf> {
             Err(e) => return Err(e.into()),
         }
     }
+    canonical(&output)
+}
+
+/// Resolve a user-selected root or lock identity, including system directory aliases.
+/// Transaction targets still use `absolute` to reject symlinks inside that root.
+pub fn canonical(path: &Path) -> Result<PathBuf> {
+    let output = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
     // Canonicalizing the nearest existing ancestor also normalizes Windows drive spelling.
     let mut ancestor = output.as_path();
     let mut missing = Vec::new();

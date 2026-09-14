@@ -19,7 +19,7 @@ pub struct Draft {
 
 pub fn document(root: &Path, relative: &str) -> Result<(DocumentMut, Option<String>)> {
     crate::pathutil::safe_slash_path(relative).map_err(Error::from)?;
-    let path = durable::absolute(&root.join(relative))?;
+    let path = durable::absolute(&durable::canonical(root)?.join(relative))?;
     let expected = durable::fingerprint(&path)?;
     let text = if expected.is_some() {
         fs::read_to_string(&path)?

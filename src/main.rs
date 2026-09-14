@@ -66,6 +66,13 @@ fn main() {
         return;
     }
 
+    let _write_locks = match operation::lock::for_command(command, rest) {
+        Ok(locks) => locks,
+        Err(error) => {
+            eprintln!("error: {error}");
+            std::process::exit(2);
+        }
+    };
     let result = match command.as_str() {
         "tui" => tui::run(rest),
         "-h" | "--help" | "help" => {
