@@ -188,7 +188,7 @@ fn project_slug(project: &str) -> String {
         .to_string()
 }
 
-fn loader_type(loader: &str) -> Option<u64> {
+pub(crate) fn loader_type(loader: &str) -> Option<u64> {
     match loader.to_ascii_lowercase().as_str() {
         "forge" => Some(1),
         "fabric" => Some(4),

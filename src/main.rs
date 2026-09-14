@@ -1,3 +1,4 @@
+mod catalog;
 mod check;
 #[cfg(any(windows, test))]
 mod cli_args;
