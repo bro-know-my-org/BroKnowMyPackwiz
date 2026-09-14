@@ -35,6 +35,8 @@ pub struct App {
     pub persist_preferences: bool,
     pub settings_index: usize,
     pub external: Option<String>,
+    pub buttons: Vec<(KeyCode, Rect)>,
+    pub menu_area: Rect,
     pending: Option<Receiver<Result<Vec<Entry>, String>>>,
 }
 
@@ -62,6 +64,8 @@ impl App {
             persist_preferences: false,
             settings_index: 0,
             external: None,
+            buttons: Vec::new(),
+            menu_area: Rect::default(),
             pending: None,
         };
         app.reload();
@@ -184,6 +188,24 @@ impl App {
         if self.dialog.is_some() {
             self.dialog_event(event);
             return false;
+        }
+        if let Event::Mouse(mouse) = &event {
+            if !self.jobs.quit_prompt
+                && !self.help
+                && mouse.kind == MouseEventKind::Down(MouseButton::Left)
+            {
+                if let Some(code) = self
+                    .buttons
+                    .iter()
+                    .find(|(_, area)| area.contains((mouse.column, mouse.row).into()))
+                    .map(|(key, _)| *key)
+                {
+                    return self.event(Event::Key(crossterm::event::KeyEvent::new(
+                        code,
+                        KeyModifiers::NONE,
+                    )));
+                }
+            }
         }
         match event {
             Event::Paste(text) if self.editing => {
@@ -352,6 +374,21 @@ impl App {
                         }
                         _ => {}
                     }
+                }
+                if self.page == 4 && self.menu_area.contains(point) {
+                    let index = (mouse.row - self.menu_area.y) as usize;
+                    if index < super::dialog::SETTINGS.len()
+                        && mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                    {
+                        self.settings_index = index;
+                        return self.event(Event::Key(crossterm::event::KeyEvent::new(
+                            KeyCode::Enter,
+                            KeyModifiers::NONE,
+                        )));
+                    }
+                }
+                if self.page == 3 {
+                    self.jobs.mouse(mouse);
                 }
             }
             _ => {}
