@@ -30,6 +30,10 @@ pub struct App {
     pub help: bool,
     pub error: Option<String>,
     pub jobs: super::jobs::Jobs,
+    pub dialog: Option<super::dialog::Dialog>,
+    pub preferences: super::preferences::Preferences,
+    pub persist_preferences: bool,
+    pub settings_index: usize,
     pending: Option<Receiver<Result<Vec<Entry>, String>>>,
 }
 
@@ -52,6 +56,10 @@ impl App {
             help: false,
             error: None,
             jobs: super::jobs::Jobs::default(),
+            dialog: None,
+            preferences: super::preferences::Preferences::default(),
+            persist_preferences: false,
+            settings_index: 0,
             pending: None,
         };
         app.reload();
@@ -171,6 +179,10 @@ impl App {
     }
 
     pub fn event(&mut self, event: Event) -> bool {
+        if self.dialog.is_some() {
+            self.dialog_event(event);
+            return false;
+        }
         match event {
             Event::Paste(text) if self.editing => {
                 self.filter.extend(text.chars().filter(|c| !c.is_control()));
@@ -212,7 +224,15 @@ impl App {
                     }
                     KeyCode::Tab => self.page = (self.page + 1) % PAGES.len(),
                     KeyCode::BackTab => self.page = (self.page + PAGES.len() - 1) % PAGES.len(),
-                    KeyCode::Char('l') => self.language.toggle(),
+                    KeyCode::Char('l') => {
+                        self.language.toggle();
+                        self.preferences.language = Some(self.language);
+                        if self.persist_preferences {
+                            if let Err(error) = self.preferences.save() {
+                                self.error = Some(error.to_string());
+                            }
+                        }
+                    }
                     KeyCode::Char('?') => self.help = true,
                     KeyCode::Char('r') if self.page != 3 => self.reload(),
                     KeyCode::Char('p') if self.page == 0 => {
@@ -227,6 +247,31 @@ impl App {
                         };
                         if let Err(error) = self.jobs.pin(&self.root, &selected) {
                             self.error = Some(error.to_string());
+                        }
+                    }
+                    KeyCode::Char('e') if self.page == 0 => {
+                        if let Some(entry) = self.current() {
+                            match super::dialog::Dialog::metadata(&self.root, &entry.path) {
+                                Ok(dialog) => self.dialog = Some(dialog),
+                                Err(error) => self.error = Some(error.to_string()),
+                            }
+                        }
+                    }
+                    KeyCode::Down if self.page == 4 => {
+                        self.settings_index =
+                            (self.settings_index + 1).min(super::dialog::SETTINGS.len() - 1)
+                    }
+                    KeyCode::Up if self.page == 4 => {
+                        self.settings_index = self.settings_index.saturating_sub(1)
+                    }
+                    KeyCode::Enter if self.page == 4 => {
+                        match super::dialog::Dialog::settings(
+                            &self.root,
+                            self.settings_index,
+                            &self.preferences,
+                        ) {
+                            Ok(dialog) => self.dialog = Some(dialog),
+                            Err(error) => self.error = Some(error.to_string()),
                         }
                     }
                     code if self.page == 3 && code != KeyCode::Esc => {
@@ -294,5 +339,78 @@ impl App {
                 false
             }
         }
+    }
+
+    fn dialog_event(&mut self, event: Event) {
+        use super::{dialog::Submission, form::Action};
+        let mut dialog = self.dialog.take().unwrap();
+        match dialog.form.event(event) {
+            Action::Cancel => return,
+            Action::Continue => {
+                self.dialog = Some(dialog);
+                return;
+            }
+            Action::Submit => {}
+        }
+        let result = (|| -> crate::operation::Result<()> {
+            let state = self
+                .jobs
+                .queue
+                .as_ref()
+                .map(|q| q.state.clone())
+                .unwrap_or(crate::operation::durable::user_state()?);
+            match dialog.submit(&state, &self.preferences)? {
+                Submission::Edit(draft) => {
+                    let queue = self.jobs.queue.as_mut().ok_or_else(|| {
+                        crate::operation::Error::new(
+                            crate::operation::ErrorCode::Busy,
+                            "queue unavailable",
+                        )
+                    })?;
+                    queue.enqueue(
+                        "edit_metadata",
+                        crate::operation::queue::Request::Edit(vec![draft]),
+                    )?;
+                }
+                Submission::Preferences(preferences) => {
+                    preferences.save()?;
+                    self.preferences = preferences;
+                    self.language = self.preferences.language.unwrap_or_else(Language::detect);
+                }
+                Submission::Open(root) => self.switch_root(root)?,
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            dialog.form.error = Some(error.to_string());
+            self.dialog = Some(dialog);
+        }
+    }
+
+    fn switch_root(&mut self, root: PathBuf) -> crate::operation::Result<()> {
+        if self.jobs.queue.as_ref().is_some_and(|q| q.pending()) {
+            return Err(crate::operation::Error::new(
+                crate::operation::ErrorCode::Busy,
+                "finish or cancel the current queue before switching packs",
+            ));
+        }
+        let root = crate::operation::durable::canonical(&root)?;
+        if root.exists() && !root.is_dir() {
+            return Err(crate::operation::Error::new(
+                crate::operation::ErrorCode::Invalid,
+                "not a directory",
+            ));
+        }
+        self.preferences.remember(&root)?;
+        self.root = root;
+        self.pending = None;
+        self.entries.clear();
+        self.marked.clear();
+        self.reset_cursor();
+        self.jobs = super::jobs::Jobs::default();
+        self.jobs.connect(self.root.clone());
+        self.reload();
+        self.page = 0;
+        Ok(())
     }
 }
