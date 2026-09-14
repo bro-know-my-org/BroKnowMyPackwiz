@@ -27,6 +27,7 @@ mod sha1;
 mod sha256;
 mod sha512;
 mod tempfiles;
+mod tui;
 mod update;
 mod zipstore;
 
@@ -65,6 +66,7 @@ fn main() {
     }
 
     let result = match command.as_str() {
+        "tui" => tui::run(rest),
         "-h" | "--help" | "help" => {
             print_help();
             Ok(())
@@ -120,6 +122,7 @@ fn print_help() {
     println!("bkmpw {VERSION}");
     println!();
     println!("Usage:");
+    println!("  bkmpw tui [pack-root]");
     println!("  bkmpw add-url <pack-root> <side> <name> <filename> <url> <sha256>");
     println!("  bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>");
     println!("  bkmpw add-shaderpack <pack-root> <name> <filename> <url> <sha256>");
