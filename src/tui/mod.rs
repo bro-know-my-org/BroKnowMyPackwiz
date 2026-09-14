@@ -1,5 +1,6 @@
 mod app;
 mod dialog;
+mod external;
 mod files;
 mod form;
 mod i18n;
@@ -36,6 +37,24 @@ pub fn run(args: &[String]) -> Result<(), String> {
     app.persist_preferences = true;
     app.jobs.connect(app.root.clone());
     loop {
+        if let Some(relative) = app.external.take() {
+            let result = crate::operation::durable::user_state().and_then(|state| {
+                external::External::prepare(&app.root, &relative, &state, &app.preferences)
+            });
+            match result {
+                Ok(editor) => {
+                    terminal::restore();
+                    let result = editor.run();
+                    terminal::activate().map_err(|e| e.to_string())?;
+                    screen.clear().map_err(|e| e.to_string())?;
+                    match result {
+                        Ok(dialog) => app.dialog = Some(dialog),
+                        Err(error) => app.error = Some(error.to_string()),
+                    }
+                }
+                Err(error) => app.error = Some(error.to_string()),
+            }
+        }
         app.poll();
         if app.jobs.should_exit() {
             break;

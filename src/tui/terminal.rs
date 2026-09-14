@@ -25,13 +25,7 @@ impl Session {
             previous(info);
         }));
         let session = Self;
-        enable_raw_mode()?;
-        execute!(
-            io::stdout(),
-            EnterAlternateScreen,
-            EnableMouseCapture,
-            EnableBracketedPaste
-        )?;
+        activate()?;
         let screen = Terminal::new(CrosstermBackend::new(io::stdout()))?;
         Ok((session, screen))
     }
@@ -46,6 +40,16 @@ pub fn restore() {
         LeaveAlternateScreen,
         Show
     );
+}
+
+pub fn activate() -> io::Result<()> {
+    enable_raw_mode()?;
+    execute!(
+        io::stdout(),
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableBracketedPaste
+    )
 }
 
 impl Drop for Session {

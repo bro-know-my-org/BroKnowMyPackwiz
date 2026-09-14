@@ -31,6 +31,23 @@ pub enum Submission {
 }
 
 impl Dialog {
+    pub fn review(
+        relative: String,
+        expected: Option<String>,
+        document: DocumentMut,
+        preview: String,
+    ) -> Self {
+        let mut form = Form::new("review_changes", Vec::new());
+        form.preview = Some(preview);
+        Self {
+            form,
+            purpose: Purpose::Edit {
+                relative,
+                document: Box::new(document),
+                expected,
+            },
+        }
+    }
     pub fn metadata(root: &Path, relative: &str) -> Result<Self> {
         Self::edit(
             root,
