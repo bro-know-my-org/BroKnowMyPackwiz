@@ -94,6 +94,7 @@ fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
             (KeyCode::Char('p'), "P", "pin"),
             (KeyCode::Char('E'), "Shift+E", "advanced"),
         ],
+        1 if app.adding.busy() => vec![(KeyCode::Char('c'), "C", "cf_cancel_preview")],
         3 => vec![
             (KeyCode::Char(' '), "Space", "resume_pause"),
             (KeyCode::Char('c'), "C", "cancel"),

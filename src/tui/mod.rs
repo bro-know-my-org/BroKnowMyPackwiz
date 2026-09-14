@@ -1,3 +1,4 @@
+mod add;
 mod app;
 mod catalog;
 mod dialog;

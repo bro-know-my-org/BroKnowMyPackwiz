@@ -38,6 +38,7 @@ pub struct App {
     pub buttons: Vec<(KeyCode, Rect)>,
     pub menu_area: Rect,
     pub catalog: super::catalog::Browser,
+    pub adding: super::add::Workflow,
     pending: Option<Receiver<Result<Vec<Entry>, String>>>,
 }
 
@@ -68,6 +69,7 @@ impl App {
             buttons: Vec::new(),
             menu_area: Rect::default(),
             catalog: super::catalog::Browser::default(),
+            adding: super::add::Workflow::default(),
             pending: None,
         };
         app.reload();
@@ -89,6 +91,23 @@ impl App {
 
     pub fn poll(&mut self) {
         self.catalog.poll();
+        if self.dialog.is_none() && !self.jobs.quit_prompt && !self.help {
+            if let Some(result) = self.adding.poll() {
+                match result {
+                    Ok(preview) => {
+                        self.dialog = Some(super::dialog::Dialog::prepared(preview, self.language))
+                    }
+                    Err(error) => {
+                        self.error = Some(format!(
+                            "{}\n{error}",
+                            self.language.text("cf_preview_failed")
+                        ))
+                    }
+                }
+            } else if let Some(selected) = self.catalog.chosen.take() {
+                self.dialog = Some(super::dialog::Dialog::curseforge(selected));
+            }
+        }
         match self.jobs.poll() {
             Ok(true) => self.reload(),
             Err(error) => self.error = Some(error.to_string()),
@@ -266,7 +285,11 @@ impl App {
                     }
                     KeyCode::Char('?') => self.help = true,
                     KeyCode::Char('r') if self.page != 3 && self.page != 1 => self.reload(),
+                    KeyCode::Char('c') if self.page == 1 => self.adding.cancel(),
                     code if self.page == 1 => {
+                        if code == KeyCode::Esc {
+                            self.error = None;
+                        }
                         self.catalog.event(
                             Event::Key(crossterm::event::KeyEvent::new(code, key.modifiers)),
                             &self.root,
@@ -441,6 +464,18 @@ impl App {
                 .map(|q| q.state.clone())
                 .unwrap_or(crate::operation::durable::user_state()?);
             match dialog.submit(&state, &self.preferences)? {
+                Submission::CurseForge { selected, side } => {
+                    self.adding.start(&self.root, &state, selected, side)?;
+                }
+                Submission::Prepared(request) => {
+                    let queue = self.jobs.queue.as_mut().ok_or_else(|| {
+                        crate::operation::Error::new(
+                            crate::operation::ErrorCode::Busy,
+                            "queue unavailable",
+                        )
+                    })?;
+                    queue.enqueue("cf_add_task", request)?;
+                }
                 Submission::Resolve { index, keep } => {
                     let queue = self.jobs.queue.as_mut().ok_or_else(|| {
                         crate::operation::Error::new(
@@ -494,6 +529,7 @@ impl App {
         self.preferences.remember(&root)?;
         self.root = root;
         self.catalog = super::catalog::Browser::default();
+        self.adding = super::add::Workflow::default();
         self.pending = None;
         self.entries.clear();
         self.marked.clear();

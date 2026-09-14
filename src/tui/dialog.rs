@@ -12,6 +12,8 @@ use toml_edit::{DocumentMut, Item, Value};
 
 pub const SETTINGS: [&str; 4] = ["pack_info", "project_config", "preferences", "open_pack"];
 enum Purpose {
+    CurseForge(super::catalog::Selection),
+    Prepared(crate::operation::queue::Request),
     Edit {
         relative: String,
         document: Box<DocumentMut>,
@@ -29,13 +31,82 @@ pub struct Dialog {
     purpose: Purpose,
 }
 pub enum Submission {
+    CurseForge {
+        selected: super::catalog::Selection,
+        side: crate::metadata::Side,
+    },
+    Prepared(crate::operation::queue::Request),
     Edit(Draft),
     Open(PathBuf),
     Preferences(Preferences),
-    Resolve { index: usize, keep: bool },
+    Resolve {
+        index: usize,
+        keep: bool,
+    },
 }
 
 impl Dialog {
+    pub fn curseforge(selected: super::catalog::Selection) -> Self {
+        let sides: Vec<String> = if selected.class_id == 6 {
+            vec!["both".into(), "client".into(), "server".into()]
+        } else {
+            vec!["client".into()]
+        };
+        let mut form = Form::new(
+            "cf_plan",
+            vec![Field::new(
+                "side",
+                "declared_side",
+                sides[0].clone(),
+                Kind::Choice(sides),
+            )],
+        );
+        form.preview = Some(format!(
+            "{}\n{}\n{}",
+            selected.file.name,
+            selected.file.filename,
+            selected.file.versions.join(", ")
+        ));
+        Self {
+            form,
+            purpose: Purpose::CurseForge(selected),
+        }
+    }
+    pub fn prepared(preview: crate::catalog::prepare::Preview, lang: Language) -> Self {
+        use crate::catalog::dependencies::Action;
+        let mut form = Form::new("cf_confirm", Vec::new());
+        form.preview = Some(
+            preview
+                .rows
+                .iter()
+                .map(|row| {
+                    format!(
+                        "{} · {} · {}\n{} → {}\n{}",
+                        lang.text(match row.action {
+                            Action::Add => "add",
+                            Action::Update => "cf_update",
+                            Action::Reuse => "cf_reuse",
+                        }),
+                        row.name,
+                        row.side.as_str(),
+                        row.old
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| "—".into()),
+                        row.file.id,
+                        row.file.filename
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        );
+        Self {
+            form,
+            purpose: Purpose::Prepared(crate::operation::queue::Request::PreparedEdit {
+                drafts: preview.drafts,
+                guard: preview.guard,
+            }),
+        }
+    }
     pub fn conflicts(
         queue: &crate::operation::queue::Queue,
         index: usize,
@@ -270,6 +341,11 @@ impl Dialog {
 
     pub fn submit(&self, state: &Path, prefs: &Preferences) -> Result<Submission> {
         match &self.purpose {
+            Purpose::CurseForge(selected) => Ok(Submission::CurseForge {
+                selected: selected.clone(),
+                side: crate::metadata::Side::parse(self.form.value("side")),
+            }),
+            Purpose::Prepared(request) => Ok(Submission::Prepared(request.clone())),
             Purpose::Resolve { index, keep } => Ok(Submission::Resolve {
                 index: *index,
                 keep: *keep,

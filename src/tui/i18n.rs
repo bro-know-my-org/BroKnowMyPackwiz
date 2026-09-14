@@ -43,6 +43,29 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("cf_plan", "Preview required dependencies", "预览必需依赖"),
+    (
+        "cf_confirm",
+        "Confirm metadata and dependencies",
+        "确认元数据与依赖变更",
+    ),
+    ("cf_update", "Update", "更新"),
+    ("cf_reuse", "Reuse", "复用"),
+    (
+        "cf_add_task",
+        "Add CurseForge files and dependencies",
+        "添加 CurseForge 文件及依赖",
+    ),
+    (
+        "cf_cancel_preview",
+        "Preparing preview… cancel",
+        "正在准备预览…取消",
+    ),
+    (
+        "cf_preview_failed",
+        "Could not prepare the preview; no pack changes were made.",
+        "未能完成预览；整合包未发生变更。",
+    ),
     (
         "cf_relaxed",
         "All versions (explicit override)",
