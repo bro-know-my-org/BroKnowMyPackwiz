@@ -65,6 +65,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         super::jobs::draw(frame, &mut app.jobs, lang, bands[2]);
     } else if app.page == 0 {
         files(frame, app, bands[2]);
+    } else if app.page == 1 {
+        app.catalog.draw(frame, bands[2], lang);
     } else {
         frame.render_widget(
             Paragraph::new(lang.text("coming"))

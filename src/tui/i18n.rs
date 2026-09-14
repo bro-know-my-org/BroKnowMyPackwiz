@@ -43,6 +43,27 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    (
+        "cf_relaxed",
+        "All versions (explicit override)",
+        "全部版本（已放宽过滤）",
+    ),
+    ("cf_compatible", "Matching pack versions", "匹配整合包版本"),
+    (
+        "cf_search_hint",
+        "Enter keywords with /, then press Enter to search. Esc returns to projects.",
+        "按 / 输入关键词，Enter 搜索；Esc 返回项目列表。",
+    ),
+    (
+        "cf_key_required",
+        "Configure a CurseForge API key in Settings or CURSEFORGE_API_KEY.",
+        "请在设置中填写 CurseForge API key，或设置 CURSEFORGE_API_KEY。",
+    ),
+    ("cf_choose", "Choose", "选择"),
+    ("cf_type", "Type", "类型"),
+    ("cf_filter", "Compatibility", "兼容过滤"),
+    ("cf_prev", "Previous", "上一页"),
+    ("cf_next", "Next", "下一页"),
     ("advanced", "External editor", "外部编辑器"),
     ("edit", "Edit", "编辑"),
     ("resume_pause", "Resume/pause", "继续/暂停"),

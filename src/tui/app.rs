@@ -37,6 +37,7 @@ pub struct App {
     pub external: Option<String>,
     pub buttons: Vec<(KeyCode, Rect)>,
     pub menu_area: Rect,
+    pub catalog: super::catalog::Browser,
     pending: Option<Receiver<Result<Vec<Entry>, String>>>,
 }
 
@@ -66,6 +67,7 @@ impl App {
             external: None,
             buttons: Vec::new(),
             menu_area: Rect::default(),
+            catalog: super::catalog::Browser::default(),
             pending: None,
         };
         app.reload();
@@ -86,6 +88,7 @@ impl App {
     }
 
     pub fn poll(&mut self) {
+        self.catalog.poll();
         match self.jobs.poll() {
             Ok(true) => self.reload(),
             Err(error) => self.error = Some(error.to_string()),
@@ -189,6 +192,10 @@ impl App {
             self.dialog_event(event);
             return false;
         }
+        if self.page == 1 && self.catalog.editing && !self.help && !self.jobs.quit_prompt {
+            self.catalog.event(event, &self.root);
+            return false;
+        }
         if let Event::Mouse(mouse) = &event {
             if !self.jobs.quit_prompt
                 && !self.help
@@ -258,7 +265,13 @@ impl App {
                         }
                     }
                     KeyCode::Char('?') => self.help = true,
-                    KeyCode::Char('r') if self.page != 3 => self.reload(),
+                    KeyCode::Char('r') if self.page != 3 && self.page != 1 => self.reload(),
+                    code if self.page == 1 => {
+                        self.catalog.event(
+                            Event::Key(crossterm::event::KeyEvent::new(code, key.modifiers)),
+                            &self.root,
+                        );
+                    }
                     KeyCode::Char('p') if self.page == 0 => {
                         let selected: Vec<_> = if self.marked.is_empty() {
                             self.current().into_iter().cloned().collect()
@@ -390,6 +403,9 @@ impl App {
                 if self.page == 3 {
                     self.jobs.mouse(mouse);
                 }
+                if self.page == 1 {
+                    self.catalog.event(Event::Mouse(mouse), &self.root);
+                }
             }
             _ => {}
         }
@@ -477,6 +493,7 @@ impl App {
         }
         self.preferences.remember(&root)?;
         self.root = root;
+        self.catalog = super::catalog::Browser::default();
         self.pending = None;
         self.entries.clear();
         self.marked.clear();
