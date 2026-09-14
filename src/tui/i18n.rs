@@ -13,6 +13,7 @@ impl Language {
             .iter()
             .filter_map(|key| std::env::var(key).ok())
             .find(|value| !value.is_empty())
+            .or_else(sys_locale::get_locale)
             .map(|value| Self::from_locale(&value))
             .unwrap_or_default()
     }

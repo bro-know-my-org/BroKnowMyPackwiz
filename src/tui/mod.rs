@@ -1,7 +1,9 @@
 mod app;
 mod files;
+mod form;
 mod i18n;
 mod jobs;
+mod preferences;
 mod terminal;
 #[cfg(test)]
 mod tests;
