@@ -153,5 +153,10 @@ pub fn user_state() -> Result<PathBuf> {
         .unwrap_or(dirs.data_local_dir())
         .to_path_buf();
     fs::create_dir_all(&path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    }
     Ok(path)
 }
