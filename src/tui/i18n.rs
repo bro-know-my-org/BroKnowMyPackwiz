@@ -42,6 +42,39 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("waiting", "Waiting", "等待中"),
+    ("running", "Running", "执行中"),
+    ("cancelling", "Stopping and rolling back", "正在停止并回滚"),
+    ("completed", "Completed", "已完成"),
+    ("failed", "Failed", "失败"),
+    ("cancelled", "Cancelled", "已取消"),
+    ("recovering", "Recovery required", "待恢复"),
+    (
+        "needs_check",
+        "Recovered; review before continuing",
+        "已恢复，请检查后继续",
+    ),
+    (
+        "conflict",
+        "Conflict; resolve before continuing",
+        "存在冲突，解决后才能继续",
+    ),
+    ("paused", "Queue paused", "队列已暂停"),
+    ("logs", "Logs", "日志"),
+    ("preparing", "Preparing transaction", "准备事务"),
+    ("snapshotting", "Preparing workspace", "准备工作目录"),
+    ("committing", "Applying changes", "正在应用变更"),
+    ("unpin", "Unpin", "解除更新锁定"),
+    (
+        "task_keys",
+        "Space: resume/pause  C: cancel  R: retry recovery",
+        "空格: 继续/暂停  C: 取消  R: 重试恢复",
+    ),
+    (
+        "quit_task",
+        "A task is running.\nW: wait for this task, then exit\nC: cancel and roll back, then exit\nEsc: return\nWaiting tasks will be saved.",
+        "有任务正在执行。\nW：等待当前任务完成后退出\nC：取消并回滚后退出\nEsc：返回\n未执行的任务会保存。",
+    ),
     ("files", "Files", "文件"),
     ("add", "Add", "添加"),
     ("pack", "Pack", "整合包"),

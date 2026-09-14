@@ -29,6 +29,7 @@ pub struct App {
     pub detail: bool,
     pub help: bool,
     pub error: Option<String>,
+    pub jobs: super::jobs::Jobs,
     pending: Option<Receiver<Result<Vec<Entry>, String>>>,
 }
 
@@ -50,6 +51,7 @@ impl App {
             detail: false,
             help: false,
             error: None,
+            jobs: super::jobs::Jobs::default(),
             pending: None,
         };
         app.reload();
@@ -70,6 +72,11 @@ impl App {
     }
 
     pub fn poll(&mut self) {
+        match self.jobs.poll() {
+            Ok(true) => self.reload(),
+            Err(error) => self.error = Some(error.to_string()),
+            _ => {}
+        }
         let Some(rx) = &self.pending else {
             return;
         };
@@ -170,6 +177,12 @@ impl App {
                 self.reset_cursor();
             }
             Event::Key(key) if key.kind != KeyEventKind::Release => {
+                if self.jobs.quit_prompt {
+                    if let Err(error) = self.jobs.quit_key(key.code) {
+                        self.error = Some(error.to_string());
+                    }
+                    return false;
+                }
                 if self.editing {
                     match key.code {
                         KeyCode::Esc | KeyCode::Enter => self.editing = false,
@@ -193,15 +206,34 @@ impl App {
                     return false;
                 }
                 match key.code {
-                    KeyCode::Char('q') => return true,
+                    KeyCode::Char('q') => return self.quit(),
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        return true;
+                        return self.quit();
                     }
                     KeyCode::Tab => self.page = (self.page + 1) % PAGES.len(),
                     KeyCode::BackTab => self.page = (self.page + PAGES.len() - 1) % PAGES.len(),
                     KeyCode::Char('l') => self.language.toggle(),
                     KeyCode::Char('?') => self.help = true,
-                    KeyCode::Char('r') => self.reload(),
+                    KeyCode::Char('r') if self.page != 3 => self.reload(),
+                    KeyCode::Char('p') if self.page == 0 => {
+                        let selected: Vec<_> = if self.marked.is_empty() {
+                            self.current().into_iter().cloned().collect()
+                        } else {
+                            self.entries
+                                .iter()
+                                .filter(|e| self.marked.contains(&e.path))
+                                .cloned()
+                                .collect()
+                        };
+                        if let Err(error) = self.jobs.pin(&self.root, &selected) {
+                            self.error = Some(error.to_string());
+                        }
+                    }
+                    code if self.page == 3 && code != KeyCode::Esc => {
+                        if let Err(error) = self.jobs.key(code) {
+                            self.error = Some(error.to_string());
+                        }
+                    }
                     KeyCode::Char('/') if self.page == 0 => self.editing = true,
                     KeyCode::Char('f') if self.page == 0 => {
                         self.kind = (self.kind + 1) % TYPES.len();
@@ -252,5 +284,15 @@ impl App {
             _ => {}
         }
         false
+    }
+
+    fn quit(&mut self) -> bool {
+        match self.jobs.quit() {
+            Ok(exit) => exit,
+            Err(error) => {
+                self.error = Some(error.to_string());
+                false
+            }
+        }
     }
 }
