@@ -34,11 +34,17 @@ impl Results {
     }
 }
 
+#[derive(Clone)]
+pub struct Selection {
+    pub file: File,
+    pub relaxed: bool,
+    pub class_id: u64,
+}
 #[derive(Default)]
 pub struct Browser {
     pub editing: bool,
     pub query: String,
-    pub chosen: Option<(File, Filter)>,
+    pub chosen: Option<Selection>,
     kind: usize,
     relaxed: bool,
     page: usize,
@@ -238,7 +244,11 @@ impl Browser {
                     }
                     Some(Results::Files(page)) => {
                         if let Some(file) = page.items.get(index) {
-                            self.chosen = Some((file.clone(), self.filter.clone()));
+                            self.chosen = Some(Selection {
+                                file: file.clone(),
+                                relaxed: self.relaxed,
+                                class_id: self.project.as_ref().map_or(6, |p| p.class_id),
+                            });
                         }
                     }
                     None => self.search(root),

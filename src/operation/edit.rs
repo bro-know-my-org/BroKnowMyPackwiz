@@ -103,6 +103,9 @@ pub fn execute(
     if let Some(guard) = guard {
         guard.validate(root, control)?;
     }
+    if drafts.is_empty() {
+        return control.check();
+    }
     let workspace = Workspace::create(root, &task.join("workspace"), control)?;
     if let Some(guard) = guard {
         guard.validate(&workspace.staged, control)?;

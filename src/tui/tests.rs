@@ -43,6 +43,56 @@ fn search_accepts_unicode_and_does_not_run_shortcuts() {
 }
 
 #[test]
+fn catalog_query_keeps_global_shortcuts_inside_the_input() {
+    let mut app = app();
+    app.page = 1;
+    key(&mut app, KeyCode::Char('/'));
+    assert!(!key(&mut app, KeyCode::Char('q')));
+    key(&mut app, KeyCode::Char('l'));
+    app.event(Event::Paste("中文".into()));
+    assert_eq!(app.catalog.query, "ql中文");
+    assert_eq!(app.page, 1);
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.catalog.editing);
+}
+
+#[test]
+fn dependency_confirmation_is_required_before_enqueueing() {
+    use crate::operation::{Control, durable, edit, preview::Guard, queue::Queue};
+    use std::fs;
+    let base = std::env::temp_dir().join(durable::unique_id());
+    fs::create_dir_all(base.join("pack/mods")).unwrap();
+    let base = fs::canonicalize(base).unwrap();
+    let root = base.join("pack");
+    fs::write(root.join("pack.toml"), "name = \"Test\"\n").unwrap();
+    let state = base.join("state");
+    let draft = edit::draft(
+        &state,
+        "mods/new.pw.toml",
+        None,
+        &"name = \"New\"".parse().unwrap(),
+    )
+    .unwrap();
+    let guard = Guard::capture(&root, &Control::default()).unwrap();
+    let preview = || crate::catalog::prepare::Preview {
+        rows: Vec::new(),
+        drafts: vec![draft.clone()],
+        guard: guard.clone(),
+    };
+    let mut app = App::new(root.clone());
+    app.jobs.queue = Some(Queue::open(&root, &state).unwrap());
+    app.dialog = Some(super::dialog::Dialog::prepared(preview(), Language::ZhCn));
+    key(&mut app, KeyCode::Esc);
+    assert!(app.jobs.queue.as_ref().unwrap().tasks.is_empty());
+    app.dialog = Some(super::dialog::Dialog::prepared(preview(), Language::En));
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.jobs.queue.as_ref().unwrap().tasks.len(), 1);
+    assert!(!root.join("mods/new.pw.toml").exists());
+    drop(app);
+    fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn marks_follow_identity_across_sort_and_filter() {
     let mut app = app();
     key(&mut app, KeyCode::Char(' '));
