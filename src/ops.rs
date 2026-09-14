@@ -236,14 +236,14 @@ fn create_new_text_file(path: &Path, text: &str) -> Result<(), String> {
         .map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
 
-fn metadata_filename(slug: &str, layout: &PackLayout) -> String {
+pub(crate) fn metadata_filename(slug: &str, layout: &PackLayout) -> String {
     format!(
         "{slug}.{}",
         layout.metadata_extension.trim_start_matches('.')
     )
 }
 
-fn safe_slug(name: &str) -> Result<String, String> {
+pub(crate) fn safe_slug(name: &str) -> Result<String, String> {
     let slug = slugify(name);
     if slug.is_empty() {
         return Err(format!(
