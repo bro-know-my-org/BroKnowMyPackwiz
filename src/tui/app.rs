@@ -289,6 +289,19 @@ impl App {
                             Err(error) => self.error = Some(error.to_string()),
                         }
                     }
+                    KeyCode::Char(code @ ('k' | 'o')) if self.page == 3 => {
+                        if let Some(queue) = &self.jobs.queue {
+                            match super::dialog::Dialog::conflicts(
+                                queue,
+                                self.jobs.selected,
+                                code == 'k',
+                                self.language,
+                            ) {
+                                Ok(dialog) => self.dialog = Some(dialog),
+                                Err(error) => self.error = Some(error.to_string()),
+                            }
+                        }
+                    }
                     code if self.page == 3 && code != KeyCode::Esc => {
                         if let Err(error) = self.jobs.key(code) {
                             self.error = Some(error.to_string());
@@ -375,6 +388,15 @@ impl App {
                 .map(|q| q.state.clone())
                 .unwrap_or(crate::operation::durable::user_state()?);
             match dialog.submit(&state, &self.preferences)? {
+                Submission::Resolve { index, keep } => {
+                    let queue = self.jobs.queue.as_mut().ok_or_else(|| {
+                        crate::operation::Error::new(
+                            crate::operation::ErrorCode::Busy,
+                            "queue unavailable",
+                        )
+                    })?;
+                    queue.resolve(index, keep)?;
+                }
                 Submission::Edit(draft) => {
                     let queue = self.jobs.queue.as_mut().ok_or_else(|| {
                         crate::operation::Error::new(

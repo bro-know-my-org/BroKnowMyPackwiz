@@ -19,6 +19,10 @@ enum Purpose {
     },
     Open,
     Preferences,
+    Resolve {
+        index: usize,
+        keep: bool,
+    },
 }
 pub struct Dialog {
     pub form: Form,
@@ -28,9 +32,50 @@ pub enum Submission {
     Edit(Draft),
     Open(PathBuf),
     Preferences(Preferences),
+    Resolve { index: usize, keep: bool },
 }
 
 impl Dialog {
+    pub fn conflicts(
+        queue: &crate::operation::queue::Queue,
+        index: usize,
+        keep: bool,
+        lang: Language,
+    ) -> Result<Self> {
+        let files = queue.conflict_files(index)?;
+        let mut form = Form::new(
+            if keep {
+                "keep_external"
+            } else {
+                "restore_original"
+            },
+            Vec::new(),
+        );
+        form.preview = Some(
+            files
+                .iter()
+                .map(|file| {
+                    format!(
+                        "{}: {}\n{}: {}\n{}: {}",
+                        lang.text("current_file"),
+                        file.target.display(),
+                        lang.text("original_backup"),
+                        file.backup.display(),
+                        lang.text("proposed_file"),
+                        file.staged.display()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+        );
+        if files.is_empty() {
+            form.preview = Some(lang.text("conflict_no_writes").into());
+        }
+        Ok(Self {
+            form,
+            purpose: Purpose::Resolve { index, keep },
+        })
+    }
     pub fn review(
         relative: String,
         expected: Option<String>,
@@ -225,6 +270,10 @@ impl Dialog {
 
     pub fn submit(&self, state: &Path, prefs: &Preferences) -> Result<Submission> {
         match &self.purpose {
+            Purpose::Resolve { index, keep } => Ok(Submission::Resolve {
+                index: *index,
+                keep: *keep,
+            }),
             Purpose::Open => {
                 let path = &self.form.fields[0];
                 let recent = &self.form.fields[1];

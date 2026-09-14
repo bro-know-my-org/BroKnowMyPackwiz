@@ -44,6 +44,32 @@ impl Language {
 
 const MESSAGES: &[(&str, &str, &str)] = &[
     (
+        "keep_external",
+        "Keep external changes and finish recovery",
+        "保留外部修改并结束恢复",
+    ),
+    (
+        "restore_original",
+        "Archive external changes, then restore originals",
+        "备份外部修改后恢复原文件",
+    ),
+    ("current_file", "Current file", "当前文件"),
+    (
+        "original_backup",
+        "Original backup (if originally present)",
+        "原文件备份（原文件存在时）",
+    ),
+    (
+        "proposed_file",
+        "Proposed file (if created by the task)",
+        "任务新文件（任务生成时）",
+    ),
+    (
+        "conflict_no_writes",
+        "No published changes need restoring. Acknowledge and review the task before continuing.",
+        "没有需要还原的已提交变更。确认后请检查任务，再继续队列。",
+    ),
+    (
         "review_changes",
         "Review changes (PgUp/PgDn to scroll)",
         "检查变更（PgUp/PgDn 滚动）",
