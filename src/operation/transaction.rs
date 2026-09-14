@@ -36,6 +36,16 @@ struct Entry {
     before: Option<String>,
     after: Option<String>,
     step: Step,
+    #[serde(default)]
+    override_enabled: bool,
+    #[serde(default)]
+    override_current: Option<String>,
+}
+
+pub struct ConflictFile {
+    pub target: PathBuf,
+    pub backup: PathBuf,
+    pub staged: PathBuf,
 }
 #[derive(Debug, Serialize, Deserialize)]
 struct Journal {
@@ -112,6 +122,8 @@ impl Transaction {
                 before,
                 after,
                 step: Step::Pending,
+                override_enabled: false,
+                override_current: None,
             });
         }
         durable::sync_dir(&txn.directory.join("before"))?;
@@ -149,6 +161,55 @@ impl Transaction {
     }
     pub fn conflicts(&self) -> &[PathBuf] {
         &self.journal.conflicts
+    }
+
+    pub fn conflict_files(&self) -> Vec<ConflictFile> {
+        self.journal
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| self.journal.conflicts.contains(&entry.target))
+            .map(|(i, entry)| ConflictFile {
+                target: entry.target.clone(),
+                backup: self.backup(i),
+                staged: self.staged(i),
+            })
+            .collect()
+    }
+
+    /// Explicit resolution retains original backups and archives an external
+    /// version before restoring over it. A saved decision survives interruption.
+    pub fn resolve_all(&mut self, keep_external: bool) -> Result<()> {
+        for i in 0..self.journal.entries.len() {
+            let target = self.journal.entries[i].target.clone();
+            if !self.journal.conflicts.contains(&target) {
+                continue;
+            }
+            if keep_external {
+                self.journal.entries[i].step = Step::Restored;
+                self.save()?;
+                continue;
+            }
+            durable::absolute(&target)?;
+            let current = durable::fingerprint(&target)?;
+            if current.is_some() {
+                let copy = self
+                    .directory
+                    .join(format!("external-{i}-{}", durable::unique_id()));
+                fs::copy(&target, &copy)?;
+                fs::File::open(&copy)?.sync_all()?;
+                durable::sync_dir(&self.directory)?;
+                if durable::fingerprint(&copy)? != current
+                    || durable::fingerprint(&target)? != current
+                {
+                    return Err(conflict(&target));
+                }
+            }
+            self.journal.entries[i].override_enabled = true;
+            self.journal.entries[i].override_current = current;
+            self.save()?;
+        }
+        self.rollback()
     }
     pub fn targets(&self) -> Vec<PathBuf> {
         self.journal
@@ -275,7 +336,10 @@ impl Transaction {
                     continue;
                 }
             };
-            if current != self.journal.entries[i].before && current != self.journal.entries[i].after
+            if current != self.journal.entries[i].before
+                && current != self.journal.entries[i].after
+                && !(self.journal.entries[i].override_enabled
+                    && current == self.journal.entries[i].override_current)
             {
                 self.journal.conflicts.push(target);
                 continue;

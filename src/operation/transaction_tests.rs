@@ -7,7 +7,9 @@ impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("bkmpw-txn-{}", durable::unique_id()));
         fs::create_dir_all(&root).unwrap();
-        Self { root }
+        Self {
+            root: fs::canonicalize(root).unwrap(),
+        }
     }
     fn file(&self, name: &str, bytes: &[u8]) -> PathBuf {
         let path = self.root.join(name);
@@ -131,4 +133,46 @@ fn lock_excludes_another_writer_and_releases_on_drop() {
     assert!(super::super::lock::WriteLocks::acquire(&f.root, &paths).is_err());
     drop(first);
     assert!(super::super::lock::WriteLocks::acquire(&f.root, &paths).is_ok());
+}
+
+#[test]
+fn explicit_conflict_resolution_preserves_external_or_restores_with_archive() {
+    for keep in [true, false] {
+        let f = Fixture::new();
+        let target = f.file("target", b"original");
+        f.file("source", b"new");
+        let mut tx = f.prepare(vec![f.change("target", Some("source"))]);
+        tx.journal.state = State::Committing;
+        tx.journal.entries[0].step = Step::Applied;
+        tx.save().unwrap();
+        fs::write(&target, b"external").unwrap();
+        assert!(tx.rollback().is_err());
+        tx.resolve_all(keep).unwrap();
+        assert_eq!(
+            fs::read(&target).unwrap(),
+            if keep {
+                b"external".as_slice()
+            } else {
+                b"original".as_slice()
+            }
+        );
+        assert_eq!(fs::read(tx.backup(0)).unwrap(), b"original");
+        if !keep {
+            let archive = fs::read_dir(&tx.directory)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .find(|p| {
+                    p.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .starts_with("external-")
+                })
+                .unwrap();
+            assert_eq!(fs::read(archive).unwrap(), b"external");
+        }
+        assert_eq!(
+            Transaction::open(&tx.directory).unwrap().state(),
+            State::RolledBack
+        );
+    }
 }

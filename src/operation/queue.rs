@@ -190,6 +190,12 @@ impl Queue {
             Status::Waiting => task.status = Status::Cancelled,
             Status::Running => {
                 if let Some(running) = &self.running {
+                    if running.recovery {
+                        return Err(Error::new(
+                            ErrorCode::Busy,
+                            "recovery must finish before exit",
+                        ));
+                    }
                     running.control.cancel();
                 }
                 task.status = Status::Cancelling;
@@ -259,6 +265,17 @@ impl Queue {
                 self.paused = true;
             }
             self.save()?;
+            let task = &self.tasks[running.index];
+            if matches!(
+                task.status,
+                Status::Completed | Status::Failed | Status::Cancelled
+            ) {
+                let directory = self.state.join("tasks").join(&task.id);
+                // Terminal tasks cannot be rolled back again. Do not retain a
+                // full pack copy after every successful metadata edit.
+                let _ = fs::remove_dir_all(directory.join("workspace"));
+                let _ = fs::remove_dir_all(directory.join("transactions"));
+            }
         }
         if self.running.is_none() {
             if let Some(index) = self
@@ -266,17 +283,17 @@ impl Queue {
                 .iter()
                 .position(|t| t.status == Status::NeedsRecovery)
             {
-                self.start(index, true)?;
+                self.start(index, true, None)?;
             } else if !self.paused && !self.blocked() {
                 if let Some(index) = self.tasks.iter().position(|t| t.status == Status::Waiting) {
-                    self.start(index, false)?;
+                    self.start(index, false, None)?;
                 }
             }
         }
         Ok(changed)
     }
 
-    fn start(&mut self, index: usize, recovery: bool) -> Result<()> {
+    fn start(&mut self, index: usize, recovery: bool, resolution: Option<bool>) -> Result<()> {
         let previous = self.tasks[index].status;
         self.tasks[index].status = Status::Running;
         if let Err(e) = self.save() {
@@ -298,7 +315,11 @@ impl Queue {
         });
         std::thread::spawn(move || {
             let result = if recovery {
-                recover(&root, &state, &directory)
+                if let Some(keep) = resolution {
+                    resolve(&root, &state, &directory, keep)
+                } else {
+                    recover(&root, &state, &directory)
+                }
             } else {
                 match task.request {
                     Request::Edit(drafts) => {
@@ -318,6 +339,46 @@ impl Queue {
         });
         Ok(())
     }
+
+    pub fn conflict_files(&self, index: usize) -> Result<Vec<super::transaction::ConflictFile>> {
+        let task = self
+            .tasks
+            .get(index)
+            .filter(|t| t.status == Status::Conflict)
+            .ok_or_else(|| Error::new(ErrorCode::Invalid, "no task conflict"))?;
+        let path = self.state.join("tasks").join(&task.id).join("transactions");
+        let mut files = Vec::new();
+        if path.exists() {
+            for item in fs::read_dir(path)? {
+                files.extend(Transaction::open(&item?.path())?.conflict_files());
+            }
+        }
+        Ok(files)
+    }
+
+    pub fn resolve(&mut self, index: usize, keep_external: bool) -> Result<()> {
+        if self.busy() {
+            return Err(Error::new(ErrorCode::Busy, "task running"));
+        }
+        self.conflict_files(index)?;
+        self.start(index, true, Some(keep_external))
+    }
+}
+
+fn resolve(root: &Path, state: &Path, directory: &Path, keep: bool) -> Result<()> {
+    let _locks = WriteLocks::acquire(state, &[root.to_path_buf()])?;
+    let path = directory.join("transactions");
+    if path.exists() {
+        for item in fs::read_dir(path)? {
+            let mut txn = Transaction::open(&item?.path())?;
+            if txn.state() == State::Conflict {
+                txn.resolve_all(keep)?;
+            } else if txn.state() != State::Committed {
+                txn.rollback()?;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn recover(root: &Path, state: &Path, directory: &Path) -> Result<()> {
