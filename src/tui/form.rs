@@ -77,6 +77,8 @@ pub struct Form {
     pub fields: Vec<Field>,
     pub focus: usize,
     pub error: Option<String>,
+    pub preview: Option<String>,
+    preview_scroll: u16,
     areas: Vec<(usize, Rect)>,
 }
 #[derive(PartialEq, Eq, Debug)]
@@ -93,6 +95,8 @@ impl Form {
             fields,
             focus: 0,
             error: None,
+            preview: None,
+            preview_scroll: 0,
             areas: Vec::new(),
         }
     }
@@ -106,6 +110,12 @@ impl Form {
     pub fn event(&mut self, event: Event) -> Action {
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
+                KeyCode::PageDown if self.preview.is_some() => {
+                    self.preview_scroll = self.preview_scroll.saturating_add(10)
+                }
+                KeyCode::PageUp if self.preview.is_some() => {
+                    self.preview_scroll = self.preview_scroll.saturating_sub(10)
+                }
                 KeyCode::Esc => return Action::Cancel,
                 KeyCode::Tab | KeyCode::Down => {
                     self.focus = (self.focus + 1) % (self.fields.len() + 2)
@@ -250,6 +260,20 @@ impl Form {
             self.areas.push((i, area));
         }
         let footer = Rect::new(inner.x, inner.bottom().saturating_sub(4), inner.width, 3);
+        if let Some(preview) = &self.preview {
+            let area = Rect::new(
+                inner.x,
+                inner.y,
+                inner.width,
+                inner.height.saturating_sub(4),
+            );
+            frame.render_widget(
+                Paragraph::new(preview.as_str())
+                    .scroll((self.preview_scroll, 0))
+                    .wrap(ratatui::widgets::Wrap { trim: false }),
+                area,
+            );
+        }
         for (i, area) in Layout::horizontal([Constraint::Percentage(50); 2])
             .split(footer)
             .iter()

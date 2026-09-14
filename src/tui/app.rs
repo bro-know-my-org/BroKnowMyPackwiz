@@ -34,6 +34,7 @@ pub struct App {
     pub preferences: super::preferences::Preferences,
     pub persist_preferences: bool,
     pub settings_index: usize,
+    pub external: Option<String>,
     pending: Option<Receiver<Result<Vec<Entry>, String>>>,
 }
 
@@ -60,6 +61,7 @@ impl App {
             preferences: super::preferences::Preferences::default(),
             persist_preferences: false,
             settings_index: 0,
+            external: None,
             pending: None,
         };
         app.reload();
@@ -256,6 +258,19 @@ impl App {
                                 Err(error) => self.error = Some(error.to_string()),
                             }
                         }
+                    }
+                    KeyCode::Char('E') if self.page == 0 => {
+                        self.external = self.current().map(|entry| entry.path.clone())
+                    }
+                    KeyCode::Char('E') if self.page == 4 => {
+                        self.external = Some(
+                            if self.settings_index == 0 {
+                                "pack.toml"
+                            } else {
+                                ".pw/config.toml"
+                            }
+                            .into(),
+                        )
                     }
                     KeyCode::Down if self.page == 4 => {
                         self.settings_index =

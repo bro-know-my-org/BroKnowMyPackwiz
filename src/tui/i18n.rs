@@ -43,6 +43,11 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    (
+        "review_changes",
+        "Review changes (PgUp/PgDn to scroll)",
+        "检查变更（PgUp/PgDn 滚动）",
+    ),
     ("save", "Save / continue", "保存 / 继续"),
     ("cancel", "Cancel", "取消"),
     (
