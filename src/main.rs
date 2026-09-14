@@ -15,6 +15,7 @@ mod machine;
 mod metadata;
 mod modlist;
 mod murmur2;
+mod operation;
 mod ops;
 mod packinfo;
 mod pathutil;
