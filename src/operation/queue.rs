@@ -14,6 +14,10 @@ use std::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
     Edit(Vec<Draft>),
+    PreparedEdit {
+        drafts: Vec<Draft>,
+        guard: super::preview::Guard,
+    },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
@@ -323,8 +327,16 @@ impl Queue {
             } else {
                 match task.request {
                     Request::Edit(drafts) => {
-                        edit::execute(&root, &state, &directory, &drafts, &worker_control)
+                        edit::execute(&root, &state, &directory, &drafts, None, &worker_control)
                     }
+                    Request::PreparedEdit { drafts, guard } => edit::execute(
+                        &root,
+                        &state,
+                        &directory,
+                        &drafts,
+                        Some(&guard),
+                        &worker_control,
+                    ),
                 }
             };
             let result = if !recovery && result.is_err() {
