@@ -171,7 +171,10 @@ pub fn install_local(
     })
 }
 
-fn side_from_directory_or_metadata(hint: crate::scan::SideHint, metadata: &ModMetadata) -> Side {
+pub(crate) fn side_from_directory_or_metadata(
+    hint: crate::scan::SideHint,
+    metadata: &ModMetadata,
+) -> Side {
     match hint {
         crate::scan::SideHint::Server => Side::Server,
         crate::scan::SideHint::Client => Side::Client,
