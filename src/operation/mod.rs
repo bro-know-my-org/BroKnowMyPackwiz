@@ -1,5 +1,6 @@
 pub mod durable;
 pub mod lock;
+pub mod transaction;
 
 use serde::{Deserialize, Serialize};
 use std::sync::{
