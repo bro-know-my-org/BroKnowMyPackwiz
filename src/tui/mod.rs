@@ -1,33 +1,33 @@
+mod app;
+mod files;
 mod i18n;
 mod terminal;
+#[cfg(test)]
+mod tests;
+mod view;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::widgets::{Block, Paragraph};
+use crossterm::event;
+use std::{path::PathBuf, time::Duration};
 
 pub fn run(args: &[String]) -> Result<(), String> {
     if args.len() > 1 {
         return Err("usage: bkmpw tui [pack-root]".into());
     }
+    let root = args
+        .first()
+        .map(PathBuf::from)
+        .unwrap_or(std::env::current_dir().map_err(|err| err.to_string())?);
     let (_session, mut screen) = terminal::Session::open().map_err(|err| err.to_string())?;
-    let mut language = i18n::Language::detect();
+    let mut app = app::App::new(root);
     loop {
+        app.poll();
         screen
-            .draw(|frame| {
-                frame.render_widget(
-                    Paragraph::new(language.text("keys")).block(Block::bordered().title("bkmpw")),
-                    frame.area(),
-                );
-            })
+            .draw(|frame| view::draw(frame, &mut app))
             .map_err(|err| err.to_string())?;
-        if let Event::Key(key) = event::read().map_err(|err| err.to_string())? {
-            if key.kind == KeyEventKind::Release {
-                continue;
-            }
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => break,
-                KeyCode::Char('l') => language.toggle(),
-                _ => {}
-            }
+        if event::poll(Duration::from_millis(100)).map_err(|err| err.to_string())?
+            && app.event(event::read().map_err(|err| err.to_string())?)
+        {
+            break;
         }
     }
     Ok(())
