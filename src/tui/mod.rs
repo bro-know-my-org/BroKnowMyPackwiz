@@ -1,4 +1,5 @@
 mod app;
+mod dialog;
 mod files;
 mod form;
 mod i18n;
@@ -20,8 +21,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .first()
         .map(PathBuf::from)
         .unwrap_or(std::env::current_dir().map_err(|err| err.to_string())?);
+    let root = crate::operation::durable::canonical(&root).map_err(|err| err.to_string())?;
+    let preferences = preferences::Preferences::load().map_err(|err| err.to_string())?;
     let (_session, mut screen) = terminal::Session::open().map_err(|err| err.to_string())?;
     let mut app = app::App::new(root);
+    app.preferences = preferences;
+    app.language = app
+        .preferences
+        .language
+        .unwrap_or_else(i18n::Language::detect);
+    app.preferences
+        .remember(&app.root)
+        .map_err(|err| err.to_string())?;
+    app.persist_preferences = true;
     app.jobs.connect(app.root.clone());
     loop {
         app.poll();

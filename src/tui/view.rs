@@ -44,7 +44,21 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             *rect,
         );
     }
-    if app.page == 3 {
+    if app.page == 4 {
+        let items: Vec<_> = super::dialog::SETTINGS
+            .iter()
+            .map(|key| ratatui::widgets::ListItem::new(lang.text(key)))
+            .collect();
+        let mut selection =
+            ratatui::widgets::ListState::default().with_selected(Some(app.settings_index));
+        frame.render_stateful_widget(
+            ratatui::widgets::List::new(items)
+                .highlight_symbol("› ")
+                .block(Block::bordered().title(lang.text("settings"))),
+            bands[2],
+            &mut selection,
+        );
+    } else if app.page == 3 {
         super::jobs::draw(frame, &app.jobs, lang, bands[2]);
     } else if app.page == 0 {
         files(frame, app, bands[2]);
@@ -63,7 +77,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         )),
         bands[3],
     );
-    if app.jobs.quit_prompt {
+    if let Some(dialog) = &mut app.dialog {
+        dialog.form.draw(frame, lang);
+    } else if app.jobs.quit_prompt {
         popup(frame, lang.text("tasks"), lang.text("quit_task"));
     } else if app.help {
         popup(frame, lang.text("help"), lang.text("help_text"));
