@@ -43,6 +43,11 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("advanced", "External editor", "外部编辑器"),
+    ("edit", "Edit", "编辑"),
+    ("resume_pause", "Resume/pause", "继续/暂停"),
+    ("keep_short", "Keep external", "保留外部修改"),
+    ("restore_short", "Restore original", "恢复原文件"),
     (
         "keep_external",
         "Keep external changes and finish recovery",

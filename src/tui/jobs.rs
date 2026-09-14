@@ -21,6 +21,10 @@ pub struct Jobs {
     pub selected: usize,
     pub quit_prompt: bool,
     exit_when_idle: bool,
+    list_area: Rect,
+    list_offset: usize,
+    log_area: Rect,
+    log_scroll: usize,
 }
 
 impl Jobs {
@@ -80,6 +84,8 @@ impl Jobs {
             return Ok(());
         };
         match key {
+            KeyCode::PageUp => self.log_scroll = self.log_scroll.saturating_add(10),
+            KeyCode::PageDown => self.log_scroll = self.log_scroll.saturating_sub(10),
             KeyCode::Down => {
                 self.selected = (self.selected + 1).min(queue.tasks.len().saturating_sub(1))
             }
@@ -136,9 +142,39 @@ impl Jobs {
                 .as_ref()
                 .is_none_or(|q| !q.busy() && !q.blocked())
     }
+
+    pub fn mouse(&mut self, mouse: crossterm::event::MouseEvent) {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        let point = (mouse.column, mouse.row).into();
+        if self.log_area.contains(point) {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => self.log_scroll = self.log_scroll.saturating_add(3),
+                MouseEventKind::ScrollDown => self.log_scroll = self.log_scroll.saturating_sub(3),
+                _ => {}
+            }
+        } else if self.list_area.contains(point) {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
+                    let index = self.list_offset + (mouse.row - self.list_area.y) as usize;
+                    if self.queue.as_ref().is_some_and(|q| index < q.tasks.len()) {
+                        self.selected = index;
+                    }
+                }
+                MouseEventKind::ScrollDown => {
+                    let _ = self.key(KeyCode::Down);
+                }
+                MouseEventKind::ScrollUp => {
+                    let _ = self.key(KeyCode::Up);
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
-pub fn draw(frame: &mut Frame, jobs: &Jobs, lang: Language, area: Rect) {
+pub fn draw(frame: &mut Frame, jobs: &mut Jobs, lang: Language, area: Rect) {
+    jobs.list_area = Rect::default();
+    jobs.log_area = Rect::default();
     let Some(queue) = &jobs.queue else {
         frame.render_widget(
             Paragraph::new(lang.text("loading")).block(Block::bordered()),
@@ -172,6 +208,9 @@ pub fn draw(frame: &mut Frame, jobs: &Jobs, lang: Language, area: Rect) {
         bands[0],
         &mut selection,
     );
+    jobs.list_area = Block::bordered().inner(bands[0]);
+    jobs.list_offset = selection.offset();
+    jobs.log_area = Block::bordered().inner(bands[1]);
     let mut logs: Vec<_> = queue
         .logs
         .iter()
@@ -198,8 +237,12 @@ pub fn draw(frame: &mut Frame, jobs: &Jobs, lang: Language, area: Rect) {
     {
         logs.push(error.to_string());
     }
+    jobs.log_scroll = jobs.log_scroll.min(logs.len().saturating_sub(1));
+    let start = logs
+        .len()
+        .saturating_sub(jobs.log_area.height as usize + jobs.log_scroll);
     frame.render_widget(
-        Paragraph::new(logs.join("\n"))
+        Paragraph::new(logs[start..].join("\n"))
             .wrap(Wrap { trim: false })
             .block(Block::bordered().title(lang.text("logs"))),
         bands[1],

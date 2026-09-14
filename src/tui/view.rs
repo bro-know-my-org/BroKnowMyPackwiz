@@ -14,6 +14,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let lang = app.language;
     app.table_area = Rect::default();
     app.tabs.clear();
+    app.buttons.clear();
+    app.menu_area = Rect::default();
     if area.width < 40 || area.height < 10 {
         frame.render_widget(Paragraph::new(lang.text("small")), area);
         return;
@@ -45,6 +47,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
     }
     if app.page == 4 {
+        app.menu_area = Block::bordered().inner(bands[2]);
         let items: Vec<_> = super::dialog::SETTINGS
             .iter()
             .map(|key| ratatui::widgets::ListItem::new(lang.text(key)))
@@ -59,7 +62,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             &mut selection,
         );
     } else if app.page == 3 {
-        super::jobs::draw(frame, &app.jobs, lang, bands[2]);
+        super::jobs::draw(frame, &mut app.jobs, lang, bands[2]);
     } else if app.page == 0 {
         files(frame, app, bands[2]);
     } else {
@@ -69,14 +72,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             bands[2],
         );
     }
-    frame.render_widget(
-        Paragraph::new(format!(
-            "{}\n{}",
-            lang.text("keys"),
-            lang.text("filter_keys")
-        )),
-        bands[3],
-    );
+    toolbar(frame, app, bands[3]);
     if let Some(dialog) = &mut app.dialog {
         dialog.form.draw(frame, lang);
     } else if app.jobs.quit_prompt {
@@ -86,6 +82,44 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     } else if let Some(error) = &app.error {
         popup(frame, lang.text("error"), error);
     }
+}
+
+fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
+    use crossterm::event::KeyCode;
+    let actions: Vec<(KeyCode, &str, &str)> = match app.page {
+        0 => vec![
+            (KeyCode::Char('e'), "E", "edit_metadata"),
+            (KeyCode::Char('p'), "P", "pin"),
+            (KeyCode::Char('E'), "Shift+E", "advanced"),
+        ],
+        3 => vec![
+            (KeyCode::Char(' '), "Space", "resume_pause"),
+            (KeyCode::Char('c'), "C", "cancel"),
+            (KeyCode::Char('k'), "K", "keep_short"),
+            (KeyCode::Char('o'), "O", "restore_short"),
+        ],
+        4 => vec![
+            (KeyCode::Enter, "Enter", "edit"),
+            (KeyCode::Char('E'), "Shift+E", "advanced"),
+        ],
+        _ => Vec::new(),
+    };
+    let mut x = area.x;
+    for (code, key, label) in actions {
+        let text = format!(" {key} {} ", app.language.text(label));
+        let width = unicode_width::UnicodeWidthStr::width(text.as_str()) as u16;
+        if x.saturating_add(width) > area.right() {
+            break;
+        }
+        let rect = Rect::new(x, area.y, width, 1);
+        frame.render_widget(Paragraph::new(text).style(active()), rect);
+        app.buttons.push((code, rect));
+        x += width;
+    }
+    frame.render_widget(
+        Paragraph::new(app.language.text("keys")),
+        Rect::new(area.x, area.y + 1, area.width, 1),
+    );
 }
 
 fn files(frame: &mut Frame, app: &mut App, area: Rect) {
