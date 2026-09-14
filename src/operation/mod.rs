@@ -1,6 +1,8 @@
 pub mod durable;
+pub mod edit;
 pub mod lock;
 pub mod transaction;
+pub mod workspace;
 
 use serde::{Deserialize, Serialize};
 use std::sync::{
