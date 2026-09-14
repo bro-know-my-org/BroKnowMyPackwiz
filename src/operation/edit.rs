@@ -96,10 +96,17 @@ pub fn execute(
     state: &Path,
     task: &Path,
     drafts: &[Draft],
+    guard: Option<&super::preview::Guard>,
     control: &Control,
 ) -> Result<()> {
     let _lock = WriteLocks::acquire(state, &[root.to_path_buf()])?;
+    if let Some(guard) = guard {
+        guard.validate(root, control)?;
+    }
     let workspace = Workspace::create(root, &task.join("workspace"), control)?;
+    if let Some(guard) = guard {
+        guard.validate(&workspace.staged, control)?;
+    }
     for draft in drafts {
         control.check()?;
         crate::pathutil::safe_slash_path(&draft.relative).map_err(Error::from)?;
