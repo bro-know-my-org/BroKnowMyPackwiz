@@ -1,6 +1,7 @@
 mod app;
 mod files;
 mod i18n;
+mod jobs;
 mod terminal;
 #[cfg(test)]
 mod tests;
@@ -19,8 +20,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .unwrap_or(std::env::current_dir().map_err(|err| err.to_string())?);
     let (_session, mut screen) = terminal::Session::open().map_err(|err| err.to_string())?;
     let mut app = app::App::new(root);
+    app.jobs.connect(app.root.clone());
     loop {
         app.poll();
+        if app.jobs.should_exit() {
+            break;
+        }
         screen
             .draw(|frame| view::draw(frame, &mut app))
             .map_err(|err| err.to_string())?;

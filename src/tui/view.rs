@@ -44,7 +44,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             *rect,
         );
     }
-    if app.page == 0 {
+    if app.page == 3 {
+        super::jobs::draw(frame, &app.jobs, lang, bands[2]);
+    } else if app.page == 0 {
         files(frame, app, bands[2]);
     } else {
         frame.render_widget(
@@ -61,7 +63,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         )),
         bands[3],
     );
-    if app.help {
+    if app.jobs.quit_prompt {
+        popup(frame, lang.text("tasks"), lang.text("quit_task"));
+    } else if app.help {
         popup(frame, lang.text("help"), lang.text("help_text"));
     } else if let Some(error) = &app.error {
         popup(frame, lang.text("error"), error);
