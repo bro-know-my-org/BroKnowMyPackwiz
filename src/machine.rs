@@ -196,7 +196,10 @@ pub fn run(command: &str, args: &[String], format: Format, version: &str) -> i32
     if emitter.started().is_err() {
         return emitter.output_exit_code();
     }
-    let result = dispatch(normalized, args, version, &mut emitter);
+    let result = match crate::operation::lock::for_command(normalized, args) {
+        Ok(_locks) => dispatch(normalized, args, version, &mut emitter),
+        Err(error) => Err(error.to_string()),
+    };
     if emitter.output_error.is_some() {
         return emitter.output_exit_code();
     }
