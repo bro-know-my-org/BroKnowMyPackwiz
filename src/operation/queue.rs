@@ -13,6 +13,7 @@ use std::{
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
+    Command(super::command::Request),
     Download {
         drafts: Vec<Draft>,
         downloads: Vec<super::download::Download>,
@@ -32,6 +33,7 @@ pub enum Request {
 impl Request {
     fn sources(&self) -> Vec<(&Path, &str)> {
         let drafts = match self {
+            Self::Command(_) => return Vec::new(),
             Self::Edit(drafts)
             | Self::PreparedEdit { drafts, .. }
             | Self::PreparedFiles { drafts, .. }
@@ -393,6 +395,9 @@ impl Queue {
                 }
             } else {
                 match task.request {
+                    Request::Command(request) => {
+                        super::runner::execute(&root, &state, &directory, &request, &worker_control)
+                    }
                     Request::Download {
                         drafts,
                         downloads,

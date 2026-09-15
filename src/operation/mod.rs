@@ -7,6 +7,7 @@ pub mod manifest;
 pub mod preview;
 pub mod process;
 pub mod queue;
+pub mod runner;
 pub mod transaction;
 pub mod transfer;
 pub mod workspace;
