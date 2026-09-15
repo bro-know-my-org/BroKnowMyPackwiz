@@ -67,6 +67,24 @@ impl Language {
 
 const MESSAGES: &[(&str, &str, &str)] = &[
     (
+        "queue_before_switch",
+        "Finish or cancel the current queue before switching packs",
+        "请先完成或取消当前队列，再切换整合包",
+    ),
+    (
+        "pack_not_directory",
+        "Pack path is not a directory",
+        "整合包路径不是目录",
+    ),
+    ("filename_required", "Enter a filename", "请输入文件名"),
+    ("directory_required", "Enter a directory", "请输入目录"),
+    (
+        "field_parent_not_table",
+        "Field parent must be a TOML table",
+        "字段的父级必须是 TOML 表",
+    ),
+    ("field_required", "Field path is empty", "字段路径为空"),
+    (
         "editor_failed",
         "Editor failed; draft retained",
         "编辑器未成功退出，草稿已保留",

@@ -556,7 +556,11 @@ impl Dialog {
                     &path.value
                 };
                 if value.trim().is_empty() {
-                    return Err(Error::new(ErrorCode::Invalid, "empty directory"));
+                    return Err(Error::named(
+                        ErrorCode::Invalid,
+                        "directory_required",
+                        "empty directory",
+                    ));
                 }
                 Ok(Submission::Open(PathBuf::from(value)))
             }
@@ -584,7 +588,11 @@ impl Dialog {
                     let keys: Vec<_> = field.key.split('.').collect();
                     if field.value.is_empty() {
                         if field.key == "filename" {
-                            return Err(Error::new(ErrorCode::Invalid, "filename is required"));
+                            return Err(Error::named(
+                                ErrorCode::Invalid,
+                                "filename_required",
+                                "filename is required",
+                            ));
                         }
                         remove(&mut doc, &keys);
                         continue;

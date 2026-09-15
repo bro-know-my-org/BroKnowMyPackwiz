@@ -383,8 +383,9 @@ impl App {
                                 .queue
                                 .as_ref()
                                 .ok_or_else(|| {
-                                    crate::operation::Error::new(
+                                    crate::operation::Error::named(
                                         crate::operation::ErrorCode::Busy,
+                                        "queue_unavailable",
                                         "queue unavailable",
                                     )
                                 })
@@ -672,8 +673,9 @@ impl App {
                 }
                 Submission::Prepared { request, label } => {
                     let queue = self.jobs.queue.as_mut().ok_or_else(|| {
-                        crate::operation::Error::new(
+                        crate::operation::Error::named(
                             crate::operation::ErrorCode::Busy,
+                            "queue_unavailable",
                             "queue unavailable",
                         )
                     })?;
@@ -684,8 +686,9 @@ impl App {
                 }
                 Submission::Resolve { index, keep } => {
                     let queue = self.jobs.queue.as_mut().ok_or_else(|| {
-                        crate::operation::Error::new(
+                        crate::operation::Error::named(
                             crate::operation::ErrorCode::Busy,
+                            "queue_unavailable",
                             "queue unavailable",
                         )
                     })?;
@@ -693,8 +696,9 @@ impl App {
                 }
                 Submission::Edit(draft) => {
                     let queue = self.jobs.queue.as_mut().ok_or_else(|| {
-                        crate::operation::Error::new(
+                        crate::operation::Error::named(
                             crate::operation::ErrorCode::Busy,
+                            "queue_unavailable",
                             "queue unavailable",
                         )
                     })?;
@@ -725,15 +729,17 @@ impl App {
 
     fn switch_root(&mut self, root: PathBuf) -> crate::operation::Result<()> {
         if self.jobs.queue.as_ref().is_some_and(|q| q.pending()) {
-            return Err(crate::operation::Error::new(
+            return Err(crate::operation::Error::named(
                 crate::operation::ErrorCode::Busy,
+                "queue_before_switch",
                 "finish or cancel the current queue before switching packs",
             ));
         }
         let root = crate::operation::durable::canonical(&root)?;
         if root.exists() && !root.is_dir() {
-            return Err(crate::operation::Error::new(
+            return Err(crate::operation::Error::named(
                 crate::operation::ErrorCode::Invalid,
+                "pack_not_directory",
                 "not a directory",
             ));
         }

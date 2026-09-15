@@ -47,7 +47,7 @@ pub fn document(root: &Path, relative: &str) -> Result<(DocumentMut, Option<Stri
 pub fn set(document: &mut DocumentMut, keys: &[&str], value: Value) -> Result<()> {
     let (last, parents) = keys
         .split_last()
-        .ok_or_else(|| Error::new(ErrorCode::Invalid, "empty field"))?;
+        .ok_or_else(|| Error::named(ErrorCode::Invalid, "field_required", "empty field"))?;
     let mut table = document.as_table_mut();
     for parent in parents {
         if !table.contains_key(parent) {
@@ -56,7 +56,13 @@ pub fn set(document: &mut DocumentMut, keys: &[&str], value: Value) -> Result<()
         table = table
             .get_mut(parent)
             .and_then(Item::as_table_mut)
-            .ok_or_else(|| Error::new(ErrorCode::Invalid, "field parent is not a table"))?;
+            .ok_or_else(|| {
+                Error::named(
+                    ErrorCode::Invalid,
+                    "field_parent_not_table",
+                    "field parent is not a table",
+                )
+            })?;
     }
     let mut value = value;
     if let Some(previous) = table.get(last).and_then(Item::as_value) {
