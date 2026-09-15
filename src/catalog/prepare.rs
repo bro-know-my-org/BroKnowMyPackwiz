@@ -41,6 +41,10 @@ struct CatalogSource<'a, T> {
     pack_filter: &'a Filter,
 }
 impl<T: Transport> Source for CatalogSource<'_, T> {
+    fn compatible(&self, file: &File, _: &Filter) -> Result<bool> {
+        let project = self.client.project(file.project_id)?;
+        Ok(file.compatible(&class_filter(self.pack_filter, project.class_id)?))
+    }
     fn latest(&self, id: u64, _: &Filter) -> Result<File> {
         let project = self.client.project(id)?;
         self.client
@@ -265,6 +269,57 @@ mod tests {
     use crate::operation::durable;
     use serde_json::json;
     use std::fs;
+    #[test]
+    fn client_mod_can_require_a_resource_pack_without_a_loader_tag() {
+        let client = Client {
+            transport: |path: &str| {
+                if path == "mods/1" || path == "mods/2" {
+                    return Ok(
+                        json!({"data":{"id":if path == "mods/1" {1} else {2},"classId":if path == "mods/1" {6} else {12}}}),
+                    );
+                }
+                assert!(path.starts_with("mods/2/files?"));
+                assert!(!path.contains("modLoaderType"));
+                Ok(
+                    json!({"data":[{"id":200,"modId":2,"fileName":"pack.zip","gameVersions":["1.21.1"],"hashes":[{"algo":1,"value":"a".repeat(40)}]}]}),
+                )
+            },
+        };
+        let filter = Filter {
+            minecraft: Some("1.21.1".into()),
+            loader: Some("fabric".into()),
+        };
+        let source = CatalogSource {
+            client: &client,
+            pack_filter: &filter,
+        };
+        let selected = File {
+            project_id: 1,
+            id: 100,
+            name: String::new(),
+            filename: "mod.jar".into(),
+            versions: vec!["1.21.1".into(), "Fabric".into()],
+            date: String::new(),
+            release_type: 1,
+            size: 1,
+            sha1: "a".repeat(40),
+            dependencies: vec![super::super::curseforge::Dependency {
+                project_id: 2,
+                relation: 3,
+            }],
+        };
+        let entries = dependencies::plan(
+            &source,
+            selected,
+            Side::Client,
+            &filter,
+            &[],
+            &Control::default(),
+        )
+        .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].file.filename, "pack.zip");
+    }
     #[test]
     fn frozen_dependency_preview_applies_offline_as_one_transaction() {
         let base = std::env::temp_dir().join(durable::unique_id());

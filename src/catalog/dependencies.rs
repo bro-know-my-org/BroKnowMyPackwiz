@@ -29,6 +29,9 @@ pub struct Entry {
 
 pub trait Source {
     fn latest(&self, project: u64, filter: &Filter) -> Result<File>;
+    fn compatible(&self, file: &File, filter: &Filter) -> Result<bool> {
+        Ok(file.compatible(filter))
+    }
 }
 impl<T: Transport> Source for Client<T> {
     fn latest(&self, project: u64, filter: &Filter) -> Result<File> {
@@ -132,7 +135,7 @@ impl<S: Source> Planner<'_, S> {
         if self.active.len() >= 128 || self.entries.len() + self.active.len() >= 512 {
             return Err(conflict("dependency_graph_too_large", id));
         }
-        if !file.compatible(self.filter) {
+        if !self.source.compatible(&file, self.filter)? {
             return Err(conflict("dependency_version_mismatch", id));
         }
         let (action, side) = match self.existing.get(&id) {
@@ -162,20 +165,16 @@ impl<S: Source> Planner<'_, S> {
                 .find(|e| e.file.project_id == dep.project_id)
             {
                 entry.file.clone()
-            } else if let Some(old) = self
-                .existing
-                .get(&dep.project_id)
-                .filter(|old| old.file.compatible(self.filter))
-            {
-                old.file.clone()
-            } else {
-                if self
-                    .existing
-                    .get(&dep.project_id)
-                    .is_some_and(|old| old.pinned)
-                {
-                    return Err(conflict("dependency_pinned", dep.project_id));
+            } else if let Some(old) = self.existing.get(&dep.project_id) {
+                if self.source.compatible(&old.file, self.filter)? {
+                    old.file.clone()
+                } else {
+                    if old.pinned {
+                        return Err(conflict("dependency_pinned", dep.project_id));
+                    }
+                    self.source.latest(dep.project_id, self.filter)?
                 }
+            } else {
                 self.source.latest(dep.project_id, self.filter)?
             };
             if next.project_id != dep.project_id {
