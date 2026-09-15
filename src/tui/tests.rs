@@ -6,6 +6,7 @@ use ratatui::{Terminal, backend::TestBackend};
 
 fn app() -> App {
     let mut app = App::new(std::env::temp_dir().join("bkmpw-nonexistent-test-pack"));
+    app.page = 0;
     app.entries = ["中文包", "Apple", "Zebra"]
         .iter()
         .map(|name| Entry {
@@ -23,6 +24,19 @@ fn app() -> App {
 
 fn key(app: &mut App, code: KeyCode) -> bool {
     app.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+}
+
+#[test]
+fn new_directory_starts_at_initialization_and_keeps_open_directory_available() {
+    let root = std::env::temp_dir().join(crate::operation::durable::unique_id());
+    let mut app = App::new(root);
+    assert_eq!(app.page, 2);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.dialog.as_ref().unwrap().form.title, "init");
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.page, 4);
 }
 
 #[test]

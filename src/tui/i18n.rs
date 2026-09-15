@@ -65,6 +65,13 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("fabric", "Fabric", "Fabric"),
+    ("quilt", "Quilt", "Quilt"),
+    (
+        "template_files",
+        "Template destinations (comma separated)",
+        "模板目标文件（逗号分隔）",
+    ),
     ("error_io", "File access failed", "文件读写失败"),
     ("error_invalid", "Invalid input or data", "输入或数据无效"),
     ("error_conflict", "Conflicting changes", "检测到改动冲突"),

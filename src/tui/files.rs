@@ -12,6 +12,9 @@ pub struct Entry {
 }
 
 pub fn load(root: &Path) -> Result<Vec<Entry>, String> {
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
     let config = ProjectConfig::load(root)?;
     let layout = PackLayout::from_config(&config);
     let report = ScanReport::build(root, &config, &layout)?;
