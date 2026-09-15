@@ -617,7 +617,7 @@ impl Dialog {
                     edit::set(&mut doc, &keys, value)?;
                 }
                 if let Some(filename) = doc.get("filename").and_then(Item::as_str) {
-                    crate::pathutil::safe_slash_path(filename).map_err(Error::from)?;
+                    crate::operation::paths::relative(filename)?;
                 }
                 Ok(Submission::Edit(edit::draft(
                     state,

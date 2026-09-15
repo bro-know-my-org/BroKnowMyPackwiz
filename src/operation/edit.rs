@@ -27,7 +27,7 @@ pub struct Attachment {
 }
 
 pub fn document(root: &Path, relative: &str) -> Result<(DocumentMut, Option<String>)> {
-    crate::pathutil::safe_slash_path(relative).map_err(Error::from)?;
+    crate::operation::paths::relative(relative)?;
     let path = durable::absolute(&durable::canonical(root)?.join(relative))?;
     let expected = durable::fingerprint(&path)?;
     let text = if expected.is_some() {
@@ -82,7 +82,7 @@ pub fn draft(
     expected: Option<String>,
     document: &DocumentMut,
 ) -> Result<Draft> {
-    crate::pathutil::safe_slash_path(relative).map_err(Error::from)?;
+    crate::operation::paths::relative(relative)?;
     let dir = state.join("drafts");
     fs::create_dir_all(&dir)?;
     #[cfg(unix)]
@@ -140,7 +140,7 @@ pub fn execute_files(
         .map(|d| &d.relative)
         .chain(files.iter().map(|f| &f.relative))
     {
-        crate::pathutil::safe_slash_path(path).map_err(Error::from)?;
+        crate::operation::paths::relative(path)?;
         if !targets.insert(path.to_lowercase()) {
             return Err(Error::key(ErrorCode::Conflict, "duplicate_batch_target"));
         }
@@ -151,7 +151,7 @@ pub fn execute_files(
     }
     for draft in drafts {
         control.check()?;
-        crate::pathutil::safe_slash_path(&draft.relative).map_err(Error::from)?;
+        crate::operation::paths::relative(&draft.relative)?;
         if durable::fingerprint(&root.join(&draft.relative))? != draft.expected
             || durable::fingerprint(&draft.source)?.as_ref() != Some(&draft.prepared)
         {

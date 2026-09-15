@@ -6,6 +6,7 @@ pub mod durable;
 pub mod edit;
 pub mod lock;
 pub mod manifest;
+pub mod paths;
 pub mod preview;
 pub mod process;
 pub mod queue;

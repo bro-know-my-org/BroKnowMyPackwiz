@@ -246,7 +246,7 @@ fn file(value: &Value, project_id: u64) -> Result<File> {
         return Err(invalid("file_project_mismatch"));
     }
     let filename = string(value, "fileName");
-    crate::pathutil::safe_filename(&filename).map_err(Error::from)?;
+    crate::operation::paths::filename(&filename)?;
     let sha1 = value
         .get("hashes")
         .and_then(Value::as_array)

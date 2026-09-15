@@ -119,7 +119,7 @@ impl Editor {
         if options.name.trim().is_empty() {
             return Err(Error::key(ErrorCode::Invalid, "name_required"));
         }
-        crate::pathutil::safe_filename(&options.filename).map_err(Error::from)?;
+        crate::operation::paths::filename(&options.filename)?;
         Ok((input, options))
     }
 }

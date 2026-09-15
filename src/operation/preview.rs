@@ -66,7 +66,7 @@ impl Guard {
         Ok(guard)
     }
     pub fn watch(&mut self, root: &Path, relative: &str) -> Result<()> {
-        crate::pathutil::safe_slash_path(relative).map_err(Error::from)?;
+        crate::operation::paths::relative(relative)?;
         let target = durable::absolute(&durable::canonical(root)?.join(relative))?;
         let fingerprint = durable::fingerprint(&target)?;
         if self
@@ -82,7 +82,7 @@ impl Guard {
     pub fn validate(&self, root: &Path, control: &Control) -> Result<()> {
         for (relative, expected) in &self.fingerprints {
             control.check()?;
-            crate::pathutil::safe_slash_path(relative).map_err(Error::from)?;
+            crate::operation::paths::relative(relative)?;
             let path = durable::absolute(&durable::canonical(root)?.join(relative))?;
             if durable::fingerprint(&path)? != *expected {
                 return Err(stale(relative));

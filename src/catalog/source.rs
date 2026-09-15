@@ -83,7 +83,7 @@ fn prepare_inner(
     if options.name.trim().is_empty() {
         return Err(invalid("name_required"));
     }
-    let filename = crate::pathutil::safe_filename(&options.filename).map_err(Error::from)?;
+    let filename = crate::operation::paths::filename(&options.filename)?;
     let directory = match options.kind.as_str() {
         "mods" => layout.metadata_root.to_string_lossy().replace('\\', "/"),
         "resourcepacks" | "shaderpacks" => options.kind.clone(),
@@ -102,7 +102,7 @@ fn prepare_inner(
         "{directory}/{}",
         crate::ops::metadata_filename(&slug, &layout)
     );
-    crate::pathutil::safe_slash_path(&path).map_err(Error::from)?;
+    crate::operation::paths::relative(&path)?;
     let target =
         crate::install::resolve_pack_file_path(&path, &filename, &layout).map_err(Error::from)?;
     if root.join(&path).exists() || root.join(&target).exists() {

@@ -133,7 +133,7 @@ fn release(value: &Value) -> Result<Release> {
 }
 fn asset(value: &Value) -> Result<Asset> {
     let name = string(value, "name");
-    crate::pathutil::safe_filename(&name).map_err(Error::from)?;
+    crate::operation::paths::filename(&name)?;
     let url = string(value, "browser_download_url");
     let parsed = url
         .parse::<ureq::http::Uri>()
