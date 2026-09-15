@@ -600,15 +600,22 @@ impl Dialog {
                     let value = match field.kind {
                         Kind::Bool => Value::from(field.value == "true"),
                         Kind::Number => {
-                            let number: i64 = field
-                                .value
-                                .parse()
-                                .map_err(|_| Error::new(ErrorCode::Invalid, &field.label))?;
-                            if number < 0
-                                || (number == 0
-                                    && (field.key.ends_with("-id") || field.key.ends_with(".jobs")))
-                            {
-                                return Err(Error::new(ErrorCode::Invalid, &field.label));
+                            let positive =
+                                field.key.ends_with("-id") || field.key.ends_with(".jobs");
+                            let invalid = || {
+                                Error::key(
+                                    ErrorCode::Invalid,
+                                    if positive {
+                                        "positive_integer_required"
+                                    } else {
+                                        "nonnegative_integer_required"
+                                    },
+                                )
+                                .context(&field.key)
+                            };
+                            let number: i64 = field.value.parse().map_err(|_| invalid())?;
+                            if number < 0 || (number == 0 && positive) {
+                                return Err(invalid());
                             }
                             Value::from(number)
                         }
