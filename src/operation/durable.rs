@@ -79,6 +79,20 @@ pub fn replace(source: &Path, target: &Path) -> Result<()> {
     result
 }
 
+/// Copy into a fresh transaction-owned path and flush through the writing
+/// handle. Windows cannot FlushFileBuffers on a read-only File::open handle.
+pub fn copy_synced(source: &Path, target: &Path) -> Result<()> {
+    let mut input = File::open(source)?;
+    let mut output = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(target)?;
+    std::io::copy(&mut input, &mut output)?;
+    output.set_permissions(input.metadata()?.permissions())?;
+    output.sync_all()?;
+    Ok(())
+}
+
 pub fn fingerprint(path: &Path) -> Result<Option<String>> {
     let meta = match fs::symlink_metadata(path) {
         Ok(meta) => meta,
@@ -243,6 +257,26 @@ pub fn user_state() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copied_backup_is_flushed_and_preserves_contents_and_permissions() {
+        let root = std::env::temp_dir().join(unique_id());
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("source");
+        let target = root.join("backup");
+        fs::write(&source, "original").unwrap();
+        let permissions = fs::metadata(&source).unwrap().permissions();
+        let mut readonly = permissions.clone();
+        readonly.set_readonly(true);
+        fs::set_permissions(&source, readonly).unwrap();
+        copy_synced(&source, &target).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"original");
+        assert_eq!(fingerprint(&source).unwrap(), fingerprint(&target).unwrap());
+        assert!(copy_synced(&source, &target).is_err());
+        fs::set_permissions(&source, permissions.clone()).unwrap();
+        fs::set_permissions(&target, permissions).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[cfg(windows)]
     #[test]

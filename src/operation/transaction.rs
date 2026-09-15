@@ -132,10 +132,9 @@ impl Transaction {
             if before.is_some() {
                 #[cfg(test)]
                 super::faults::check(super::faults::Point::BackupBefore, &txn.backup(i))?;
-                fs::copy(&target, txn.backup(i))?;
+                durable::copy_synced(&target, &txn.backup(i))?;
                 #[cfg(test)]
                 super::faults::check(super::faults::Point::BackupCopied, &txn.backup(i))?;
-                fs::File::open(txn.backup(i))?.sync_all()?;
                 if durable::fingerprint(&txn.backup(i))? != before
                     || durable::fingerprint(&target)? != before
                 {
@@ -152,8 +151,7 @@ impl Transaction {
                             "missing staged source",
                         ));
                     }
-                    fs::copy(&source, txn.staged(i))?;
-                    fs::File::open(txn.staged(i))?.sync_all()?;
+                    durable::copy_synced(&source, &txn.staged(i))?;
                     if durable::fingerprint(&txn.staged(i))? != stamp {
                         return Err(conflict(&source));
                     }
@@ -348,8 +346,7 @@ impl Transaction {
                 let copy = self
                     .directory
                     .join(format!("external-{i}-{}", durable::unique_id()));
-                fs::copy(&target, &copy)?;
-                fs::File::open(&copy)?.sync_all()?;
+                durable::copy_synced(&target, &copy)?;
                 durable::sync_dir(&self.directory)?;
                 if durable::fingerprint(&copy)? != current
                     || durable::fingerprint(&target)? != current
