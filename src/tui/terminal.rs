@@ -13,11 +13,9 @@ pub type Screen = Terminal<CrosstermBackend<io::Stdout>>;
 pub struct Session;
 
 impl Session {
-    pub fn open() -> io::Result<(Self, Screen)> {
+    pub fn open(language: super::i18n::Language) -> io::Result<(Self, Screen)> {
         if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-            return Err(io::Error::other(
-                super::i18n::Language::detect().text("terminal_required"),
-            ));
+            return Err(io::Error::other(language.text("terminal_required")));
         }
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {

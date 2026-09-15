@@ -67,6 +67,11 @@ impl Language {
 
 const MESSAGES: &[(&str, &str, &str)] = &[
     (
+        "tui_usage",
+        "usage: bkmpw tui [pack-root]",
+        "用法：bkmpw tui [整合包目录]",
+    ),
+    (
         "managed_root_escape",
         "Metadata filename resolves outside managed roots",
         "元数据文件名指向托管目录之外",

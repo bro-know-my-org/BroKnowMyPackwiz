@@ -50,6 +50,21 @@ def smoke(binary):
         with (root / ".pw/config.toml").open("a", encoding="utf-8") as config:
             config.write('\n[release]\ntemplate-dir = "templates"\ntemplate-files = "README.md"\n')
         subprocess.run([binary, "refresh", str(root)], env=env, check=True, capture_output=True)
+        # Saved language takes precedence even when terminal startup fails.
+        preferences = base / "config/bkmpw/tui.json"
+        preferences.parent.mkdir(parents=True, exist_ok=True)
+        for language, locale, message in [
+            ("ZhCn", "en_US.UTF-8", "TUI 需要交互式终端"),
+            ("En", "zh_CN.UTF-8", "TUI requires an interactive terminal"),
+        ]:
+            preferences.write_text(json.dumps({"language": language}), encoding="utf-8")
+            result = subprocess.run(
+                [binary, "tui", str(root)], env=dict(env, LC_ALL=locale),
+                stdin=subprocess.DEVNULL, capture_output=True,
+            )
+            assert result.returncode != 0
+            assert message in result.stderr.decode("utf-8"), result.stderr
+        preferences.unlink()
         # Create a real saved queue through the TUI before testing restart.
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 120, 0, 0))
