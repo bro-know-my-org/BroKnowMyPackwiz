@@ -35,6 +35,7 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 | 每任务整批回滚 | `src/operation/transaction_tests.rs`：创建/替换/删除、目录模式、文件/目录转换后的取消和失败 | 临时真实文件树；不声称外部进程看不到提交中间态 |
 | 取消与提交完成点 | `transaction_fault_tests.rs::cancellation_before_final_check_rolls_back_but_after_commit_marker_keeps_success` | 确定性检查点；提交成功后不追溯撤销 |
 | 日志和目标写入失败 | `each_commit_write_boundary_recovers_from_a_single_io_failure` | 每个已覆盖写入边界注入 StorageFull/PermissionDenied；非真实磁盘满载 |
+| 多输出跨磁盘提交后失败 | `runner.rs::partial_commit_failure_restores_pack_and_external_outputs` | Linux 默认路径及 `BKMPW_TEST_OUTPUT_BASE=/dev/shm` 均通过；整合包与外部文件/目录均已发布后注入 StorageFull，两边恢复原内容，重开日志重复回滚；非真实磁盘满载 |
 | 备份失败 | `backup_io_failure_never_changes_original_files` | 复制前/后注入失败；原文件保持原样 |
 | 持续 I/O 故障后再恢复 | `persistent_io_failure_keeps_backups_for_later_recovery` | 故障撤销后从持久日志重开恢复 |
 | 恢复中途再次崩溃 | `crash_after_restoring_a_file_can_resume_recovery_again` | 在恢复替换后模拟进程中断，再次打开日志完成恢复；非真实断电 |
@@ -44,6 +45,8 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 | 配置错误不泄露原始字段值到队列历史 | `queue.rs::malformed_config_values_do_not_leak_into_saved_task_errors`；配置错误序列化测试 | 虚构 token、错误落盘及重启读取；CLI 字符串诊断与私有备份保持原行为 |
 | 不清理手动 JAR | Linux release 队列烟测在下载/同步/安装后核对未托管 JAR | 离线 fixture，非用户真实整合包 |
 | 元数据与下载同任务 | `src/operation/edit.rs`、`transfer.rs`、`download.rs` 的文件树和本地 HTTP 测试 | 来源平台真实鉴权添加另列 |
+
+空间预检查当前覆盖私有工作副本所在文件系统，不能预知提交时各目标磁盘的可用容量。发布通过目标目录中的临时文件替换，跨盘无需 rename 源文件；提交 I/O 失败进入回滚，持续故障时保留备份等待恢复。
 
 ## 界面、国际化与平台
 

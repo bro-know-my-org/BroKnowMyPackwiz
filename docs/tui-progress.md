@@ -14,7 +14,7 @@
 
 每一批改动独立验证和提交；状态只根据已完成证据更新。
 
-当前全套 298 项测试通过，`cargo fmt --check` 和 release 构建通过。
+当前全套 299 项测试通过，`cargo fmt --check` 和 release 构建通过。
 新增 Linux release PTY 烟测覆盖添加页、中文查询、API key 缺失提示及终端恢复。
 CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release PTY 已通过公开 GitHub 仓库的 Release/附件查询、取消及终端恢复。GitHub 真实文件添加两种模式已通过（见文末）；CurseForge 真实鉴权添加已通过（见文末）；Windows/macOS 测试按用户要求挂起。
 本地 HTTP 故障测试验证：批量下载后项摘要错误时，前项文件及元数据均不发布；全部校验成功时一起提交。
@@ -31,7 +31,7 @@ CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release P
 - 写锁现在显式解锁，避免进程创建期间继承的临时句柄延迟释放；重复句柄测试通过。
 - 来源、依赖冲突和传输的常见诊断已国际化；部分应用内部诊断仍需补齐。帮助页已包含完整中英文工作流快捷键，并支持键盘与滚轮翻阅；窄窗口测试通过。
 - 预览使用暂存文件持有记录：取消、后台结果被丢弃、关闭确认窗口、队列保存失败时清理未提交草稿及已完成的下载；核对指纹后才删除，保留外部改动；入队持久化成功后交给队列管理。相关测试已通过。
-- 已补确定性 I/O 故障注入、取消/提交边界和恢复再次崩溃测试；真实磁盘故障、真实 CurseForge 添加和 Windows/macOS 终端未实测。
+- 已补确定性 I/O 故障注入、取消/提交边界和恢复再次崩溃测试；真实磁盘故障未实测；真实 CurseForge 添加已通过，Windows/macOS 终端测试挂起。
 - 本地环境检查仅发现 `x86_64-unknown-linux-gnu` Rust 目标；没有 MinGW、Wine、cargo-zigbuild 或仓库内 Windows/macOS VM 配置。三平台矩阵仍需远程 CI 执行，不能据本地 Linux 结果宣称全部平台通过。
 
 事务执行采用私有工作目录准备变更，再统一提交文件事务，避免旧核心操作提前修改真实整合包。
@@ -81,3 +81,5 @@ GitHub 仓库格式和元数据名称校验增加双语适配；GitHub 更新查
 修复 PackInfo 未识别 Fabric/Quilt，导致 CurseForge 默认过滤遗漏加载器的问题；补齐两类加载器解析与导出标识，保留 NeoForge/Forge 既有优先级。测试从真实 pack.toml 验证四类加载器的 API 搜索/文件参数和本地兼容判断；读取错误提供双语诊断并保持 CLI 原文。298 项测试、格式检查及 release 构建通过，实际 release CurseForge 导出清单验证 Fabric/Quilt loader ID。
 
 真实 CurseForge 鉴权验收已通过：`tests/tui_curseforge_smoke.py` 在 Linux release PTY 搜索 AppleSkin，按 Fabric 1.21.1 选择文件，列出必需 Fabric API 并确认同一任务。取消预览、仅元数据、同时下载均通过；校验实际项目/文件 ID、下载模式、大小与 SHA-1，队列和终端输出不含密钥。具体文件证据与适用范围见验收对照。
+
+新增 runner 级联合提交故障测试：整合包和外部文件/目录均发布新内容后注入 StorageFull，验证两者回滚、手动 JAR 保留，重开实际事务日志后重复恢复仍正确。默认路径与 `BKMPW_TEST_OUTPUT_BASE=/dev/shm` 跨文件系统运行均通过（Linux `/tmp` 与 `/dev/shm` 设备不同）。这是确定性注入，不是真实磁盘满载。完整 299 项测试、格式检查与 release 构建通过。
