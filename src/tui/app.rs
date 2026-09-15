@@ -94,6 +94,25 @@ impl App {
         if self.dialog.is_none() && !self.jobs.quit_prompt && !self.help {
             if let Some(result) = self.adding.poll() {
                 match result {
+                    Ok(super::add::Output::UpdatePreview(preview)) => {
+                        self.dialog = Some(super::dialog::Dialog::update(preview, self.language))
+                    }
+                    Ok(super::add::Output::UpdateReady(planned)) => {
+                        self.dialog = Some(super::dialog::Dialog::update_prepared(
+                            planned,
+                            self.language,
+                        ))
+                    }
+                    Ok(super::add::Output::UpdateDirect(planned)) => {
+                        self.dialog = Some(super::dialog::Dialog::update_prepared(
+                            planned,
+                            self.language,
+                        ));
+                        self.dialog_event(Event::Key(crossterm::event::KeyEvent::new(
+                            KeyCode::Enter,
+                            KeyModifiers::NONE,
+                        )));
+                    }
                     Ok(super::add::Output::GitHub(picker, form)) => {
                         self.dialog =
                             Some(super::dialog::Dialog::github(picker, form, self.language))
@@ -295,6 +314,47 @@ impl App {
                     }
                     KeyCode::Char('?') => self.help = true,
                     KeyCode::Char('r') if self.page != 3 && self.page != 1 => self.reload(),
+                    KeyCode::Char(code @ ('u' | 'd')) if self.page == 0 => {
+                        let paths: Vec<_> = if self.marked.is_empty() {
+                            self.current().map(|e| e.path.clone()).into_iter().collect()
+                        } else {
+                            self.marked.iter().cloned().collect()
+                        };
+                        if !paths.is_empty() {
+                            let result = self
+                                .jobs
+                                .queue
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    crate::operation::Error::new(
+                                        crate::operation::ErrorCode::Busy,
+                                        "queue unavailable",
+                                    )
+                                })
+                                .map(|q| q.state.clone())
+                                .and_then(|state| {
+                                    self.adding.update(&self.root, &state, paths, code == 'd')
+                                });
+                            if let Err(error) = result {
+                                self.error = Some(error.to_string());
+                            }
+                        }
+                    }
+                    KeyCode::Char('a') if self.page == 0 => {
+                        let paths: Vec<_> = self
+                            .visible()
+                            .iter()
+                            .map(|i| self.entries[*i].path.clone())
+                            .collect();
+                        if paths.iter().all(|path| self.marked.contains(path)) {
+                            for path in paths {
+                                self.marked.remove(&path);
+                            }
+                        } else {
+                            self.marked.extend(paths);
+                        }
+                    }
+                    KeyCode::Char('c') if self.page == 0 => self.adding.cancel(),
                     KeyCode::Char('c') if self.page == 1 => self.adding.cancel(),
                     KeyCode::Char('g') if self.page == 1 => {
                         let (picker, form) = super::github::Picker::repository();
@@ -495,6 +555,13 @@ impl App {
                 .map(|q| q.state.clone())
                 .unwrap_or(crate::operation::durable::user_state()?);
             match dialog.submit(&state, &self.preferences)? {
+                Submission::Update {
+                    preview,
+                    paths,
+                    download,
+                } => self
+                    .adding
+                    .apply_updates(&self.root, &state, preview, paths, download)?,
                 Submission::GitHub(super::github::Action::Add(input)) => {
                     self.dialog = Some(super::dialog::Dialog::source(input))
                 }

@@ -12,6 +12,7 @@ use toml_edit::{DocumentMut, Item, Value};
 
 pub const SETTINGS: [&str; 4] = ["pack_info", "project_config", "preferences", "open_pack"];
 enum Purpose {
+    Update(super::update::Selection),
     GitHub(super::github::Picker),
     Source(super::source::Editor),
     CurseForge(super::catalog::Selection),
@@ -36,6 +37,11 @@ pub struct Dialog {
     purpose: Purpose,
 }
 pub enum Submission {
+    Update {
+        preview: crate::catalog::updates::Preview,
+        paths: Vec<String>,
+        download: bool,
+    },
     GitHub(super::github::Action),
     Source {
         input: crate::catalog::source::Input,
@@ -59,6 +65,42 @@ pub enum Submission {
 }
 
 impl Dialog {
+    pub fn update(preview: crate::catalog::updates::Preview, lang: Language) -> Self {
+        let (selection, form) = super::update::Selection::open(preview, lang);
+        Self {
+            form,
+            purpose: Purpose::Update(selection),
+        }
+    }
+    pub fn update_prepared(planned: crate::catalog::update_plan::Planned, lang: Language) -> Self {
+        let mut form = Form::new("review_changes", Vec::new());
+        let rows = planned
+            .rows
+            .iter()
+            .map(|row| {
+                format!(
+                    "{} · {}\n{} → {}",
+                    lang.text(row.action),
+                    row.name,
+                    row.before,
+                    row.after
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        form.preview = Some(format!(
+            "{rows}\n\n{}: {}",
+            lang.text("source_download"),
+            lang.text(if planned.download { "yes" } else { "no" })
+        ));
+        Self {
+            form,
+            purpose: Purpose::Prepared {
+                request: planned.request,
+                label: "update_files".into(),
+            },
+        }
+    }
     pub fn discard(&self, queue: &crate::operation::queue::Queue) {
         if let Purpose::Prepared { request, .. } = &self.purpose {
             queue.discard(request);
@@ -421,6 +463,14 @@ impl Dialog {
 
     pub fn submit(&self, state: &Path, prefs: &Preferences) -> Result<Submission> {
         match &self.purpose {
+            Purpose::Update(selection) => {
+                let (preview, paths, download) = selection.submit(&self.form);
+                Ok(Submission::Update {
+                    preview,
+                    paths,
+                    download,
+                })
+            }
             Purpose::GitHub(picker) => Ok(Submission::GitHub(picker.submit(&self.form)?)),
             Purpose::Source(editor) => {
                 let (input, options) = editor.submit(&self.form)?;

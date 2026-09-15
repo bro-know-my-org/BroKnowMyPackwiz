@@ -89,7 +89,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
     use crossterm::event::KeyCode;
     let actions: Vec<(KeyCode, &str, &str)> = match app.page {
+        0 if app.adding.busy() => vec![(KeyCode::Char('c'), "C", "cf_cancel_preview")],
         0 => vec![
+            (KeyCode::Char('u'), "U", "update_preview"),
+            (KeyCode::Char('d'), "D", "update_direct"),
+            (KeyCode::Char('a'), "A", "select_all"),
             (KeyCode::Char('e'), "E", "edit_metadata"),
             (KeyCode::Char('p'), "P", "pin"),
             (KeyCode::Char('E'), "Shift+E", "advanced"),

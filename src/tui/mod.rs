@@ -13,6 +13,7 @@ mod source;
 mod terminal;
 #[cfg(test)]
 mod tests;
+mod update;
 mod view;
 
 use crossterm::event;
