@@ -105,7 +105,7 @@ impl Browser {
         let result = match rx.try_recv() {
             Ok(result) => result,
             Err(mpsc::TryRecvError::Empty) => return,
-            Err(mpsc::TryRecvError::Disconnected) => Err(Error::new(
+            Err(mpsc::TryRecvError::Disconnected) => Err(Error::key(
                 crate::operation::ErrorCode::Failed,
                 "catalog_worker_disconnected",
             )),

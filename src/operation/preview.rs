@@ -27,7 +27,7 @@ impl Guard {
         Ok(())
     }
     pub fn capture(root: &Path, control: &Control) -> Result<Self> {
-        let config = ProjectConfig::load(root).map_err(Error::from)?;
+        let config = ProjectConfig::load_operation(root)?;
         let layout = PackLayout::from_config(&config);
         let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
         let mut guard = Self {

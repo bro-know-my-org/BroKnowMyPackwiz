@@ -1,3 +1,4 @@
+use crate::operation::{Error, ErrorCode};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -54,17 +55,27 @@ pub struct CurseForgeConfig {
 
 impl ProjectConfig {
     pub fn load(root: &Path) -> Result<Self, String> {
+        Self::load_operation(root).map_err(|error| error.detail)
+    }
+
+    pub fn load_operation(root: &Path) -> Result<Self, Error> {
         let source = root.join(".pw").join("config.toml");
         let mut config = Self::default_at(source.clone());
 
         let text = match fs::read_to_string(&source) {
             Ok(text) => text,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(config),
-            Err(err) => return Err(format!("failed to read {}: {err}", source.display())),
+            Err(err) => {
+                return Err(config_error(
+                    "config_read_failed",
+                    format!("failed to read {}: {err}", source.display()),
+                )
+                .context(format!("{}: {err}", source.display())));
+            }
         };
 
         let mut section = "";
-        for raw_line in text.lines() {
+        for (line_number, raw_line) in text.lines().enumerate() {
             let line = strip_comment(raw_line).trim();
             if line.is_empty() {
                 continue;
@@ -74,12 +85,21 @@ impl ProjectConfig {
                 continue;
             }
             let Some((key, value)) = line.split_once('=') else {
-                return Err(format!(
-                    "invalid config line in {}: {raw_line}",
-                    source.display()
-                ));
+                return Err(config_error(
+                    "config_invalid_line",
+                    format!("invalid config line in {}: {raw_line}", source.display()),
+                )
+                .context(format!("{}:{}", source.display(), line_number + 1)));
             };
-            apply_value(&mut config, section, key.trim(), value.trim())?;
+            apply_value(&mut config, section, key.trim(), value.trim()).map_err(|error| {
+                error.context(format!(
+                    "{}:{} [{}].{}",
+                    source.display(),
+                    line_number + 1,
+                    section,
+                    key.trim()
+                ))
+            })?;
         }
 
         Ok(config)
@@ -128,7 +148,7 @@ fn apply_value(
     section: &str,
     key: &str,
     value: &str,
-) -> Result<(), String> {
+) -> Result<(), Error> {
     match (section, key) {
         ("release", "enabled") => config.release.enabled = parse_bool(value)?,
         ("release", "template-dir") => {
@@ -148,7 +168,9 @@ fn apply_value(
                 .metadata_roots
                 .first()
                 .cloned()
-                .ok_or_else(|| "expected at least one path".to_string())?;
+                .ok_or_else(|| {
+                    config_error("config_path_required", "expected at least one path")
+                })?;
         }
         ("layout", "jar-root") => config.layout.jar_root = parse_string_path(value)?,
         ("layout", "server-meta") => config.layout.server_meta = parse_string_path(value)?,
@@ -179,24 +201,34 @@ fn strip_comment(line: &str) -> &str {
     crate::pathutil::strip_comment(line)
 }
 
-fn parse_bool(value: &str) -> Result<bool, String> {
+fn config_error(key: &str, legacy: impl Into<String>) -> Error {
+    Error::named(ErrorCode::Failed, key, legacy)
+}
+
+fn parse_bool(value: &str) -> Result<bool, Error> {
     match value {
         "true" => Ok(true),
         "false" => Ok(false),
-        _ => Err(format!("expected boolean, got {value}")),
+        _ => Err(config_error(
+            "config_expected_boolean",
+            format!("expected boolean, got {value}"),
+        )),
     }
 }
 
-fn parse_string_path(value: &str) -> Result<PathBuf, String> {
+fn parse_string_path(value: &str) -> Result<PathBuf, Error> {
     parse_string(value).and_then(|value| {
-        crate::pathutil::safe_slash_path(&value)?;
+        crate::operation::paths::relative(&value)?;
         Ok(PathBuf::from(value))
     })
 }
 
-fn parse_string(value: &str) -> Result<String, String> {
+fn parse_string(value: &str) -> Result<String, Error> {
     let Some(inner) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) else {
-        return Err(format!("expected quoted string, got {value}"));
+        return Err(config_error(
+            "config_expected_string",
+            format!("expected quoted string, got {value}"),
+        ));
     };
     let mut chars = inner.chars();
     let mut out = String::new();
@@ -218,33 +250,42 @@ fn parse_string(value: &str) -> Result<String, String> {
     Ok(out)
 }
 
-fn parse_string_list(value: &str) -> Result<Vec<PathBuf>, String> {
+fn parse_string_list(value: &str) -> Result<Vec<PathBuf>, Error> {
     let text = parse_string(value)?;
     let roots = text
         .split(',')
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| {
-            crate::pathutil::safe_slash_path(value)?;
+            crate::operation::paths::relative(value)?;
             Ok(PathBuf::from(value))
         })
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect::<Result<Vec<_>, Error>>()?;
     if roots.is_empty() {
-        return Err("expected at least one path".to_string());
+        return Err(config_error(
+            "config_path_required",
+            "expected at least one path",
+        ));
     }
     Ok(roots)
 }
 
-fn parse_usize(value: &str) -> Result<usize, String> {
-    value
-        .parse::<usize>()
-        .map_err(|err| format!("expected positive integer, got {value}: {err}"))
+fn parse_usize(value: &str) -> Result<usize, Error> {
+    value.parse::<usize>().map_err(|err| {
+        config_error(
+            "config_expected_integer",
+            format!("expected positive integer, got {value}: {err}"),
+        )
+    })
 }
 
-fn parse_u64(value: &str) -> Result<u64, String> {
-    value
-        .parse::<u64>()
-        .map_err(|err| format!("expected positive integer, got {value}: {err}"))
+fn parse_u64(value: &str) -> Result<u64, Error> {
+    value.parse::<u64>().map_err(|err| {
+        config_error(
+            "config_expected_integer",
+            format!("expected positive integer, got {value}: {err}"),
+        )
+    })
 }
 
 #[cfg(test)]

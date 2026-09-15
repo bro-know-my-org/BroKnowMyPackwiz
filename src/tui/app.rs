@@ -42,7 +42,7 @@ pub struct App {
     pub catalog: super::catalog::Browser,
     pub adding: super::add::Workflow,
     preparation_artifacts: Option<crate::operation::artifacts::Lease>,
-    pending: Option<Receiver<Result<Vec<Entry>, String>>>,
+    pending: Option<Receiver<crate::operation::Result<Vec<Entry>>>>,
 }
 
 impl App {
@@ -169,12 +169,12 @@ impl App {
                             .retain(|path| self.entries.iter().any(|entry| &entry.path == path));
                         self.reset_cursor();
                     }
-                    Err(error) => self.error = Some(error),
+                    Err(error) => self.error = Some(self.language.error(&error)),
                 }
                 self.pending = None;
             }
             Err(mpsc::TryRecvError::Disconnected) => {
-                self.error = Some("worker disconnected".into());
+                self.error = Some(self.language.text("file_loader_disconnected").into());
                 self.pending = None;
             }
             Err(mpsc::TryRecvError::Empty) => {}

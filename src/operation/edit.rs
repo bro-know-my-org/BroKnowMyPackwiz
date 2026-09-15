@@ -193,7 +193,7 @@ pub fn execute_files(
         }
     }
     super::manifest::record(&workspace.staged, files, control)?;
-    let config = crate::config::ProjectConfig::load(&workspace.staged).map_err(Error::from)?;
+    let config = crate::config::ProjectConfig::load_operation(&workspace.staged)?;
     let layout = crate::layout::PackLayout::from_config(&config);
     crate::refresh::refresh(&workspace.staged, &config, &layout).map_err(Error::from)?;
     let changes = workspace.changes(control)?;

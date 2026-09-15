@@ -35,7 +35,7 @@ pub struct Client<T = Http> {
 }
 impl Client<Http> {
     pub fn for_pack(root: &Path) -> Result<Self> {
-        let config = crate::config::ProjectConfig::load(root).map_err(Error::from)?;
+        let config = crate::config::ProjectConfig::load_operation(root)?;
         let key = crate::curseforge::api_key(&config)
             .ok_or_else(|| invalid("curseforge_api_key_required"))?;
         Ok(Self {
