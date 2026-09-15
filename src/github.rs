@@ -3,7 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::http::{http_get_to_file, http_get_to_string, http_get_to_string_with_header};
-use crate::sha256::sha256_file_hex;
+use crate::operation::{Error, ErrorCode, Result as OperationResult};
+use crate::sha256::sha256_file_hex_operation;
 
 #[derive(Debug, Clone)]
 pub struct GitHubFileInfo {
@@ -34,7 +35,25 @@ pub fn resolve_github_release_asset(
     filename_override: Option<&str>,
     name_override: Option<&str>,
 ) -> Result<GitHubFileInfo, String> {
-    let (owner, repo) = parse_project(project)?;
+    resolve_github_release_asset_operation(
+        project,
+        tag,
+        asset_filter,
+        filename_override,
+        name_override,
+    )
+    .map_err(|error| error.detail)
+}
+
+pub fn resolve_github_release_asset_operation(
+    project: &str,
+    tag: Option<&str>,
+    asset_filter: Option<&str>,
+    filename_override: Option<&str>,
+    name_override: Option<&str>,
+) -> OperationResult<GitHubFileInfo> {
+    let normalized = crate::operation::paths::github_project(project)?;
+    let (owner, repo) = normalized.split_once('/').expect("normalized repository");
     let url = match tag.filter(|value| !value.trim().is_empty() && *value != "latest") {
         Some(tag) => format!(
             "https://api.github.com/repos/{}/{}/releases/tags/{}",
@@ -71,9 +90,9 @@ pub fn resolve_github_release_asset(
         .unwrap_or_else(|| filename.clone());
     let temp_dir = temp_download_dir()?;
     let temp = temp_dir.join(sanitize_filename(&filename));
-    let result = (|| -> Result<GitHubFileInfo, String> {
+    let result = (|| -> OperationResult<GitHubFileInfo> {
         http_get_to_file(&asset.url, &temp)?;
-        let hash = sha256_file_hex(&temp)?;
+        let hash = sha256_file_hex_operation(&temp)?;
         Ok(GitHubFileInfo {
             name: display_name,
             filename,
@@ -129,9 +148,14 @@ fn is_valid_github_path_segment(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
 }
 
-fn parse_release(json: &str) -> Result<GitHubRelease, String> {
-    let value: serde_json::Value = serde_json::from_str(json)
-        .map_err(|err| format!("failed to parse GitHub release JSON: {err}"))?;
+fn parse_release(json: &str) -> OperationResult<GitHubRelease> {
+    let value: serde_json::Value = serde_json::from_str(json).map_err(|err| {
+        diagnostic(
+            "github_release_json",
+            format!("failed to parse GitHub release JSON: {err}"),
+            err.to_string(),
+        )
+    })?;
     let name = value
         .get("name")
         .and_then(|value| value.as_str())
@@ -143,7 +167,13 @@ fn parse_release(json: &str) -> Result<GitHubRelease, String> {
     let assets = value
         .get("assets")
         .and_then(|value| value.as_array())
-        .ok_or_else(|| "GitHub release response has no assets field".to_string())?
+        .ok_or_else(|| {
+            diagnostic(
+                "github_release_assets_missing",
+                "GitHub release response has no assets field",
+                "",
+            )
+        })?
         .iter()
         .filter_map(|asset| {
             Some(GitHubAsset {
@@ -153,7 +183,11 @@ fn parse_release(json: &str) -> Result<GitHubRelease, String> {
         })
         .collect::<Vec<_>>();
     if assets.is_empty() {
-        return Err("GitHub release has no assets".to_string());
+        return Err(diagnostic(
+            "github_release_empty",
+            "GitHub release has no assets",
+            "",
+        ));
     }
     Ok(GitHubRelease { name, tag, assets })
 }
@@ -162,12 +196,18 @@ fn select_asset<'a>(
     assets: &'a [GitHubAsset],
     asset_filter: Option<&str>,
     filename_override: Option<&str>,
-) -> Result<&'a GitHubAsset, String> {
+) -> OperationResult<&'a GitHubAsset> {
     if let Some(filename) = filename_override.filter(|value| !value.trim().is_empty()) {
         return assets
             .iter()
             .find(|asset| asset.name == filename)
-            .ok_or_else(|| format!("GitHub release has no asset named: {filename}"));
+            .ok_or_else(|| {
+                diagnostic(
+                    "github_asset_named_missing",
+                    format!("GitHub release has no asset named: {filename}"),
+                    filename,
+                )
+            });
     }
     if let Some(filter) = asset_filter.filter(|value| !value.trim().is_empty()) {
         let matches = assets
@@ -186,32 +226,45 @@ fn select_asset<'a>(
     if assets.len() == 1 {
         return Ok(&assets[0]);
     }
-    Err(format!(
-        "release has multiple assets; use --asset. assets: {}",
-        assets
-            .iter()
-            .map(|asset| asset.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
+    let names = asset_names(assets.iter());
+    Err(diagnostic(
+        "github_assets_ambiguous",
+        format!("release has multiple assets; use --asset. assets: {names}"),
+        names,
     ))
 }
 
-fn one_asset<'a>(assets: Vec<&'a GitHubAsset>, filter: &str) -> Result<&'a GitHubAsset, String> {
+fn one_asset<'a>(assets: Vec<&'a GitHubAsset>, filter: &str) -> OperationResult<&'a GitHubAsset> {
     match assets.as_slice() {
         [asset] => Ok(*asset),
-        [] => Err(format!("no GitHub release asset matched: {filter}")),
-        _ => Err(format!(
-            "multiple GitHub release assets matched {filter}: {}",
-            assets
-                .iter()
-                .map(|asset| asset.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
+        [] => Err(diagnostic(
+            "github_asset_filter_missing",
+            format!("no GitHub release asset matched: {filter}"),
+            filter,
         )),
+        _ => {
+            let names = asset_names(assets.iter().copied());
+            Err(diagnostic(
+                "github_asset_filter_ambiguous",
+                format!("multiple GitHub release assets matched {filter}: {names}"),
+                format!("{filter}: {names}"),
+            ))
+        }
     }
 }
 
-fn temp_download_dir() -> Result<PathBuf, String> {
+fn asset_names<'a>(assets: impl Iterator<Item = &'a GitHubAsset>) -> String {
+    assets
+        .map(|asset| asset.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn diagnostic(key: &str, legacy: impl Into<String>, context: impl Into<String>) -> Error {
+    Error::named(ErrorCode::Failed, key, legacy).context(context)
+}
+
+fn temp_download_dir() -> OperationResult<PathBuf> {
     for attempt in 0..100 {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -225,11 +278,19 @@ fn temp_download_dir() -> Result<PathBuf, String> {
             Ok(()) => return Ok(path),
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(err) => {
-                return Err(format!("failed to create {}: {err}", path.display()));
+                return Err(diagnostic(
+                    "github_temp_create",
+                    format!("failed to create {}: {err}", path.display()),
+                    format!("{}: {err}", path.display()),
+                ));
             }
         }
     }
-    Err("failed to create unique GitHub download temp directory".to_string())
+    Err(diagnostic(
+        "github_temp_unique",
+        "failed to create unique GitHub download temp directory",
+        "",
+    ))
 }
 
 fn sanitize_filename(filename: &str) -> String {
@@ -263,6 +324,79 @@ fn percent_encode_path_segment(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_selection_errors_keep_legacy_text_and_stable_message_keys() {
+        for (json, key, legacy) in [
+            (
+                "{}",
+                "github_release_assets_missing",
+                "GitHub release response has no assets field",
+            ),
+            (
+                r#"{"assets":[]}"#,
+                "github_release_empty",
+                "GitHub release has no assets",
+            ),
+        ] {
+            let error = parse_release(json).unwrap_err();
+            assert_eq!(error.message.as_deref(), Some(key));
+            assert_eq!(error.detail, legacy);
+        }
+        assert_eq!(
+            parse_release("{").unwrap_err().message.as_deref(),
+            Some("github_release_json")
+        );
+        let release = parse_release(r#"{"assets":[{"name":"a.jar","browser_download_url":"https://example.invalid/a"},{"name":"b.jar","browser_download_url":"https://example.invalid/b"}]}"#).unwrap();
+        for (filter, filename, key, legacy) in [
+            (
+                None,
+                None,
+                "github_assets_ambiguous",
+                "release has multiple assets; use --asset. assets: a.jar, b.jar",
+            ),
+            (
+                Some("missing"),
+                None,
+                "github_asset_filter_missing",
+                "no GitHub release asset matched: missing",
+            ),
+            (
+                Some(".jar"),
+                None,
+                "github_asset_filter_ambiguous",
+                "multiple GitHub release assets matched .jar: a.jar, b.jar",
+            ),
+            (
+                None,
+                Some("missing.jar"),
+                "github_asset_named_missing",
+                "GitHub release has no asset named: missing.jar",
+            ),
+        ] {
+            let error = select_asset(&release.assets, filter, filename).unwrap_err();
+            assert_eq!(error.message.as_deref(), Some(key));
+            assert_eq!(error.detail, legacy);
+            assert!(
+                !error
+                    .message_context
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("--asset")
+            );
+        }
+        assert_eq!(
+            select_asset(&release.assets, Some("a.jar"), None)
+                .unwrap()
+                .name,
+            "a.jar"
+        );
+        let project = "https://example.invalid/owner/repo";
+        assert_eq!(
+            resolve_github_release_asset(project, None, None, None, None).unwrap_err(),
+            normalize_project(project).unwrap_err()
+        );
+    }
 
     #[test]
     fn parses_owner_repo_from_url() {
@@ -309,6 +443,6 @@ mod tests {
 
         let err = select_asset(&assets, None, Some("missing.jar")).unwrap_err();
 
-        assert!(err.contains("missing.jar"));
+        assert!(err.detail.contains("missing.jar"));
     }
 }

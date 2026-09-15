@@ -552,3 +552,48 @@ fn file_details_scroll_without_changing_selection_and_reset_on_new_entry() {
         }
     }
 }
+
+#[test]
+fn source_name_and_repository_errors_have_localized_adapters() {
+    use crate::operation::{
+        ErrorCode,
+        paths::{github_project, metadata_slug},
+    };
+    for value in ["", "???", "中文"] {
+        let legacy = crate::ops::safe_slug(value);
+        let result = metadata_slug(value);
+        match legacy {
+            Ok(slug) => assert_eq!(result.unwrap(), slug),
+            Err(legacy) => {
+                let error = result.unwrap_err();
+                assert_eq!(error.detail, legacy);
+                assert!(Language::ZhCn.error(&error).contains("名称无法转换"));
+                assert!(
+                    Language::En
+                        .error(&error)
+                        .contains("safe metadata filename")
+                );
+            }
+        }
+    }
+    for value in ["https://example.invalid/a/b", "owner/..", "only-owner"] {
+        let error = github_project(value).unwrap_err();
+        assert_eq!(
+            error.detail,
+            crate::github::normalize_project(value).unwrap_err()
+        );
+        assert_eq!(error.code, ErrorCode::Invalid);
+        assert!(Language::ZhCn.error(&error).contains("GitHub 仓库格式无效"));
+        assert!(
+            Language::En
+                .error(&error)
+                .contains("Invalid GitHub repository")
+        );
+    }
+    for value in ["owner/repo", "https://github.com/owner/repo/releases"] {
+        assert_eq!(
+            github_project(value).unwrap(),
+            crate::github::normalize_project(value).unwrap()
+        );
+    }
+}

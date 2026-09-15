@@ -214,6 +214,61 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "相对路径不安全",
     ),
     (
+        "github_release_json",
+        "Could not parse the GitHub release response",
+        "无法解析 GitHub Release 响应",
+    ),
+    (
+        "github_release_assets_missing",
+        "The GitHub release response has no attachment list",
+        "GitHub Release 响应缺少附件列表",
+    ),
+    (
+        "github_release_empty",
+        "The GitHub release has no usable attachments",
+        "GitHub Release 没有可用附件",
+    ),
+    (
+        "github_asset_named_missing",
+        "No GitHub release attachment has the requested filename",
+        "GitHub Release 没有所指定文件名的附件",
+    ),
+    (
+        "github_assets_ambiguous",
+        "Several GitHub attachments are available; specify an asset filter",
+        "GitHub Release 有多个附件，请指定附件过滤条件",
+    ),
+    (
+        "github_asset_filter_missing",
+        "No GitHub release attachment matches the filter",
+        "没有 GitHub Release 附件匹配过滤条件",
+    ),
+    (
+        "github_asset_filter_ambiguous",
+        "Several GitHub attachments match the filter; make it more specific",
+        "多个 GitHub Release 附件匹配过滤条件，请缩小匹配范围",
+    ),
+    (
+        "github_temp_create",
+        "Could not create the GitHub download temporary directory",
+        "无法创建 GitHub 下载临时目录",
+    ),
+    (
+        "github_temp_unique",
+        "Could not allocate a unique GitHub download temporary directory",
+        "无法分配唯一的 GitHub 下载临时目录",
+    ),
+    (
+        "invalid_github_project",
+        "Invalid GitHub repository; enter owner/repo or a github.com repository URL",
+        "GitHub 仓库格式无效，请输入 owner/repo 或 github.com 仓库链接",
+    ),
+    (
+        "invalid_metadata_name",
+        "The name cannot be converted to a safe metadata filename; include letters or digits",
+        "名称无法转换为安全的元数据文件名，请包含英文字母或数字",
+    ),
+    (
         "queue_loading_before_switch",
         "Wait for the current task queue to load before switching packs",
         "请等待当前任务队列加载完成后再切换整合包",

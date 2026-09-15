@@ -48,7 +48,7 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 ## 界面、国际化与平台
 
 - 文件搜索、多选、焦点、中文粘贴、窄窗口、鼠标入口与滚轮有 ratatui TestBackend 测试；帮助/错误关闭、退出选择、恢复重试的双语鼠标测试已通过，Linux PTY 已实测鼠标打开/关闭帮助和退出；Linux release PTY 有启动、语言切换、重启队列和终端恢复证据。
-- 消息资源有唯一性/完整性测试；操作错误使用稳定消息键和上下文，CLI 字符串接口保留旧文案；第三方原始错误和 CLI 日志保留原文。剩余跨模块 helper 透传路径仍在最终核查。
+- 消息资源有唯一性/完整性测试；操作错误使用稳定消息键和上下文，CLI 字符串接口保留旧文案；第三方原始错误和 CLI 日志保留原文。GitHub 仓库/名称校验、更新附件选择与临时目录诊断已接入消息键，并核对 CLI 原字符串不变；剩余跨模块 helper 透传路径仍在最终核查。
 - 配置/元数据表单及外部编辑器通过暂存与确认提交；TOML 无关字段、注释和外部冲突有测试。Linux release PTY 已用真实编辑器子进程验证保存、取消、失败、无效 TOML 和外部修改五种往返场景，见 `tests/tui_editor_smoke.py`；Windows/macOS 尚未实测。
 - `.github/workflows/ci.yml` 定义 Windows/Linux/macOS 的格式、测试、release 构建及 CLI 烟测；尚无本次代码的远程执行结果。TUI PTY 自动烟测当前只在 Linux 运行。用户已于 2026-09-15 明确挂起 Windows/macOS 测试；保留实现与 CI 配置，状态仍为未验证。
 - 当前本地证据不能替代三平台中文输入、键鼠、resize、外部编辑器、正常退出和错误退出的真实终端验收。
