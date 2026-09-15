@@ -76,7 +76,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         frame.render_stateful_widget(
             ratatui::widgets::List::new(items)
                 .highlight_symbol("› ")
-                .block(Block::bordered().title(lang.text("pack"))),
+                .block(Block::bordered().title(lang.text(
+                    if app.root.join("pack.toml").is_file() {
+                        "pack"
+                    } else {
+                        "no_pack"
+                    },
+                ))),
             bands[2],
             &mut app.pack_selection,
         );

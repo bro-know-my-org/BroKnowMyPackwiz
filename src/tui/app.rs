@@ -45,11 +45,12 @@ pub struct App {
 
 impl App {
     pub fn new(root: PathBuf) -> Self {
+        let initialize = !root.join("pack.toml").is_file();
         let mut app = Self {
             root,
             language: Language::detect(),
             entries: Vec::new(),
-            page: 0,
+            page: if initialize { 2 } else { 0 },
             filter: String::new(),
             kind: 0,
             descending: false,
@@ -66,7 +67,13 @@ impl App {
             preferences: super::preferences::Preferences::default(),
             persist_preferences: false,
             settings_index: 0,
-            pack_selection: ratatui::widgets::ListState::default().with_selected(Some(0)),
+            pack_selection: ratatui::widgets::ListState::default().with_selected(Some(
+                if initialize {
+                    super::pack::ACTIONS.len() - 1
+                } else {
+                    0
+                },
+            )),
             external: None,
             buttons: Vec::new(),
             menu_area: Rect::default(),
@@ -698,7 +705,15 @@ impl App {
         self.jobs = super::jobs::Jobs::default();
         self.jobs.connect(self.root.clone());
         self.reload();
-        self.page = 0;
+        self.page = if self.root.join("pack.toml").is_file() {
+            0
+        } else {
+            2
+        };
+        if self.page == 2 {
+            self.pack_selection
+                .select(Some(super::pack::ACTIONS.len() - 1));
+        }
         Ok(())
     }
 }

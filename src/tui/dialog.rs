@@ -370,6 +370,8 @@ impl Dialog {
                     ("versions.minecraft", "minecraft", Kind::Text),
                     ("versions.neoforge", "neoforge", Kind::Text),
                     ("versions.forge", "forge", Kind::Text),
+                    ("versions.fabric", "fabric", Kind::Text),
+                    ("versions.quilt", "quilt", Kind::Text),
                 ],
             ),
             1 => Self::edit(
@@ -387,6 +389,7 @@ impl Dialog {
                     ("curseforge.cdn-fallback", "cdn_fallback", Kind::Bool),
                     ("release.enabled", "release_enabled", Kind::Bool),
                     ("release.template-dir", "template_dir", Kind::Text),
+                    ("release.template-files", "template_files", Kind::Text),
                 ],
             ),
             2 => Ok(Self {
