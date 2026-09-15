@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "transaction_fault_tests.rs"]
+mod faults;
+
 #[cfg(unix)]
 #[test]
 fn new_directory_permissions_roll_back_and_keep_external_ancestors_on_resolution() {
