@@ -17,6 +17,15 @@ pub struct Draft {
     pub prepared: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Attachment {
+    pub relative: String,
+    pub source: PathBuf,
+    pub expected: Option<String>,
+    pub prepared: String,
+    pub sha256: String,
+}
+
 pub fn document(root: &Path, relative: &str) -> Result<(DocumentMut, Option<String>)> {
     crate::pathutil::safe_slash_path(relative).map_err(Error::from)?;
     let path = durable::absolute(&durable::canonical(root)?.join(relative))?;
@@ -99,12 +108,35 @@ pub fn execute(
     guard: Option<&super::preview::Guard>,
     control: &Control,
 ) -> Result<()> {
+    execute_files(root, state, task, drafts, &[], guard, control)
+}
+
+pub fn execute_files(
+    root: &Path,
+    state: &Path,
+    task: &Path,
+    drafts: &[Draft],
+    files: &[Attachment],
+    guard: Option<&super::preview::Guard>,
+    control: &Control,
+) -> Result<()> {
     let _lock = WriteLocks::acquire(state, &[root.to_path_buf()])?;
     if let Some(guard) = guard {
         guard.validate(root, control)?;
     }
-    if drafts.is_empty() {
+    if drafts.is_empty() && files.is_empty() {
         return control.check();
+    }
+    let mut targets = std::collections::BTreeSet::new();
+    for path in drafts
+        .iter()
+        .map(|d| &d.relative)
+        .chain(files.iter().map(|f| &f.relative))
+    {
+        crate::pathutil::safe_slash_path(path).map_err(Error::from)?;
+        if !targets.insert(path.to_lowercase()) {
+            return Err(Error::new(ErrorCode::Conflict, "duplicate_batch_target"));
+        }
     }
     let workspace = Workspace::create(root, &task.join("workspace"), control)?;
     if let Some(guard) = guard {
@@ -129,6 +161,30 @@ pub fn execute(
             fs::set_permissions(&target, permissions)?;
         }
     }
+    for file in files {
+        control.check()?;
+        if durable::fingerprint(&root.join(&file.relative))? != file.expected
+            || durable::fingerprint(&file.source)?.as_ref() != Some(&file.prepared)
+        {
+            return Err(Error::new(ErrorCode::Conflict, &file.relative));
+        }
+        let target = workspace.staged.join(&file.relative);
+        let permissions = fs::metadata(&target).ok().map(|m| m.permissions());
+        if target.exists() {
+            fs::remove_file(&target)?;
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let hashes = super::transfer::copy(&file.source, &target, control)?;
+        hashes.verify("sha256", &file.sha256)?;
+        if durable::fingerprint(&file.source)?.as_ref() != Some(&file.prepared) {
+            return Err(Error::new(ErrorCode::Conflict, &file.relative));
+        }
+        if let Some(permissions) = permissions {
+            fs::set_permissions(&target, permissions)?;
+        }
+    }
     let config = crate::config::ProjectConfig::load(&workspace.staged).map_err(Error::from)?;
     let layout = crate::layout::PackLayout::from_config(&config);
     crate::refresh::refresh(&workspace.staged, &config, &layout).map_err(Error::from)?;
@@ -140,6 +196,76 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_and_payload_commit_together_and_failed_verification_publishes_neither() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        fs::create_dir_all(base.join("pack/mods")).unwrap();
+        let base = fs::canonicalize(base).unwrap();
+        let root = base.join("pack");
+        let state = base.join("state");
+        fs::write(root.join("pack.toml"), "name = \"Pack\"\n").unwrap();
+        fs::write(
+            root.join("mods/a.pw.toml"),
+            "name = \"Old\"\nfilename = \"a.jar\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("mods/a.jar"), b"old payload").unwrap();
+        let source = base.join("new.jar");
+        fs::write(&source, b"new payload").unwrap();
+        let control = Control::default();
+        let guard = super::super::preview::Guard::capture(&root, &control).unwrap();
+        let (mut doc, expected) = document(&root, "mods/a.pw.toml").unwrap();
+        set(&mut doc, &["name"], Value::from("New")).unwrap();
+        let drafts = [draft(&state, "mods/a.pw.toml", expected, &doc).unwrap()];
+        let mut file = Attachment {
+            relative: "mods/a.jar".into(),
+            source: source.clone(),
+            expected: durable::fingerprint(&root.join("mods/a.jar")).unwrap(),
+            prepared: durable::fingerprint(&source).unwrap().unwrap(),
+            sha256: "wrong".into(),
+        };
+        assert!(
+            execute_files(
+                &root,
+                &state,
+                &base.join("failed"),
+                &drafts,
+                &[file.clone()],
+                Some(&guard),
+                &control
+            )
+            .is_err()
+        );
+        assert!(
+            fs::read_to_string(root.join("mods/a.pw.toml"))
+                .unwrap()
+                .contains("Old")
+        );
+        assert_eq!(fs::read(root.join("mods/a.jar")).unwrap(), b"old payload");
+        assert!(!root.join("index.toml").exists());
+        file.sha256 = super::super::transfer::hash(&source, &control)
+            .unwrap()
+            .sha256;
+        execute_files(
+            &root,
+            &state,
+            &base.join("success"),
+            &drafts,
+            &[file],
+            Some(&guard),
+            &control,
+        )
+        .unwrap();
+        assert!(
+            fs::read_to_string(root.join("mods/a.pw.toml"))
+                .unwrap()
+                .contains("New")
+        );
+        assert_eq!(fs::read(root.join("mods/a.jar")).unwrap(), b"new payload");
+        assert!(root.join("index.toml").exists());
+        fs::remove_dir_all(base).unwrap();
+    }
 
     #[test]
     fn editing_preserves_unrelated_fields_and_comments() {
