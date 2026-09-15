@@ -66,6 +66,12 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("close", "Close", "关闭"),
+    ("quit", "Quit", "退出"),
+    ("back", "Back", "返回"),
+    ("wait_exit", "Wait and exit", "等待并退出"),
+    ("cancel_rollback", "Cancel and roll back", "取消并回滚"),
+    ("retry_recovery", "Retry recovery", "重试恢复"),
     (
         "tui_usage",
         "usage: bkmpw tui [pack-root]",

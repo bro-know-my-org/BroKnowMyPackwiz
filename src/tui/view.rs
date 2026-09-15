@@ -2,12 +2,21 @@ use super::{
     app::{App, PAGES, TYPES},
     i18n::Language,
 };
+use crossterm::event::KeyCode;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Clear, Paragraph, Row, Table, Wrap},
 };
+
+type Action = (KeyCode, &'static str, &'static str);
+const CLOSE: &[Action] = &[(KeyCode::Esc, "Esc", "close")];
+const QUIT: &[Action] = &[
+    (KeyCode::Char('w'), "W", "wait_exit"),
+    (KeyCode::Char('c'), "C", "cancel_rollback"),
+    (KeyCode::Esc, "Esc", "back"),
+];
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
@@ -30,6 +39,17 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     frame.render_widget(
         Paragraph::new(format!("bkmpw {} · {}", crate::VERSION, app.root.display())),
         bands[0],
+    );
+    draw_buttons(
+        frame,
+        lang,
+        &[
+            (KeyCode::Char('l'), "L", "language"),
+            (KeyCode::Char('?'), "?", "help"),
+            (KeyCode::Char('q'), "Q", "quit"),
+        ],
+        Rect::new(bands[0].x, bands[0].y + 1, bands[0].width, 1),
+        &mut app.buttons,
     );
     app.tabs = Layout::horizontal([Constraint::Ratio(1, 5); 5])
         .split(bands[1])
@@ -91,11 +111,28 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if let Some(dialog) = &mut app.dialog {
         dialog.form.draw(frame, lang);
     } else if app.jobs.quit_prompt {
-        popup(frame, lang.text("tasks"), lang.text("quit_task"));
+        app.buttons.clear();
+        popup(
+            frame,
+            lang,
+            lang.text("tasks"),
+            lang.text("quit_task"),
+            QUIT,
+            &mut app.buttons,
+        );
     } else if app.help {
-        help(frame, lang, &mut app.help_scroll);
+        app.buttons.clear();
+        help(frame, lang, &mut app.help_scroll, &mut app.buttons);
     } else if let Some(error) = &app.error {
-        popup(frame, lang.text("error"), error);
+        app.buttons.clear();
+        popup(
+            frame,
+            lang,
+            lang.text("error"),
+            error,
+            CLOSE,
+            &mut app.buttons,
+        );
     }
 }
 
@@ -121,6 +158,7 @@ fn actions(app: &App) -> Vec<(crossterm::event::KeyCode, &'static str, &'static 
         3 => vec![
             (KeyCode::Char(' '), "Space", "resume_pause"),
             (KeyCode::Char('c'), "C", "cancel"),
+            (KeyCode::Char('r'), "R", "retry_recovery"),
             (KeyCode::Char('k'), "K", "keep_short"),
             (KeyCode::Char('o'), "O", "restore_short"),
         ],
@@ -134,10 +172,14 @@ fn actions(app: &App) -> Vec<(crossterm::event::KeyCode, &'static str, &'static 
 }
 
 fn toolbar_height(app: &App, width: u16) -> u16 {
+    button_rows(&actions(app), app.language, width) + 1
+}
+
+fn button_rows(actions: &[Action], lang: Language, width: u16) -> u16 {
     let mut rows = 1;
     let mut used = 0;
-    for (_, key, label) in actions(app) {
-        let text = format!(" {key} {} ", app.language.text(label));
+    for (_, key, label) in actions {
+        let text = format!(" {key} {} ", lang.text(label));
         let size = (unicode_width::UnicodeWidthStr::width(text.as_str()) as u16).min(width);
         if used > 0 && used + size > width {
             rows += 1;
@@ -145,31 +187,47 @@ fn toolbar_height(app: &App, width: u16) -> u16 {
         }
         used += size;
     }
-    rows + 1
+    rows
 }
 
 fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
+    draw_buttons(
+        frame,
+        app.language,
+        &actions(app),
+        Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1)),
+        &mut app.buttons,
+    );
+    frame.render_widget(
+        Paragraph::new(app.language.text("keys")),
+        Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1),
+    );
+}
+
+fn draw_buttons(
+    frame: &mut Frame,
+    lang: Language,
+    actions: &[Action],
+    area: Rect,
+    buttons: &mut Vec<(KeyCode, Rect)>,
+) {
     let mut x = area.x;
     let mut y = area.y;
-    for (code, key, label) in actions(app) {
-        let text = format!(" {key} {} ", app.language.text(label));
+    for (code, key, label) in actions {
+        let text = format!(" {key} {} ", lang.text(label));
         let width = (unicode_width::UnicodeWidthStr::width(text.as_str()) as u16).min(area.width);
         if x > area.x && x.saturating_add(width) > area.right() {
             x = area.x;
             y += 1;
         }
-        if y >= area.bottom().saturating_sub(1) {
+        if y >= area.bottom() {
             break;
         }
         let rect = Rect::new(x, y, width, 1);
         frame.render_widget(Paragraph::new(text).style(active()), rect);
-        app.buttons.push((code, rect));
+        buttons.push((*code, rect));
         x += width;
     }
-    frame.render_widget(
-        Paragraph::new(app.language.text("keys")),
-        Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1),
-    );
 }
 
 fn files(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -301,7 +359,14 @@ fn active() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-pub fn popup(frame: &mut Frame, title: &str, text: &str) {
+fn popup(
+    frame: &mut Frame,
+    lang: Language,
+    title: &str,
+    text: &str,
+    actions: &[Action],
+    buttons: &mut Vec<(KeyCode, Rect)>,
+) {
     let area = frame.area();
     let rect = Rect::new(
         area.x + area.width / 10,
@@ -310,15 +375,34 @@ pub fn popup(frame: &mut Frame, title: &str, text: &str) {
         area.height * 8 / 10,
     );
     frame.render_widget(Clear, rect);
+    let block = Block::bordered().title(title);
+    let inner = block.inner(rect);
+    let rows = button_rows(actions, lang, inner.width).min(inner.height);
+    frame.render_widget(block, rect);
     frame.render_widget(
-        Paragraph::new(text)
-            .wrap(Wrap { trim: false })
-            .block(Block::bordered().title(title)),
-        rect,
+        Paragraph::new(text).wrap(Wrap { trim: false }),
+        Rect::new(
+            inner.x,
+            inner.y,
+            inner.width,
+            inner.height.saturating_sub(rows),
+        ),
+    );
+    draw_buttons(
+        frame,
+        lang,
+        actions,
+        Rect::new(
+            inner.x,
+            inner.bottom().saturating_sub(rows),
+            inner.width,
+            rows,
+        ),
+        buttons,
     );
 }
 
-fn help(frame: &mut Frame, lang: Language, scroll: &mut u16) {
+fn help(frame: &mut Frame, lang: Language, scroll: &mut u16, buttons: &mut Vec<(KeyCode, Rect)>) {
     let area = frame.area();
     let rect = Rect::new(
         area.x + area.width / 10,
@@ -328,6 +412,12 @@ fn help(frame: &mut Frame, lang: Language, scroll: &mut u16) {
     );
     let block = Block::bordered().title(lang.text("help"));
     let inner = block.inner(rect);
+    let body = Rect::new(
+        inner.x,
+        inner.y,
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
     let mut lines = Vec::new();
     for line in lang.text("help_text").lines() {
         let mut current = String::new();
@@ -346,14 +436,17 @@ fn help(frame: &mut Frame, lang: Language, scroll: &mut u16) {
     *scroll = (*scroll).min(
         lines
             .len()
-            .saturating_sub(inner.height as usize)
+            .saturating_sub(body.height as usize)
             .min(u16::MAX as usize) as u16,
     );
     frame.render_widget(Clear, rect);
-    frame.render_widget(
-        Paragraph::new(lines.join("\n"))
-            .scroll((*scroll, 0))
-            .block(block),
-        rect,
+    frame.render_widget(block, rect);
+    frame.render_widget(Paragraph::new(lines.join("\n")).scroll((*scroll, 0)), body);
+    draw_buttons(
+        frame,
+        lang,
+        CLOSE,
+        Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+        buttons,
     );
 }
