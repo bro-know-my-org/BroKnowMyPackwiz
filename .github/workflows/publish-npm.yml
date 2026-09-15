@@ -152,6 +152,8 @@ jobs:
 
   publish:
     name: Publish npm packages
+    # All five npm packages must trust this GitHub workflow and allow npm publish.
+    # Authentication uses OIDC; no NPM_TOKEN secret is needed.
     needs: build-platform-package
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -186,8 +188,11 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Set up npm for trusted publishing
+        run: npm install --global npm@11
 
       - name: Download platform packages
         uses: actions/download-artifact@v4
@@ -217,8 +222,6 @@ jobs:
 
       - name: Publish platform packages
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           while IFS= read -r -d '' package_json; do
@@ -232,6 +235,4 @@ jobs:
 
       - name: Publish main package
         working-directory: packages/npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance
