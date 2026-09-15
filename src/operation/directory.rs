@@ -139,10 +139,24 @@ impl super::transaction::Transaction {
         self.save()
     }
 
+    #[cfg(test)]
     pub(super) fn apply_directories(&mut self, control: &Control) -> Result<()> {
+        self.apply_directory_removals(control)?;
+        self.apply_directory_modes(control)
+    }
+    pub(super) fn apply_directory_removals(&mut self, control: &Control) -> Result<()> {
+        self.apply_directory_entries(control, true)
+    }
+    pub(super) fn apply_directory_modes(&mut self, control: &Control) -> Result<()> {
+        self.apply_directory_entries(control, false)
+    }
+    fn apply_directory_entries(&mut self, control: &Control, removal: bool) -> Result<()> {
         for index in 0..self.journal.directory_changes.len() {
             control.check()?;
             let entry = &self.journal.directory_changes[index];
+            if entry.after.is_none() != removal {
+                continue;
+            }
             let target = entry.target.clone();
             let after = entry.after;
             if mode(&target)? != Some(entry.before) {
@@ -163,9 +177,18 @@ impl super::transaction::Transaction {
         Ok(())
     }
 
-    pub(super) fn restore_directories(&mut self) -> Result<()> {
+    pub(super) fn restore_directory_modes(&mut self) -> Result<()> {
+        self.restore_directory_entries(false)
+    }
+    pub(super) fn restore_removed_directories(&mut self) -> Result<()> {
+        self.restore_directory_entries(true)
+    }
+    fn restore_directory_entries(&mut self, removal: bool) -> Result<()> {
         for index in (0..self.journal.directory_changes.len()).rev() {
             let entry = &self.journal.directory_changes[index];
+            if entry.after.is_none() != removal {
+                continue;
+            }
             if matches!(entry.step, Step::Pending | Step::Restored) {
                 continue;
             }
