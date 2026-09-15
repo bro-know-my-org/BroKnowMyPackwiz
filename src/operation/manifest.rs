@@ -28,7 +28,7 @@ pub fn record(root: &Path, files: &[Attachment], control: &Control) -> Result<()
             .get("path")
             .and_then(Value::as_str)
             .ok_or_else(|| invalid("invalid_manifest_path"))?;
-        let path = crate::pathutil::safe_slash_path(path).map_err(Error::from)?;
+        let path = crate::operation::paths::relative(path)?;
         if !paths.insert(path.to_lowercase()) {
             return Err(invalid("duplicate_manifest_path"));
         }

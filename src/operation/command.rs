@@ -148,14 +148,14 @@ impl Request {
             return Err(invalid("jobs_must_be_positive"));
         }
         if !self.root_dir.is_empty() {
-            crate::pathutil::safe_slash_path(&self.root_dir).map_err(Error::from)?;
+            crate::operation::paths::relative(&self.root_dir)?;
         }
         if self.kind == Kind::Remove {
             if self.names.is_empty() {
                 return Err(invalid("remove_selection_required"));
             }
             for name in &self.names {
-                crate::pathutil::safe_slash_path(name).map_err(Error::from)?;
+                crate::operation::paths::relative(name)?;
             }
         }
         if self.kind == Kind::Hash

@@ -245,13 +245,13 @@ pub fn curseforge_many<T: Transport>(
                     "{directory}/{}",
                     crate::ops::metadata_filename(&slug, &layout)
                 );
-                crate::pathutil::safe_slash_path(&path).map_err(Error::from)?;
+                crate::operation::paths::relative(&path)?;
                 if metadata_paths.contains_key(&path.to_lowercase()) || root.join(&path).exists() {
                     return Err(collision(&path));
                 }
                 (path, DocumentMut::new(), None)
             };
-            crate::pathutil::safe_filename(&entry.file.filename).map_err(Error::from)?;
+            crate::operation::paths::filename(&entry.file.filename)?;
             let target =
                 crate::install::resolve_pack_file_path(&path, &entry.file.filename, &layout)
                     .map_err(Error::from)?;

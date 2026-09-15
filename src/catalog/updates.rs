@@ -162,7 +162,7 @@ pub fn query(
                 continue;
             };
         control.check()?;
-        crate::pathutil::safe_filename(&filename).map_err(Error::from)?;
+        crate::operation::paths::filename(&filename)?;
         if hash.is_empty() {
             return Err(invalid("update_hash_missing"));
         }

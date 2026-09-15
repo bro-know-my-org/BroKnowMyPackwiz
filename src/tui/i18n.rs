@@ -66,6 +66,12 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("unsafe_filename", "Unsafe filename", "文件名不安全"),
+    (
+        "unsafe_relative_path",
+        "Unsafe relative path",
+        "相对路径不安全",
+    ),
     (
         "queue_before_switch",
         "Finish or cancel the current queue before switching packs",
@@ -1024,6 +1030,56 @@ const MESSAGES: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adapters_preserve_validation_and_cli_text_while_localizing_errors() {
+        use crate::operation::paths::{filename, relative};
+        for value in ["", ".", "..", "a/b", "a\\b", "C:a", "a\n", "中文.jar"] {
+            let original = crate::pathutil::safe_filename(value);
+            let adapted = filename(value);
+            match (original, adapted) {
+                (Ok(a), Ok(b)) => assert_eq!(a, b),
+                (Err(a), Err(b)) => {
+                    assert_eq!(b.to_string(), format!("Failed: {a}"));
+                    assert_eq!(
+                        Language::ZhCn.error(&b),
+                        if value.is_empty() {
+                            "文件名不安全".into()
+                        } else {
+                            format!("文件名不安全: {value}")
+                        }
+                    );
+                }
+                _ => panic!("validation differs for {value:?}"),
+            }
+        }
+        for value in [
+            "",
+            "/a",
+            "\\a",
+            "a\\b",
+            "../a",
+            "a/../b",
+            "a//b",
+            "a/./b",
+            "C:a",
+            "a\n",
+            "mods/中文.jar",
+        ] {
+            let original = crate::pathutil::safe_slash_path(value);
+            let adapted = relative(value);
+            match (original, adapted) {
+                (Ok(a), Ok(b)) => assert_eq!(a, b),
+                (Err(a), Err(b)) => {
+                    assert_eq!(b.to_string(), format!("Failed: {a}"));
+                    assert_eq!(b.message.as_deref(), Some("unsafe_relative_path"));
+                    assert!(Language::ZhCn.error(&b).starts_with("相对路径不安全"));
+                    assert!(Language::En.error(&b).starts_with("Unsafe relative path"));
+                }
+                _ => panic!("validation differs for {value:?}"),
+            }
+        }
+    }
 
     #[test]
     fn path_validation_has_localized_messages_without_changing_cli_diagnostics() {

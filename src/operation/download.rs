@@ -46,7 +46,7 @@ pub fn execute(
     let mut files = Vec::new();
     for (index, download) in downloads.iter().enumerate() {
         control.check()?;
-        crate::pathutil::safe_slash_path(&download.relative).map_err(Error::from)?;
+        crate::operation::paths::relative(&download.relative)?;
         let current = root.join(&download.relative);
         if durable::fingerprint(&current)? != download.expected {
             return Err(Error::new(ErrorCode::Conflict, &download.relative));

@@ -16,7 +16,7 @@ pub struct External {
 
 impl External {
     pub fn prepare(root: &Path, relative: &str, state: &Path, prefs: &Preferences) -> Result<Self> {
-        crate::pathutil::safe_slash_path(relative).map_err(Error::from)?;
+        crate::operation::paths::relative(relative)?;
         let path = durable::absolute(&durable::canonical(root)?.join(relative))?;
         let expected = durable::fingerprint(&path)?;
         let original = if expected.is_some() {
