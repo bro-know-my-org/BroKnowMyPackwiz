@@ -174,13 +174,20 @@ impl Form {
                 }
             }
             Event::Mouse(mouse) => {
-                if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                if matches!(
+                    mouse.kind,
+                    MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
+                ) {
+                    let reverse = mouse.kind == MouseEventKind::Down(MouseButton::Right);
                     if let Some((index, _)) = self
                         .areas
                         .iter()
                         .find(|(_, r)| r.contains((mouse.column, mouse.row).into()))
                     {
                         self.focus = *index;
+                        if reverse && *index >= self.fields.len() {
+                            return Action::Continue;
+                        }
                         if *index == self.fields.len() {
                             return Action::Submit;
                         }
@@ -188,7 +195,7 @@ impl Form {
                             return Action::Cancel;
                         }
                         if matches!(self.fields[*index].kind, Kind::Bool | Kind::Choice(_)) {
-                            self.fields[*index].cycle(false);
+                            self.fields[*index].cycle(reverse);
                         }
                     }
                 } else if mouse.kind == MouseEventKind::ScrollDown {
@@ -307,6 +314,45 @@ mod tests {
     fn key(form: &mut Form, code: KeyCode) -> Action {
         form.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
     }
+    #[test]
+    fn mouse_choices_cycle_both_ways_without_right_click_submitting() {
+        let mut form = Form::new(
+            "test",
+            vec![Field::new(
+                "choice",
+                "name",
+                "first",
+                Kind::Choice(vec!["first".into(), "second".into(), "third".into()]),
+            )],
+        );
+        let mut screen =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 15)).unwrap();
+        screen
+            .draw(|frame| form.draw(frame, Language::ZhCn))
+            .unwrap();
+        let click = |form: &mut Form, index: usize, button| {
+            let area = form.areas.iter().find(|(i, _)| *i == index).unwrap().1;
+            form.event(Event::Mouse(crossterm::event::MouseEvent {
+                kind: MouseEventKind::Down(button),
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        assert_eq!(click(&mut form, 0, MouseButton::Right), Action::Continue);
+        assert_eq!(form.value("choice"), "third");
+        assert_eq!(click(&mut form, 0, MouseButton::Left), Action::Continue);
+        assert_eq!(form.value("choice"), "first");
+        for index in [1, 2] {
+            assert_eq!(
+                click(&mut form, index, MouseButton::Right),
+                Action::Continue
+            );
+        }
+        assert_eq!(click(&mut form, 1, MouseButton::Left), Action::Submit);
+        assert_eq!(click(&mut form, 2, MouseButton::Left), Action::Cancel);
+    }
+
     #[test]
     fn unicode_cursor_paste_and_form_navigation_are_safe() {
         let mut form = Form::new("test", vec![Field::new("x", "name", "中文", Kind::Text)]);
