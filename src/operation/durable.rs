@@ -28,6 +28,8 @@ pub fn sync_dir(path: &Path) -> Result<()> {
 }
 
 pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
+    #[cfg(test)]
+    super::faults::check(super::faults::Point::WriteBefore, path)?;
     let parent = path
         .parent()
         .ok_or_else(|| Error::named(ErrorCode::Invalid, "missing_parent", "missing parent"))?;
@@ -41,6 +43,8 @@ pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temp, path)?;
+        #[cfg(test)]
+        super::faults::check(super::faults::Point::WritePublished, path)?;
         sync_dir(parent)
     })();
     if result.is_err() {
@@ -50,6 +54,8 @@ pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 pub fn replace(source: &Path, target: &Path) -> Result<()> {
+    #[cfg(test)]
+    super::faults::check(super::faults::Point::ReplaceBefore, target)?;
     let parent = target
         .parent()
         .ok_or_else(|| Error::named(ErrorCode::Invalid, "missing_parent", "missing parent"))?;
@@ -63,6 +69,8 @@ pub fn replace(source: &Path, target: &Path) -> Result<()> {
         output.sync_all()?;
         fs::set_permissions(&temp, fs::metadata(source)?.permissions())?;
         fs::rename(&temp, target)?;
+        #[cfg(test)]
+        super::faults::check(super::faults::Point::ReplacePublished, target)?;
         sync_dir(parent)
     })();
     if result.is_err() {

@@ -130,7 +130,11 @@ impl Transaction {
             }
             let i = txn.journal.entries.len();
             if before.is_some() {
+                #[cfg(test)]
+                super::faults::check(super::faults::Point::BackupBefore, &txn.backup(i))?;
                 fs::copy(&target, txn.backup(i))?;
+                #[cfg(test)]
+                super::faults::check(super::faults::Point::BackupCopied, &txn.backup(i))?;
                 fs::File::open(txn.backup(i))?.sync_all()?;
                 if durable::fingerprint(&txn.backup(i))? != before
                     || durable::fingerprint(&target)? != before
