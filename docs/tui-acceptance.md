@@ -14,7 +14,7 @@
 | inspect / list / scan / check | 整合包页同名菜单 | `src/tui/pack.rs::ACTIONS`；Linux release 队列烟测 |
 | init / refresh | 整合包页；新目录默认选中 init | 新目录入口单测；Linux release 队列烟测 |
 | add-curseforge | 添加页搜索、项目、文件、依赖确认 | `src/tui/catalog.rs`、`dialog.rs`；可控响应测试；真实鉴权添加待验 |
-| add-github | 添加页 G，仓库 → Release → 附件 | `src/tui/github.rs`、`source.rs`；Linux 公开仓库浏览烟测；真实添加待验 |
+| add-github | 添加页 G，仓库 → Release → 附件 | `src/tui/github.rs`、`source.rs`；Linux release PTY 真实 Release/附件选择、仅元数据及同时下载均通过 |
 | add-url / add-file | 添加页 U / A | `src/tui/source.rs`、`catalog/source.rs`；本地及 HTTP 测试 |
 | add-resourcepack / add-shaderpack | 添加来源表单中的资源类型；CF F 切换分类 | `src/tui/source.rs`、`catalog.rs`；类型和兼容规则测试 |
 | pin / unpin / remove / rm / update | 文件页 P / Delete / U / D | `src/tui/app.rs`、`jobs.rs`、`update.rs`；预览、确认、队列测试 |
@@ -52,10 +52,28 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 - `.github/workflows/ci.yml` 定义 Windows/Linux/macOS 的格式、测试、release 构建及 CLI 烟测；尚无本次代码的远程执行结果。TUI PTY 自动烟测当前只在 Linux 运行。
 - 当前本地证据不能替代三平台中文输入、键鼠、resize、外部编辑器、正常退出和错误退出的真实终端验收。
 
+## GitHub 真实联网添加
+
+`python3 tests/tui_github_smoke.py` 为手动运行的 Linux release PTY 烟测，
+不加入离线 CI；要求 Python 3.11+ 和可访问 GitHub API/附件下载的网络。
+它通过实际键盘输入完成仓库 → Release → 附件 → 添加表单 → 预览确认，
+分别使用隔离临时整合包验证默认仅元数据和勾选同时下载；不执行下载文件。
+确认前整合包及元数据不变；确认后核对唯一队列任务、完成状态、来源身份、
+下载地址、元数据哈希，以及实体文件是否存在、大小与 SHA-256。两次正常退出均检查终端恢复。
+
+2026-09-15 本地实际通过的附件：
+
+- 仓库 `FabricMC/fabric`，Release `0.160.5+26.3`。
+- 附件 ID `564132163`，`fabric-api-0.160.5+26.3.jar`，2,589,795 字节。
+- SHA-256：`5096e9774d629850338fc1c73b5571b527171374b11ac231691fb93731ee0ae6`。
+
+预期值取自真实 API，脚本会核对 TUI 最终选择及产物；发布期间附件发生变化会失败。
+这项证据不覆盖 CurseForge 鉴权、Windows/macOS 终端或所有 GitHub 项目。
+
 ## 完成前仍需取得的证据
 
 1. 剩余应用自身诊断与消息键调用的收尾核查。文件搜索/过滤/排序/详情、搜索焦点下页签切换、平台分页/右键文件选择、表单双向选项、设置页滚轮与可见行点击已有双语测试；错误弹窗已验证中文长文本滚动、缩放限位、替换重置及搜索焦点隔离；文件与 CurseForge 详情已验证独立滚动、底部内容可见和条目切换重置；任务日志与表单预览已有键鼠滚动入口，其余组合仍需最终核对。
-2. 真实 CurseForge 鉴权搜索 → 文件/依赖选择 → 元数据添加及可选下载；真实平台添加结果验证。
+2. 真实 CurseForge 鉴权搜索 → 文件/依赖选择 → 元数据添加及可选下载；CurseForge 真实添加结果验证；GitHub 两种添加模式已通过下述独立联网烟测。
 3. 本次代码在 Windows、macOS、Linux 的 CI 结果，及 Windows/macOS 真实终端验收。
 4. 将计划中其余队列持久化、目录切换、秘密不入任务参数、模板/多输出行为逐项归档到最终验收证据。已有测试不自动推导为所有组合已覆盖。
 
