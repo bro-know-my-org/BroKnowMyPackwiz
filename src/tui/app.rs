@@ -35,6 +35,7 @@ pub struct App {
     pub preferences: super::preferences::Preferences,
     pub persist_preferences: bool,
     pub settings_index: usize,
+    pub settings_offset: usize,
     pub pack_selection: ratatui::widgets::ListState,
     pub external: Option<String>,
     pub buttons: Vec<(KeyCode, Rect)>,
@@ -70,6 +71,7 @@ impl App {
             preferences: super::preferences::Preferences::default(),
             persist_preferences: false,
             settings_index: 0,
+            settings_offset: 0,
             pack_selection: ratatui::widgets::ListState::default().with_selected(Some(
                 if initialize {
                     super::pack::ACTIONS.len() - 1
@@ -582,13 +584,24 @@ impl App {
                     }
                 }
                 if self.page == 4 && self.menu_area.contains(point) {
-                    let index = (mouse.row - self.menu_area.y) as usize;
-                    if index < super::dialog::SETTINGS.len()
-                        && mouse.kind == MouseEventKind::Down(MouseButton::Left)
-                    {
-                        self.settings_index = index;
+                    let code = match mouse.kind {
+                        MouseEventKind::ScrollDown => Some(KeyCode::Down),
+                        MouseEventKind::ScrollUp => Some(KeyCode::Up),
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            let index =
+                                self.settings_offset + (mouse.row - self.menu_area.y) as usize;
+                            if index < super::dialog::SETTINGS.len() {
+                                self.settings_index = index;
+                                Some(KeyCode::Enter)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some(code) = code {
                         return self.event(Event::Key(crossterm::event::KeyEvent::new(
-                            KeyCode::Enter,
+                            code,
                             KeyModifiers::NONE,
                         )));
                     }

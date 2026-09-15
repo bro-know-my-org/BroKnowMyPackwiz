@@ -72,8 +72,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             .iter()
             .map(|key| ratatui::widgets::ListItem::new(lang.text(key)))
             .collect();
-        let mut selection =
-            ratatui::widgets::ListState::default().with_selected(Some(app.settings_index));
+        let mut selection = ratatui::widgets::ListState::default()
+            .with_selected(Some(app.settings_index))
+            .with_offset(app.settings_offset);
         frame.render_stateful_widget(
             ratatui::widgets::List::new(items)
                 .highlight_symbol("› ")
@@ -81,6 +82,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             bands[2],
             &mut selection,
         );
+        app.settings_offset = selection.offset();
     } else if app.page == 3 {
         super::jobs::draw(frame, &mut app.jobs, lang, bands[2]);
     } else if app.page == 0 {
