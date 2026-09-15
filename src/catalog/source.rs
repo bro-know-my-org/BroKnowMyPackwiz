@@ -280,7 +280,7 @@ fn invalid(message: &str) -> Error {
     Error::key(ErrorCode::Invalid, message)
 }
 fn collision(path: &str) -> Error {
-    Error::new(ErrorCode::Conflict, format!("file_collision: {path}"))
+    Error::key(ErrorCode::Conflict, "file_collision").context(path)
 }
 
 #[cfg(test)]
