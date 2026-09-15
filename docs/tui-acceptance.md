@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | inspect / list / scan / check | 整合包页同名菜单 | `src/tui/pack.rs::ACTIONS`；Linux release 队列烟测 |
 | init / refresh | 整合包页；新目录默认选中 init | 新目录入口单测；Linux release 队列烟测 |
-| add-curseforge | 添加页搜索、项目、文件、依赖确认 | `src/tui/catalog.rs`、`dialog.rs`；可控响应测试；真实鉴权添加待验 |
+| add-curseforge | 添加页搜索、项目、文件、依赖确认 | `src/tui/catalog.rs`、`dialog.rs`；可控响应测试；四类加载器从 pack.toml 到 API/本地兼容判断已有测试；真实鉴权添加待验 |
 | add-github | 添加页 G，仓库 → Release → 附件 | `src/tui/github.rs`、`source.rs`；Linux release PTY 真实 Release/附件选择、仅元数据及同时下载均通过 |
 | add-url / add-file | 添加页 U / A | `src/tui/source.rs`、`catalog/source.rs`；本地及 HTTP 测试 |
 | add-resourcepack / add-shaderpack | 添加来源表单中的资源类型；CF F 切换分类 | `src/tui/source.rs`、`catalog.rs`；类型和兼容规则测试 |

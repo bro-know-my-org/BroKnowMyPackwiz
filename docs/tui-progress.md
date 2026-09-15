@@ -14,7 +14,7 @@
 
 每一批改动独立验证和提交；状态只根据已完成证据更新。
 
-当前全套 295 项测试通过，`cargo fmt --check` 和 release 构建通过。
+当前全套 298 项测试通过，`cargo fmt --check` 和 release 构建通过。
 新增 Linux release PTY 烟测覆盖添加页、中文查询、API key 缺失提示及终端恢复。
 CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release PTY 已通过公开 GitHub 仓库的 Release/附件查询、取消及终端恢复。GitHub 真实文件添加两种模式已通过（见文末）；CurseForge 真实鉴权添加和 Windows/macOS 终端尚未实测。
 本地 HTTP 故障测试验证：批量下载后项摘要错误时，前项文件及元数据均不发布；全部校验成功时一起提交。
@@ -77,3 +77,5 @@ CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release P
 2026-09-15 用户明确要求先挂起 Windows/macOS 测试。继续保留跨平台实现和 CI 矩阵，外平台状态为未验证；当前推进 Linux 和功能验收，不把缺少外平台机器视为当前工作的阻塞。
 
 GitHub 仓库格式和元数据名称校验增加双语适配；GitHub 更新查询的 JSON/附件缺失、过滤无匹配、多附件歧义和临时目录错误使用稳定消息键，CLI 返回原诊断文本。测试核对错误键、上下文、原字符串及合法输入行为，完整 295 项测试、格式检查和 release 构建通过。 修复后真实 GitHub release PTY 添加的仅元数据/同时下载两种模式再次通过。
+
+修复 PackInfo 未识别 Fabric/Quilt，导致 CurseForge 默认过滤遗漏加载器的问题；补齐两类加载器解析与导出标识，保留 NeoForge/Forge 既有优先级。测试从真实 pack.toml 验证四类加载器的 API 搜索/文件参数和本地兼容判断；读取错误提供双语诊断并保持 CLI 原文。298 项测试、格式检查及 release 构建通过，实际 release CurseForge 导出清单验证 Fabric/Quilt loader ID。
