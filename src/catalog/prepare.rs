@@ -195,16 +195,20 @@ pub fn curseforge_many<T: Transport>(
             .file
             .compatible(&class_filter(&filter, project.class_id)?)
         {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Conflict,
+                "dependency_version_mismatch",
                 format!("dependency_version_mismatch: {id}"),
-            ));
+            )
+            .context(id.to_string()));
         }
         if project.class_id != 6 && entry.side != Side::Client {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Conflict,
+                "dependency_side_mismatch",
                 format!("dependency_side_mismatch: {id}"),
-            ));
+            )
+            .context(id.to_string()));
         }
         let old = existing.get(&id);
         if entry.action == Action::Reuse
