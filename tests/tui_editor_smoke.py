@@ -76,12 +76,18 @@ def smoke(binary):
 
             def wait_for(text):
                 nonlocal width
-                width = 121 if width == 120 else 120
-                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, width, 0, 0))
-                process.send_signal(signal.SIGWINCH)
                 expected = text.encode().replace(b" ", b"")
                 deadline = time.monotonic() + 10
+                repaint_at = 0
                 while expected not in visible() and time.monotonic() < deadline:
+                    # The editor temporarily releases terminal event handling;
+                    # a single resize during that handoff may not repaint the
+                    # returned dialog. Retry full paints while waiting.
+                    if time.monotonic() >= repaint_at:
+                        width = 121 if width == 120 else 120
+                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, width, 0, 0))
+                        process.send_signal(signal.SIGWINCH)
+                        repaint_at = time.monotonic() + 0.5
                     drain()
                 assert expected in visible(), f"{mode}: did not reach {text!r}"
 

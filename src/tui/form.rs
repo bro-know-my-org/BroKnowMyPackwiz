@@ -79,6 +79,8 @@ pub struct Form {
     pub error: Option<String>,
     pub preview: Option<String>,
     preview_scroll: u16,
+    preview_area: Rect,
+    preview_text: String,
     areas: Vec<(usize, Rect)>,
 }
 #[derive(PartialEq, Eq, Debug)]
@@ -97,6 +99,8 @@ impl Form {
             error: None,
             preview: None,
             preview_scroll: 0,
+            preview_area: Rect::default(),
+            preview_text: String::new(),
             areas: Vec::new(),
         }
     }
@@ -116,6 +120,8 @@ impl Form {
                 KeyCode::PageUp if self.preview.is_some() => {
                     self.preview_scroll = self.preview_scroll.saturating_sub(10)
                 }
+                KeyCode::Home if self.preview.is_some() => self.preview_scroll = 0,
+                KeyCode::End if self.preview.is_some() => self.preview_scroll = u16::MAX,
                 KeyCode::Esc => return Action::Cancel,
                 KeyCode::Tab | KeyCode::Down => {
                     self.focus = (self.focus + 1) % (self.fields.len() + 2)
@@ -174,6 +180,21 @@ impl Form {
                 }
             }
             Event::Mouse(mouse) => {
+                if self.preview.is_some()
+                    && self.preview_area.contains((mouse.column, mouse.row).into())
+                {
+                    match mouse.kind {
+                        MouseEventKind::ScrollDown => {
+                            self.preview_scroll = self.preview_scroll.saturating_add(3);
+                            return Action::Continue;
+                        }
+                        MouseEventKind::ScrollUp => {
+                            self.preview_scroll = self.preview_scroll.saturating_sub(3);
+                            return Action::Continue;
+                        }
+                        _ => {}
+                    }
+                }
                 if matches!(
                     mouse.kind,
                     MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
@@ -210,6 +231,11 @@ impl Form {
     }
 
     pub fn draw(&mut self, frame: &mut Frame, lang: Language) {
+        self.preview_area = Rect::default();
+        if self.preview_text != self.preview.as_deref().unwrap_or_default() {
+            self.preview_text = self.preview.clone().unwrap_or_default();
+            self.preview_scroll = 0;
+        }
         let area = frame.area();
         let rect = Rect::new(
             area.x + 1,
@@ -274,12 +300,8 @@ impl Form {
                 inner.width,
                 inner.height.saturating_sub(4),
             );
-            frame.render_widget(
-                Paragraph::new(preview.as_str())
-                    .scroll((self.preview_scroll, 0))
-                    .wrap(ratatui::widgets::Wrap { trim: false }),
-                area,
-            );
+            self.preview_area = area;
+            super::view::scroll_text(frame, preview, area, &mut self.preview_scroll);
         }
         for (i, area) in Layout::horizontal([Constraint::Percentage(50); 2])
             .split(footer)
@@ -301,7 +323,15 @@ impl Form {
         }
         let hint = Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1);
         frame.render_widget(
-            Paragraph::new(self.error.as_deref().unwrap_or(lang.text("form_keys"))),
+            Paragraph::new(
+                self.error
+                    .as_deref()
+                    .unwrap_or(lang.text(if self.preview.is_some() {
+                        "preview_keys"
+                    } else {
+                        "form_keys"
+                    })),
+            ),
             hint,
         );
     }
@@ -313,6 +343,52 @@ mod tests {
     use crossterm::event::KeyEvent;
     fn key(form: &mut Form, code: KeyCode) -> Action {
         form.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+    }
+    #[test]
+    fn preview_scroll_keeps_tail_visible_and_mouse_preserves_focus() {
+        use crossterm::event::MouseEvent;
+        use ratatui::{Terminal, backend::TestBackend};
+        for lang in [Language::ZhCn, Language::En] {
+            let mut form = Form::new("test", Vec::new());
+            form.preview = Some(format!("{}\nTAIL", "中文预览内容".repeat(100)));
+            let mut screen = Terminal::new(TestBackend::new(40, 12)).unwrap();
+            screen.draw(|frame| form.draw(frame, lang)).unwrap();
+            let area = form.preview_area;
+            let focus = form.focus;
+            form.event(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            }));
+            assert_eq!(form.preview_scroll, 3);
+            assert_eq!(form.focus, focus);
+            key(&mut form, KeyCode::End);
+            screen.draw(|frame| form.draw(frame, lang)).unwrap();
+            assert!(form.preview_scroll > 0 && form.preview_scroll < u16::MAX);
+            let text = |screen: &Terminal<TestBackend>| {
+                screen
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+            };
+            assert!(text(&screen).contains("TAIL"));
+            let bottom = form.preview_scroll;
+            key(&mut form, KeyCode::PageDown);
+            screen.draw(|frame| form.draw(frame, lang)).unwrap();
+            assert_eq!(form.preview_scroll, bottom);
+            screen.backend_mut().resize(60, 20);
+            screen.draw(|frame| form.draw(frame, lang)).unwrap();
+            assert!(text(&screen).contains("TAIL"));
+            form.preview = Some("replacement".into());
+            screen.draw(|frame| form.draw(frame, lang)).unwrap();
+            assert_eq!(form.preview_scroll, 0);
+            assert!(text(&screen).contains("replacement"));
+            assert_eq!(key(&mut form, KeyCode::Enter), Action::Submit);
+        }
     }
     #[test]
     fn mouse_choices_cycle_both_ways_without_right_click_submitting() {

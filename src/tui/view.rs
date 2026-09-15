@@ -453,7 +453,7 @@ fn help(frame: &mut Frame, lang: Language, scroll: &mut u16, buttons: &mut Vec<(
     );
 }
 
-fn scroll_text(frame: &mut Frame, text: &str, body: Rect, scroll: &mut u16) {
+pub(super) fn scroll_text(frame: &mut Frame, text: &str, body: Rect, scroll: &mut u16) {
     let mut lines = Vec::new();
     for line in text.lines() {
         let mut current = String::new();
