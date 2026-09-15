@@ -278,6 +278,13 @@ impl Dialog {
             files
                 .iter()
                 .map(|file| {
+                    if file.directory {
+                        return format!(
+                            "{}\n{}",
+                            file.target.display(),
+                            lang.text("directory_conflict")
+                        );
+                    }
                     format!(
                         "{}: {}\n{}: {}\n{}: {}",
                         lang.text("current_file"),

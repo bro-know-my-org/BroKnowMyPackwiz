@@ -24,7 +24,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Constraint::Length(2),
         Constraint::Length(3),
         Constraint::Min(1),
-        Constraint::Length(2),
+        Constraint::Length(toolbar_height(app, area.width)),
     ])
     .split(area);
     frame.render_widget(
@@ -99,9 +99,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
 }
 
-fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
+fn actions(app: &App) -> Vec<(crossterm::event::KeyCode, &'static str, &'static str)> {
     use crossterm::event::KeyCode;
-    let actions: Vec<(KeyCode, &str, &str)> = match app.page {
+    match app.page {
         0 if app.adding.busy() => vec![(KeyCode::Char('c'), "C", "cf_cancel_preview")],
         0 => vec![
             (KeyCode::Char('u'), "U", "update_preview"),
@@ -130,22 +130,45 @@ fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
             (KeyCode::Char('E'), "Shift+E", "advanced"),
         ],
         _ => Vec::new(),
-    };
-    let mut x = area.x;
-    for (code, key, label) in actions {
+    }
+}
+
+fn toolbar_height(app: &App, width: u16) -> u16 {
+    let mut rows = 1;
+    let mut used = 0;
+    for (_, key, label) in actions(app) {
         let text = format!(" {key} {} ", app.language.text(label));
-        let width = unicode_width::UnicodeWidthStr::width(text.as_str()) as u16;
-        if x.saturating_add(width) > area.right() {
+        let size = (unicode_width::UnicodeWidthStr::width(text.as_str()) as u16).min(width);
+        if used > 0 && used + size > width {
+            rows += 1;
+            used = 0;
+        }
+        used += size;
+    }
+    rows + 1
+}
+
+fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
+    let mut x = area.x;
+    let mut y = area.y;
+    for (code, key, label) in actions(app) {
+        let text = format!(" {key} {} ", app.language.text(label));
+        let width = (unicode_width::UnicodeWidthStr::width(text.as_str()) as u16).min(area.width);
+        if x > area.x && x.saturating_add(width) > area.right() {
+            x = area.x;
+            y += 1;
+        }
+        if y >= area.bottom().saturating_sub(1) {
             break;
         }
-        let rect = Rect::new(x, area.y, width, 1);
+        let rect = Rect::new(x, y, width, 1);
         frame.render_widget(Paragraph::new(text).style(active()), rect);
         app.buttons.push((code, rect));
         x += width;
     }
     frame.render_widget(
         Paragraph::new(app.language.text("keys")),
-        Rect::new(area.x, area.y + 1, area.width, 1),
+        Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1),
     );
 }
 
