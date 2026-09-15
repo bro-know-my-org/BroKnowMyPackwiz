@@ -66,6 +66,32 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("read_file_failed", "Could not read file", "无法读取文件"),
+    (
+        "read_directory_failed",
+        "Could not read directory",
+        "无法读取目录",
+    ),
+    (
+        "read_directory_entry_failed",
+        "Could not read directory entry",
+        "无法读取目录项",
+    ),
+    (
+        "read_file_type_failed",
+        "Could not read file type",
+        "无法读取文件类型",
+    ),
+    (
+        "scan_symlink_rejected",
+        "Cannot scan symbolic link",
+        "无法扫描符号链接",
+    ),
+    (
+        "path_outside_root",
+        "Path is outside the root directory",
+        "路径位于根目录之外",
+    ),
     (
         "file_loader_disconnected",
         "File list loader disconnected",
@@ -1070,6 +1096,39 @@ const MESSAGES: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scan_and_metadata_read_errors_retain_legacy_diagnostics_and_localize() {
+        use crate::{
+            config::ProjectConfig, layout::PackLayout, metadata::ModMetadata, operation::durable,
+            scan::ScanReport,
+        };
+        let root = std::env::temp_dir().join(durable::unique_id());
+        std::fs::create_dir(&root).unwrap();
+        let config = ProjectConfig::load(&root).unwrap();
+        let layout = PackLayout::from_config(&config);
+        std::fs::create_dir(root.join(".gitignore")).unwrap();
+        let error = ScanReport::build_operation(&root, &config, &layout).unwrap_err();
+        assert_eq!(
+            ScanReport::build(&root, &config, &layout).unwrap_err(),
+            error.detail
+        );
+        assert_eq!(error.message.as_deref(), Some("read_file_failed"));
+        assert!(Language::ZhCn.error(&error).starts_with("无法读取文件:"));
+        std::fs::remove_dir(root.join(".gitignore")).unwrap();
+        let path = root.join("missing.pw.toml");
+        let error = ModMetadata::load_operation(&path).unwrap_err();
+        assert_eq!(ModMetadata::load(&path).unwrap_err(), error.detail);
+        assert!(
+            Language::En
+                .error(&error)
+                .starts_with("Could not read file:")
+        );
+        std::fs::remove_dir(&root).unwrap();
+        let error = ScanReport::build_operation(&root, &config, &layout).unwrap_err();
+        assert_eq!(error.message.as_deref(), Some("read_directory_failed"));
+        assert!(Language::ZhCn.error(&error).starts_with("无法读取目录:"));
+    }
 
     #[test]
     fn config_errors_keep_cli_text_and_show_localized_field_locations() {

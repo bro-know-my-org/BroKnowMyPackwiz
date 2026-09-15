@@ -88,10 +88,10 @@ pub fn prepare(
     }
     let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
-    let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
+    let report = ScanReport::build_operation(root, &config, &layout)?;
     let mut existing_targets = BTreeMap::new();
     for item in report.metadata {
-        let meta = ModMetadata::load(&root.join(&item.path)).map_err(Error::from)?;
+        let meta = ModMetadata::load_operation(&root.join(&item.path))?;
         if let Some(filename) = meta.filename {
             let target = crate::install::resolve_pack_file_path(&item.path, &filename, &layout)
                 .map_err(Error::from)?;
@@ -109,7 +109,7 @@ pub fn prepare(
             continue;
         };
         let (mut doc, expected) = edit::document(root, &candidate.relative)?;
-        let metadata = ModMetadata::load(&root.join(&candidate.relative)).map_err(Error::from)?;
+        let metadata = ModMetadata::load_operation(&root.join(&candidate.relative))?;
         let target =
             crate::install::resolve_pack_file_path(&candidate.relative, &file.filename, &layout)
                 .map_err(Error::from)?;

@@ -18,12 +18,12 @@ pub fn load(root: &Path) -> Result<Vec<Entry>> {
     }
     let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
-    let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
+    let report = ScanReport::build_operation(root, &config, &layout)?;
     report
         .metadata
         .into_iter()
         .map(|file| {
-            let metadata = ModMetadata::load(&root.join(&file.path)).map_err(Error::from)?;
+            let metadata = ModMetadata::load_operation(&root.join(&file.path))?;
             let present = metadata
                 .filename
                 .as_ref()

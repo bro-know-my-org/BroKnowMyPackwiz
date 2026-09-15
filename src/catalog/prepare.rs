@@ -122,7 +122,7 @@ pub fn curseforge_many<T: Transport>(
             ))
         })
         .collect::<Result<Vec<_>>>()?;
-    let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
+    let report = ScanReport::build_operation(root, &config, &layout)?;
     let mut existing = BTreeMap::new();
     let mut installed = Vec::new();
     let mut targets = BTreeMap::new();
@@ -130,7 +130,7 @@ pub fn curseforge_many<T: Transport>(
     for item in report.metadata {
         control.check()?;
         let (document, expected) = edit::document(root, &item.path)?;
-        let metadata = ModMetadata::load(&root.join(&item.path)).map_err(Error::from)?;
+        let metadata = ModMetadata::load_operation(&root.join(&item.path))?;
         let target = metadata
             .filename
             .as_ref()

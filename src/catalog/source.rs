@@ -108,13 +108,13 @@ fn prepare_inner(
     if root.join(&path).exists() || root.join(&target).exists() {
         return Err(collision(&target));
     }
-    let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
+    let report = ScanReport::build_operation(root, &config, &layout)?;
     for entry in report.metadata {
         control.check()?;
         if entry.path.eq_ignore_ascii_case(&path) {
             return Err(collision(&path));
         }
-        let metadata = ModMetadata::load(&root.join(&entry.path)).map_err(Error::from)?;
+        let metadata = ModMetadata::load_operation(&root.join(&entry.path))?;
         if let Some(name) = metadata.filename {
             let existing_target =
                 crate::install::resolve_pack_file_path(&entry.path, &name, &layout)

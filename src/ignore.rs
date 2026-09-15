@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::operation::{Error, ErrorCode};
 use crate::pathutil::normalize_slash;
 
 #[derive(Debug, Clone)]
@@ -21,11 +22,16 @@ impl IgnoreSet {
         Self { rules: Vec::new() }
     }
 
-    pub fn load_result(path: &Path) -> Result<Self, String> {
+    pub fn load_operation(path: &Path) -> Result<Self, Error> {
         match fs::read_to_string(path) {
             Ok(text) => Ok(Self::parse(&text)),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(Self::empty()),
-            Err(err) => Err(format!("failed to read {}: {err}", path.display())),
+            Err(err) => Err(Error::named(
+                ErrorCode::Failed,
+                "read_file_failed",
+                format!("failed to read {}: {err}", path.display()),
+            )
+            .context(format!("{}: {err}", path.display()))),
         }
     }
 
