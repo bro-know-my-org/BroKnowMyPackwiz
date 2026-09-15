@@ -93,8 +93,8 @@ pub fn prepare(
     for item in report.metadata {
         let meta = ModMetadata::load_operation(&root.join(&item.path))?;
         if let Some(filename) = meta.filename {
-            let target = crate::install::resolve_pack_file_path(&item.path, &filename, &layout)
-                .map_err(Error::from)?;
+            let target =
+                crate::install::resolve_pack_file_path_operation(&item.path, &filename, &layout)?;
             if existing_targets
                 .insert(target.to_lowercase(), item.path)
                 .is_some()
@@ -110,9 +110,11 @@ pub fn prepare(
         };
         let (mut doc, expected) = edit::document(root, &candidate.relative)?;
         let metadata = ModMetadata::load_operation(&root.join(&candidate.relative))?;
-        let target =
-            crate::install::resolve_pack_file_path(&candidate.relative, &file.filename, &layout)
-                .map_err(Error::from)?;
+        let target = crate::install::resolve_pack_file_path_operation(
+            &candidate.relative,
+            &file.filename,
+            &layout,
+        )?;
         if existing_targets
             .get(&target.to_lowercase())
             .is_some_and(|owner| owner != &candidate.relative)
@@ -124,7 +126,7 @@ pub fn prepare(
             )
             .context(target));
         }
-        crate::update::reject_manual_target_collision(
+        crate::update::reject_manual_target_collision_operation(
             root,
             &layout,
             &root.join(&candidate.relative),
@@ -132,8 +134,7 @@ pub fn prepare(
             &file.filename,
             &file.hash,
             &file.hash_format,
-        )
-        .map_err(Error::from)?;
+        )?;
         for (keys, value) in [
             (vec!["filename"], file.filename.as_str()),
             (vec!["download", "url"], file.url.as_str()),

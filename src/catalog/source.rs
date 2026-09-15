@@ -103,8 +103,7 @@ fn prepare_inner(
         crate::ops::metadata_filename(&slug, &layout)
     );
     crate::operation::paths::relative(&path)?;
-    let target =
-        crate::install::resolve_pack_file_path(&path, &filename, &layout).map_err(Error::from)?;
+    let target = crate::install::resolve_pack_file_path_operation(&path, &filename, &layout)?;
     if root.join(&path).exists() || root.join(&target).exists() {
         return Err(collision(&target));
     }
@@ -117,8 +116,7 @@ fn prepare_inner(
         let metadata = ModMetadata::load_operation(&root.join(&entry.path))?;
         if let Some(name) = metadata.filename {
             let existing_target =
-                crate::install::resolve_pack_file_path(&entry.path, &name, &layout)
-                    .map_err(Error::from)?;
+                crate::install::resolve_pack_file_path_operation(&entry.path, &name, &layout)?;
             if target.eq_ignore_ascii_case(&existing_target) {
                 return Err(collision(&target));
             }

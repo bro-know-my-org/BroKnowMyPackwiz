@@ -1,4 +1,4 @@
-use crate::operation::{Error, Result};
+use crate::operation::Result;
 use crate::{config::ProjectConfig, layout::PackLayout, metadata::ModMetadata, scan::ScanReport};
 use std::path::Path;
 
@@ -28,11 +28,10 @@ pub fn load(root: &Path) -> Result<Vec<Entry>> {
                 .filename
                 .as_ref()
                 .map(|name| {
-                    crate::install::resolve_pack_file_path(&file.path, name, &layout)
+                    crate::install::resolve_pack_file_path_operation(&file.path, name, &layout)
                         .map(|path| root.join(path).is_file())
                 })
-                .transpose()
-                .map_err(Error::from)?
+                .transpose()?
                 .unwrap_or(false);
             let source = if metadata.curseforge_project_id.is_some() {
                 "CurseForge"

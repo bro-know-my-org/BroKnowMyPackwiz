@@ -96,8 +96,7 @@ pub fn query(
         if let Some(filename) = &metadata.filename {
             guard.watch(
                 root,
-                &crate::install::resolve_pack_file_path(&entry.path, filename, &layout)
-                    .map_err(Error::from)?,
+                &crate::install::resolve_pack_file_path_operation(&entry.path, filename, &layout)?,
             )?;
         }
         control.emit(Event::Phase("querying_updates".into()));
@@ -172,8 +171,7 @@ pub fn query(
         }
         guard.watch(
             root,
-            &crate::install::resolve_pack_file_path(&entry.path, &filename, &layout)
-                .map_err(Error::from)?,
+            &crate::install::resolve_pack_file_path_operation(&entry.path, &filename, &layout)?,
         )?;
         candidates.push(Candidate {
             relative: entry.path.clone(),
