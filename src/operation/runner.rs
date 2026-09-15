@@ -118,7 +118,7 @@ fn execute_with(
         }
     }
     let mut transaction = Transaction::prepare(task, changes, control)?;
-    transaction.create_directories(directories)?;
+    transaction.create_directories_with_modes(directories)?;
     transaction.change_directories(directory_changes)?;
     transaction.commit(control)
 }
@@ -156,6 +156,24 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn newly_created_directories_preserve_the_prepared_permissions() {
+        let fixture = Fixture::new();
+        fixture
+            .run(&Request::new(Kind::PreparePack), |root, _| {
+                fs::create_dir_all(root.join("private/nested"))?;
+                crate::operation::directory::set_mode(&root.join("private"), 0o700)?;
+                fs::write(root.join("private/nested/file"), "private data")?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            crate::operation::directory::mode(&fixture.0.join("pack/private")).unwrap(),
+            Some(0o700)
+        );
     }
 
     #[test]
