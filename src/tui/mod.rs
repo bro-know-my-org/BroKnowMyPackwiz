@@ -5,6 +5,7 @@ mod dialog;
 mod external;
 mod files;
 mod form;
+mod github;
 mod i18n;
 mod jobs;
 mod preferences;

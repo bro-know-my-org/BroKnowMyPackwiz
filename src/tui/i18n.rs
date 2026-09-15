@@ -43,6 +43,29 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("github_repository", "GitHub repository", "GitHub 仓库"),
+    (
+        "github_releases",
+        "Release (←→ to choose)",
+        "Release（←→ 选择）",
+    ),
+    ("github_assets", "Asset (←→ to choose)", "附件（←→ 选择）"),
+    ("github_prerelease", "Prerelease", "预发布版本"),
+    (
+        "github_page",
+        "Page (change, then save to load)",
+        "页码（修改后保存翻页）",
+    ),
+    (
+        "github_hash_pending",
+        "Calculated by temporary download",
+        "临时下载后计算",
+    ),
+    (
+        "github_empty",
+        "No entries on this page",
+        "本页没有可选项目",
+    ),
     ("source_add", "Add file", "添加文件"),
     ("source_url", "URL", "直链"),
     ("source_local", "Local file", "本地文件"),

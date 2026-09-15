@@ -94,6 +94,10 @@ impl App {
         if self.dialog.is_none() && !self.jobs.quit_prompt && !self.help {
             if let Some(result) = self.adding.poll() {
                 match result {
+                    Ok(super::add::Output::GitHub(picker, form)) => {
+                        self.dialog =
+                            Some(super::dialog::Dialog::github(picker, form, self.language))
+                    }
                     Ok(super::add::Output::CurseForge(preview)) => {
                         self.dialog = Some(super::dialog::Dialog::prepared(preview, self.language))
                     }
@@ -292,6 +296,11 @@ impl App {
                     KeyCode::Char('?') => self.help = true,
                     KeyCode::Char('r') if self.page != 3 && self.page != 1 => self.reload(),
                     KeyCode::Char('c') if self.page == 1 => self.adding.cancel(),
+                    KeyCode::Char('g') if self.page == 1 => {
+                        let (picker, form) = super::github::Picker::repository();
+                        self.dialog =
+                            Some(super::dialog::Dialog::github(picker, form, self.language));
+                    }
                     KeyCode::Char(code @ ('u' | 'a')) if self.page == 1 => {
                         self.dialog = Some(super::dialog::Dialog::source(if code == 'u' {
                             crate::catalog::source::Input::Url {
@@ -467,6 +476,7 @@ impl App {
         match dialog.form.event(event) {
             Action::Cancel => return,
             Action::Continue => {
+                dialog.refresh_preview(self.language);
                 self.dialog = Some(dialog);
                 return;
             }
@@ -480,6 +490,10 @@ impl App {
                 .map(|q| q.state.clone())
                 .unwrap_or(crate::operation::durable::user_state()?);
             match dialog.submit(&state, &self.preferences)? {
+                Submission::GitHub(super::github::Action::Add(input)) => {
+                    self.dialog = Some(super::dialog::Dialog::source(input))
+                }
+                Submission::GitHub(action) => self.adding.github(action)?,
                 Submission::Source { input, options } => {
                     self.adding.source(&self.root, &state, input, options)?
                 }
