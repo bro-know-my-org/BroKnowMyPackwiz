@@ -1015,8 +1015,8 @@ const MESSAGES: &[(&str, &str, &str)] = &[
     ("cancel", "Cancel", "取消"),
     (
         "form_keys",
-        "Tab: next  ←→: edit / choose  Enter: continue  Esc: cancel",
-        "Tab: 下一项  ←→: 编辑 / 选择  Enter: 继续  Esc: 取消",
+        "Tab: next  ←→ / left/right click: choose  Enter: continue  Esc: cancel",
+        "Tab: 下一项  ←→ / 左右键点击: 选择  Enter: 继续  Esc: 取消",
     ),
     ("pack_info", "Pack information", "整合包信息"),
     ("project_config", "Project configuration", "项目配置"),
