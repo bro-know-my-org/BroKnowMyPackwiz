@@ -704,6 +704,55 @@ mod tests {
     }
 
     #[test]
+    fn malformed_config_values_do_not_leak_into_saved_task_errors() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        fs::create_dir_all(base.join("pack/mods")).unwrap();
+        fs::create_dir_all(base.join("pack/.pw")).unwrap();
+        let root = base.join("pack");
+        let state = base.join("state");
+        let secret = "fixture_secret_not_a_real_api_key";
+        fs::write(root.join("pack.toml"), "name = \"Pack\"\n").unwrap();
+        let metadata = "name = \"A\"\nfilename = \"a.jar\"\n";
+        fs::write(root.join("mods/a.pw.toml"), metadata).unwrap();
+        fs::write(
+            root.join(".pw/config.toml"),
+            format!("[curseforge]\napi-key = {secret}\n"),
+        )
+        .unwrap();
+        let (mut doc, expected) = edit::document(&root, "mods/a.pw.toml").unwrap();
+        edit::set(&mut doc, &["pin"], toml_edit::Value::from(true)).unwrap();
+        let draft = edit::draft(&state, "mods/a.pw.toml", expected, &doc).unwrap();
+        let mut queue = Queue::open(&root, &state).unwrap();
+        queue.enqueue("pin", Request::Edit(vec![draft])).unwrap();
+        queue.resume().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while queue.pending() {
+            queue.poll().unwrap();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(queue.tasks[0].status, Status::Failed);
+        assert_eq!(
+            queue.tasks[0].error.as_ref().unwrap().message.as_deref(),
+            Some("config_expected_string")
+        );
+        assert!(!fs::read_to_string(&queue.file).unwrap().contains(secret));
+        assert_eq!(
+            fs::read_to_string(root.join("mods/a.pw.toml")).unwrap(),
+            metadata
+        );
+        drop(queue);
+        let queue = Queue::open(&root, &state).unwrap();
+        assert!(
+            !serde_json::to_string(&queue.tasks)
+                .unwrap()
+                .contains(secret)
+        );
+        drop(queue);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn reopened_queue_waits_for_confirmation_and_edits_transactionally() {
         let base = std::env::temp_dir().join(durable::unique_id());
         fs::create_dir_all(base.join("pack/mods")).unwrap();

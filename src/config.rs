@@ -55,10 +55,22 @@ pub struct CurseForgeConfig {
 
 impl ProjectConfig {
     pub fn load(root: &Path) -> Result<Self, String> {
-        Self::load_operation(root).map_err(|error| error.detail)
+        Self::load_with_diagnostics(root).map_err(|error| error.detail)
     }
 
     pub fn load_operation(root: &Path) -> Result<Self, Error> {
+        Self::load_with_diagnostics(root).map_err(|mut error| {
+            // Configuration input can contain credentials. Operation errors are
+            // persisted in task history; retain only the key and field location.
+            // The CLI interface above keeps its original diagnostic text.
+            if let Some(key) = &error.message {
+                error.detail = key.clone();
+            }
+            error
+        })
+    }
+
+    fn load_with_diagnostics(root: &Path) -> Result<Self, Error> {
         let source = root.join(".pw").join("config.toml");
         let mut config = Self::default_at(source.clone());
 
