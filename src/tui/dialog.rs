@@ -12,8 +12,12 @@ use toml_edit::{DocumentMut, Item, Value};
 
 pub const SETTINGS: [&str; 4] = ["pack_info", "project_config", "preferences", "open_pack"];
 enum Purpose {
+    Source(super::source::Editor),
     CurseForge(super::catalog::Selection),
-    Prepared(crate::operation::queue::Request),
+    Prepared {
+        request: crate::operation::queue::Request,
+        label: String,
+    },
     Edit {
         relative: String,
         document: Box<DocumentMut>,
@@ -31,11 +35,18 @@ pub struct Dialog {
     purpose: Purpose,
 }
 pub enum Submission {
+    Source {
+        input: crate::catalog::source::Input,
+        options: crate::catalog::source::Options,
+    },
     CurseForge {
         selected: super::catalog::Selection,
         side: crate::metadata::Side,
     },
-    Prepared(crate::operation::queue::Request),
+    Prepared {
+        request: crate::operation::queue::Request,
+        label: String,
+    },
     Edit(Draft),
     Open(PathBuf),
     Preferences(Preferences),
@@ -46,6 +57,31 @@ pub enum Submission {
 }
 
 impl Dialog {
+    pub fn source(input: crate::catalog::source::Input) -> Self {
+        let (editor, form) = super::source::Editor::open(input);
+        Self {
+            form,
+            purpose: Purpose::Source(editor),
+        }
+    }
+    pub fn source_prepared(prepared: crate::catalog::source::Prepared, lang: Language) -> Self {
+        let mut form = Form::new("review_changes", Vec::new());
+        form.preview = Some(format!(
+            "{}\n{}\nSHA-256: {}\n{}: {}",
+            prepared.name,
+            prepared.filename,
+            prepared.sha256,
+            lang.text("source_download"),
+            lang.text(if prepared.download { "yes" } else { "no" })
+        ));
+        Self {
+            form,
+            purpose: Purpose::Prepared {
+                request: prepared.request,
+                label: "source_add".into(),
+            },
+        }
+    }
     pub fn curseforge(selected: super::catalog::Selection) -> Self {
         let sides: Vec<String> = if selected.class_id == 6 {
             vec!["both".into(), "client".into(), "server".into()]
@@ -101,10 +137,13 @@ impl Dialog {
         );
         Self {
             form,
-            purpose: Purpose::Prepared(crate::operation::queue::Request::PreparedEdit {
-                drafts: preview.drafts,
-                guard: preview.guard,
-            }),
+            purpose: Purpose::Prepared {
+                request: crate::operation::queue::Request::PreparedEdit {
+                    drafts: preview.drafts,
+                    guard: preview.guard,
+                },
+                label: "cf_add_task".into(),
+            },
         }
     }
     pub fn conflicts(
@@ -341,11 +380,18 @@ impl Dialog {
 
     pub fn submit(&self, state: &Path, prefs: &Preferences) -> Result<Submission> {
         match &self.purpose {
+            Purpose::Source(editor) => {
+                let (input, options) = editor.submit(&self.form)?;
+                Ok(Submission::Source { input, options })
+            }
             Purpose::CurseForge(selected) => Ok(Submission::CurseForge {
                 selected: selected.clone(),
                 side: crate::metadata::Side::parse(self.form.value("side")),
             }),
-            Purpose::Prepared(request) => Ok(Submission::Prepared(request.clone())),
+            Purpose::Prepared { request, label } => Ok(Submission::Prepared {
+                request: request.clone(),
+                label: label.clone(),
+            }),
             Purpose::Resolve { index, keep } => Ok(Submission::Resolve {
                 index: *index,
                 keep: *keep,

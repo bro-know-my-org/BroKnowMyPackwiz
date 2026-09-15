@@ -13,8 +13,12 @@ use std::{
 
 #[derive(Default)]
 pub struct Workflow {
-    pending: Option<Receiver<Result<Preview>>>,
+    pending: Option<Receiver<Result<Output>>>,
     control: Control,
+}
+pub enum Output {
+    CurseForge(Preview),
+    Source(crate::catalog::source::Prepared),
 }
 impl Workflow {
     pub fn busy(&self) -> bool {
@@ -30,32 +34,59 @@ impl Workflow {
         selected: super::catalog::Selection,
         side: Side,
     ) -> Result<()> {
+        let root = root.to_path_buf();
+        let state = state.to_path_buf();
+        self.run(move |control| {
+            Client::for_pack(&root)
+                .and_then(|client| {
+                    prepare::curseforge(
+                        &root,
+                        &state,
+                        &client,
+                        selected.file,
+                        side,
+                        selected.relaxed,
+                        &control,
+                    )
+                })
+                .map(Output::CurseForge)
+        })
+    }
+    pub fn source(
+        &mut self,
+        root: &Path,
+        state: &Path,
+        input: crate::catalog::source::Input,
+        options: crate::catalog::source::Options,
+    ) -> Result<()> {
+        let root = root.to_path_buf();
+        let state = state.to_path_buf();
+        self.run(move |control| {
+            crate::catalog::source::prepare(&root, &state, input, options, &control)
+                .map(Output::Source)
+        })
+    }
+    fn run(&mut self, work: impl FnOnce(Control) -> Result<Output> + Send + 'static) -> Result<()> {
         if self.busy() {
             return Err(Error::new(ErrorCode::Busy, "preview_running"));
         }
         self.control = Control::default();
         let control = self.control.clone();
-        let root = root.to_path_buf();
-        let state = state.to_path_buf();
         let (tx, rx) = mpsc::channel();
         self.pending = Some(rx);
         std::thread::spawn(move || {
-            let result = Client::for_pack(&root).and_then(|client| {
-                prepare::curseforge(
-                    &root,
-                    &state,
-                    &client,
-                    selected.file,
-                    side,
-                    selected.relaxed,
-                    &control,
-                )
-            });
+            let result = control
+                .check()
+                .and_then(|()| work(control.clone()))
+                .and_then(|output| {
+                    control.check()?;
+                    Ok(output)
+                });
             let _ = tx.send(result);
         });
         Ok(())
     }
-    pub fn poll(&mut self) -> Option<Result<Preview>> {
+    pub fn poll(&mut self) -> Option<Result<Output>> {
         let rx = self.pending.as_ref()?;
         let result = match rx.try_recv() {
             Ok(result) => result,

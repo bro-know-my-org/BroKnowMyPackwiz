@@ -94,8 +94,14 @@ impl App {
         if self.dialog.is_none() && !self.jobs.quit_prompt && !self.help {
             if let Some(result) = self.adding.poll() {
                 match result {
-                    Ok(preview) => {
+                    Ok(super::add::Output::CurseForge(preview)) => {
                         self.dialog = Some(super::dialog::Dialog::prepared(preview, self.language))
+                    }
+                    Ok(super::add::Output::Source(prepared)) => {
+                        self.dialog = Some(super::dialog::Dialog::source_prepared(
+                            prepared,
+                            self.language,
+                        ))
                     }
                     Err(error) => {
                         self.error = Some(format!(
@@ -286,6 +292,16 @@ impl App {
                     KeyCode::Char('?') => self.help = true,
                     KeyCode::Char('r') if self.page != 3 && self.page != 1 => self.reload(),
                     KeyCode::Char('c') if self.page == 1 => self.adding.cancel(),
+                    KeyCode::Char(code @ ('u' | 'a')) if self.page == 1 => {
+                        self.dialog = Some(super::dialog::Dialog::source(if code == 'u' {
+                            crate::catalog::source::Input::Url {
+                                url: String::new(),
+                                sha256: String::new(),
+                            }
+                        } else {
+                            crate::catalog::source::Input::Local(PathBuf::new())
+                        }));
+                    }
                     code if self.page == 1 => {
                         if code == KeyCode::Esc {
                             self.error = None;
@@ -464,17 +480,20 @@ impl App {
                 .map(|q| q.state.clone())
                 .unwrap_or(crate::operation::durable::user_state()?);
             match dialog.submit(&state, &self.preferences)? {
+                Submission::Source { input, options } => {
+                    self.adding.source(&self.root, &state, input, options)?
+                }
                 Submission::CurseForge { selected, side } => {
                     self.adding.start(&self.root, &state, selected, side)?;
                 }
-                Submission::Prepared(request) => {
+                Submission::Prepared { request, label } => {
                     let queue = self.jobs.queue.as_mut().ok_or_else(|| {
                         crate::operation::Error::new(
                             crate::operation::ErrorCode::Busy,
                             "queue unavailable",
                         )
                     })?;
-                    queue.enqueue("cf_add_task", request)?;
+                    queue.enqueue(&label, request)?;
                 }
                 Submission::Resolve { index, keep } => {
                     let queue = self.jobs.queue.as_mut().ok_or_else(|| {

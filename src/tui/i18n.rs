@@ -43,6 +43,30 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("source_add", "Add file", "添加文件"),
+    ("source_url", "URL", "直链"),
+    ("source_local", "Local file", "本地文件"),
+    ("source_path", "Source file path", "源文件路径"),
+    (
+        "source_hash",
+        "SHA-256 (empty: download temporarily to calculate)",
+        "SHA-256（留空会临时下载计算）",
+    ),
+    (
+        "source_download",
+        "Also copy/download the file",
+        "同时复制／下载实体文件",
+    ),
+    (
+        "github_update_tag",
+        "Update release tag (latest for new releases)",
+        "更新标签（latest 跟随新版本）",
+    ),
+    (
+        "github_update_filter",
+        "Update asset name filter",
+        "更新附件名称过滤",
+    ),
     ("cf_plan", "Preview required dependencies", "预览必需依赖"),
     (
         "cf_confirm",
