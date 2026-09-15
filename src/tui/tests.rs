@@ -433,3 +433,80 @@ fn rendering_handles_languages_small_windows_and_mouse_row() {
     assert_eq!(app.table.selected(), Some(1));
     assert!(app.marked.contains("mods/Zebra.pw.toml"));
 }
+
+#[test]
+fn error_popup_scrolls_unicode_and_clamps_after_resize_or_replacement() {
+    for language in [Language::En, Language::ZhCn] {
+        let mut app = app();
+        app.language = language;
+        app.error = Some(format!("{}\nFINAL_MARKER", "中文路径 abc ".repeat(100)));
+        let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        key(&mut app, KeyCode::End);
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        assert!(app.popup_scroll > 0);
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("FINAL_MARKER"));
+        let end = app.popup_scroll;
+        app.event(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: 5,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(app.popup_scroll, end.saturating_sub(3));
+        key(&mut app, KeyCode::Home);
+        assert_eq!(app.popup_scroll, 0);
+        key(&mut app, KeyCode::PageDown);
+        assert_eq!(app.popup_scroll, 8);
+        key(&mut app, KeyCode::End);
+        let mut large = Terminal::new(TestBackend::new(200, 100)).unwrap();
+        large.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        assert_eq!(app.popup_scroll, 0);
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        key(&mut app, KeyCode::End);
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        app.error = Some("Replacement".into());
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        assert_eq!(app.popup_scroll, 0);
+        click_action(&mut app, &mut terminal, KeyCode::Esc);
+        assert!(app.error.is_none());
+        assert!(app.popup_text.is_empty());
+    }
+}
+
+#[test]
+fn error_popup_consumes_background_shortcuts_and_paste_in_both_search_fields() {
+    for page in [0, 1] {
+        let mut app = app();
+        app.page = page;
+        app.editing = page == 0;
+        app.catalog.editing = page == 1;
+        app.error = Some("Failure".into());
+        let language = app.language;
+        for code in [
+            KeyCode::Tab,
+            KeyCode::Char('l'),
+            KeyCode::Delete,
+            KeyCode::Char('r'),
+        ] {
+            assert!(!key(&mut app, code));
+        }
+        app.event(Event::Paste("unexpected".into()));
+        assert_eq!(app.page, page);
+        assert_eq!(app.language, language);
+        assert!(app.filter.is_empty());
+        assert!(app.catalog.query.is_empty());
+        assert!(app.dialog.is_none());
+        assert!(app.error.is_some());
+        key(&mut app, KeyCode::Enter);
+        assert!(app.error.is_none());
+        assert_eq!(app.popup_scroll, 0);
+    }
+}

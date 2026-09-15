@@ -1138,6 +1138,7 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "Tab: page  ↑↓: select  Space: mark  /: search  R: reload  L: language  Q: quit",
         "Tab: 页面  ↑↓: 选择  空格: 多选  /: 搜索  R: 刷新  L: 语言  Q: 退出",
     ),
+    ("popup_scroll", "↑↓ PgUp/PgDn: scroll", "↑↓ PgUp/PgDn：滚动"),
     (
         "help_text",
         "↑↓ / wheel / PgUp / PgDn: scroll; Esc: close\n\nTab / Shift+Tab: change page; L: language; Q: quit\nFiles: / search, F type, S sort, Space/right click mark, A select visible\nEnter: details; E: edit; Shift+E: external editor; P: pin/unpin\nU: preview updates; D: update directly; Del: remove metadata\nAdd: / CurseForge search; F type; V relax compatibility; Enter select; ←→ page\nG: GitHub releases/assets; U: URL; A: local file; C: cancel preview\nPack: ↑↓ / wheel browse; Enter/click configure and enqueue\nForms: Tab / Shift+Tab move fields; ←→ choices; Enter next field or save\nPgUp / PgDn: scroll change preview; Esc: cancel\nTasks: Space pause/resume; C cancel; R retry recovery\nK: keep external changes; O: restore originals; PgUp/PgDn scroll logs\nQuit with a running task: W wait; C cancel and roll back; Esc return\nWaiting tasks are saved; reopening requires confirmation before resuming\nSettings: pack, loader, API, templates, language, editor, recent directories\n\nCLI details: bkmpw --help\nTo update bkmpw itself, exit the TUI and run bkmpw self-update",
