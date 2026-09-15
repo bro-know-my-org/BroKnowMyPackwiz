@@ -2,6 +2,7 @@ pub mod download;
 pub mod durable;
 pub mod edit;
 pub mod lock;
+pub mod manifest;
 pub mod preview;
 pub mod queue;
 pub mod transaction;

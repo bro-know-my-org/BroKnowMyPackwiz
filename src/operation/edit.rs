@@ -185,6 +185,7 @@ pub fn execute_files(
             fs::set_permissions(&target, permissions)?;
         }
     }
+    super::manifest::record(&workspace.staged, files, control)?;
     let config = crate::config::ProjectConfig::load(&workspace.staged).map_err(Error::from)?;
     let layout = crate::layout::PackLayout::from_config(&config);
     crate::refresh::refresh(&workspace.staged, &config, &layout).map_err(Error::from)?;
