@@ -43,6 +43,56 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("inspect", "Pack overview", "整合包概览"),
+    ("list", "List metadata", "列出元数据"),
+    ("scan", "Scan files", "扫描文件"),
+    ("check", "Check pack", "检查整合包"),
+    ("refresh", "Refresh index", "刷新索引"),
+    ("download-files", "Download missing files", "下载缺失文件"),
+    ("sync", "Synchronize installation", "同步安装文件"),
+    ("install-local", "Install to directory", "安装到指定目录"),
+    ("prepare-pack", "Prepare pack templates", "准备整合包模板"),
+    (
+        "prepare-server",
+        "Prepare server directory",
+        "准备服务端目录",
+    ),
+    ("modlist", "Generate mod list", "生成模组列表"),
+    ("export-client", "Export client archive", "导出客户端压缩包"),
+    ("export-server", "Export server archive", "导出服务端压缩包"),
+    (
+        "export-server-installer",
+        "Export server installer",
+        "导出服务端安装包",
+    ),
+    (
+        "export-curseforge",
+        "Export CurseForge pack",
+        "导出 CurseForge 整合包",
+    ),
+    ("init", "Initialize pack", "初始化整合包"),
+    ("command_open", "Configure and enqueue", "配置并加入队列"),
+    (
+        "command_output",
+        "Output path (relative to pack or absolute)",
+        "输出路径（相对整合包或绝对路径）",
+    ),
+    ("archive_root", "Directory inside archive", "压缩包内根目录"),
+    (
+        "command_cleanup",
+        "Clean previously managed files",
+        "清理此前托管文件",
+    ),
+    (
+        "command_readonly",
+        "Read-only task; results appear in task logs.",
+        "只读任务；结果显示在任务日志中。",
+    ),
+    (
+        "command_transaction",
+        "Runs in a private copy and publishes as one task. Cancel or failure rolls back this task. Blank numeric options use project defaults.",
+        "在私有副本执行，作为一个任务提交。取消或失败会回滚本任务。数字选项留空使用项目默认值。",
+    ),
     ("querying_updates", "Querying updates", "正在查询更新"),
     ("update_preview", "Preview updates", "预览更新"),
     ("update_direct", "Update directly", "直接更新"),

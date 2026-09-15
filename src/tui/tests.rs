@@ -26,6 +26,48 @@ fn key(app: &mut App, code: KeyCode) -> bool {
 }
 
 #[test]
+fn pack_menu_scroll_click_and_confirmation_enqueue_typed_command() {
+    use crate::operation::{
+        command::Kind,
+        durable,
+        queue::{Queue, Request},
+    };
+    let base = std::env::temp_dir().join(durable::unique_id());
+    std::fs::create_dir_all(base.join("pack")).unwrap();
+    let mut app = app();
+    app.root = base.join("pack");
+    app.jobs.queue = Some(Queue::open(&app.root, &base.join("state")).unwrap());
+    app.page = 2;
+    app.error = None;
+    let mut terminal = Terminal::new(TestBackend::new(80, 15)).unwrap();
+    for _ in 0..16 {
+        key(&mut app, KeyCode::Down);
+    }
+    terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+    assert!(app.pack_selection.offset() > 0);
+    let index = app.pack_selection.offset();
+    let area = app.menu_area;
+    app.event(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: area.x,
+        row: area.y,
+        modifiers: KeyModifiers::NONE,
+    }));
+    assert_eq!(app.pack_selection.selected(), Some(index));
+    assert!(app.dialog.is_some());
+    assert!(app.jobs.queue.as_ref().unwrap().tasks.is_empty());
+    key(&mut app, KeyCode::Esc);
+    app.pack_selection.select(Some(0));
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Enter);
+    assert!(
+        matches!(app.jobs.queue.as_ref().unwrap().tasks[0].request, Request::Command(ref request) if request.kind == Kind::Inspect)
+    );
+    drop(app);
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn search_accepts_unicode_and_does_not_run_shortcuts() {
     let mut app = app();
     key(&mut app, KeyCode::Char('/'));

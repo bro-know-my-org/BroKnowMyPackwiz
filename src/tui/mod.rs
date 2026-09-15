@@ -8,6 +8,7 @@ mod form;
 mod github;
 mod i18n;
 mod jobs;
+mod pack;
 mod preferences;
 mod source;
 mod terminal;
