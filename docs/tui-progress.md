@@ -71,3 +71,5 @@ CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release P
 新增可手动运行的 `tests/tui_github_smoke.py`：Linux release PTY 实际选择 FabricMC/fabric Release 及附件，默认仅元数据和同时下载均成功；预览确认前无写入，任务完成后核对 API 附件身份、下载地址、文件大小及 SHA-256，正常退出恢复终端。完整 292 项测试、格式检查和 release 构建通过；具体附件证据记于验收对照，CurseForge 与外平台仍待验。
 
 修复队列异步加载期间可绕过目录切换门禁的问题。双语测试覆盖手填/最近目录、加载完成后保留原队列结果，以及 Waiting/NeedsRecovery/Conflict 阻止切换。Linux release PTY 新增队列全部完成后切到另一中文目录，再经最近列表返回并验证历史不变；17 类离线任务及终端恢复通过。完整 293 项测试、格式检查与 release 构建通过。
+
+新增 `tests/tui_editor_smoke.py` 并接入 Linux CI：真实 release TUI 启动脚本编辑器，验证私有草稿、普通/原始终端模式交接、确认保存、取消、编辑器失败、无效 TOML 与外部文件冲突；五个离线场景全部通过，结束时均恢复原终端模式。完整 293 项测试、格式检查和 release 构建通过。具体编辑器与外平台验收边界见验收对照。
