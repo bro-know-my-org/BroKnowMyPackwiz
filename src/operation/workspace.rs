@@ -1,6 +1,6 @@
 use super::{Control, Error, ErrorCode, Event, Result, durable, transaction::Change};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -12,6 +12,7 @@ pub struct Workspace {
     pub original: PathBuf,
     pub staged: PathBuf,
     baseline: BTreeMap<PathBuf, String>,
+    directories: BTreeSet<PathBuf>,
 }
 
 impl Workspace {
@@ -28,7 +29,7 @@ impl Workspace {
             return Err(Error::new(ErrorCode::Invalid, "staging already exists"));
         }
         fs::create_dir_all(&staged)?;
-        let baseline = inventory(&original, control)?;
+        let (baseline, directories) = inventory(&original, control)?;
         let required = baseline.keys().try_fold(0u64, |sum, rel| {
             fs::metadata(original.join(rel)).map(|m| sum.saturating_add(m.len()))
         })?;
@@ -39,6 +40,9 @@ impl Workspace {
             ));
         }
         control.emit(Event::Phase("snapshotting".into()));
+        for relative in &directories {
+            fs::create_dir_all(staged.join(relative))?;
+        }
         for (index, (rel, expected)) in baseline.iter().enumerate() {
             copy(&original.join(rel), &staged.join(rel), control)?;
             if durable::fingerprint(&staged.join(rel))?.as_ref() != Some(expected)
@@ -59,18 +63,20 @@ impl Workspace {
             original,
             staged,
             baseline,
+            directories,
         })
     }
 
     pub fn changes(&self, control: &Control) -> Result<Vec<Change>> {
         control.check()?;
-        if inventory(&self.original, control)? != self.baseline {
+        if inventory(&self.original, control)? != (self.baseline.clone(), self.directories.clone())
+        {
             return Err(Error::new(
                 ErrorCode::Conflict,
                 format!("workspace changed: {}", self.original.display()),
             ));
         }
-        let updated = inventory(&self.staged, control)?;
+        let (updated, _) = inventory(&self.staged, control)?;
         let mut paths: Vec<_> = self
             .baseline
             .keys()
@@ -89,15 +95,25 @@ impl Workspace {
             })
             .collect())
     }
+
+    pub fn new_directories(&self, control: &Control) -> Result<Vec<PathBuf>> {
+        let (_, updated) = inventory(&self.staged, control)?;
+        Ok(updated
+            .difference(&self.directories)
+            .map(|relative| self.original.join(relative))
+            .collect())
+    }
 }
 
-fn inventory(root: &Path, control: &Control) -> Result<BTreeMap<PathBuf, String>> {
+type Inventory = (BTreeMap<PathBuf, String>, BTreeSet<PathBuf>);
+fn inventory(root: &Path, control: &Control) -> Result<Inventory> {
     let mut files = BTreeMap::new();
+    let mut directories = BTreeSet::new();
     if !root.exists() {
-        return Ok(files);
+        return Ok((files, directories));
     }
-    walk(root, root, control, &mut files)?;
-    Ok(files)
+    walk(root, root, control, &mut files, &mut directories)?;
+    Ok((files, directories))
 }
 
 fn walk(
@@ -105,6 +121,7 @@ fn walk(
     current: &Path,
     control: &Control,
     files: &mut BTreeMap<PathBuf, String>,
+    directories: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
     for entry in fs::read_dir(current)? {
         control.check()?;
@@ -124,7 +141,8 @@ fn walk(
             ));
         }
         if kind.is_dir() {
-            walk(root, &path, control, files)?;
+            directories.insert(rel.to_path_buf());
+            walk(root, &path, control, files, directories)?;
         } else {
             let stamp = durable::fingerprint(&path)?
                 .ok_or_else(|| Error::new(ErrorCode::Conflict, path.display().to_string()))?;
