@@ -16,7 +16,7 @@
 
 当前全套 298 项测试通过，`cargo fmt --check` 和 release 构建通过。
 新增 Linux release PTY 烟测覆盖添加页、中文查询、API key 缺失提示及终端恢复。
-CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release PTY 已通过公开 GitHub 仓库的 Release/附件查询、取消及终端恢复。GitHub 真实文件添加两种模式已通过（见文末）；CurseForge 真实鉴权添加和 Windows/macOS 终端尚未实测。
+CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release PTY 已通过公开 GitHub 仓库的 Release/附件查询、取消及终端恢复。GitHub 真实文件添加两种模式已通过（见文末）；CurseForge 真实鉴权添加已通过（见文末）；Windows/macOS 测试按用户要求挂起。
 本地 HTTP 故障测试验证：批量下载后项摘要错误时，前项文件及元数据均不发布；全部校验成功时一起提交。
 
 `python3 tests/tui_smoke.py` 使用 release 二进制、临时整合包和隔离用户状态，验证 17 类命令任务的实际 CLI 子进程、持久队列重启确认、中文路径、手动 JAR 保留、模板与导出产物、日志记录和退出后的终端恢复。该脚本目前只支持 Linux；Windows/macOS 的真实终端验收不能据此视为通过。
@@ -79,3 +79,5 @@ CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release P
 GitHub 仓库格式和元数据名称校验增加双语适配；GitHub 更新查询的 JSON/附件缺失、过滤无匹配、多附件歧义和临时目录错误使用稳定消息键，CLI 返回原诊断文本。测试核对错误键、上下文、原字符串及合法输入行为，完整 295 项测试、格式检查和 release 构建通过。 修复后真实 GitHub release PTY 添加的仅元数据/同时下载两种模式再次通过。
 
 修复 PackInfo 未识别 Fabric/Quilt，导致 CurseForge 默认过滤遗漏加载器的问题；补齐两类加载器解析与导出标识，保留 NeoForge/Forge 既有优先级。测试从真实 pack.toml 验证四类加载器的 API 搜索/文件参数和本地兼容判断；读取错误提供双语诊断并保持 CLI 原文。298 项测试、格式检查及 release 构建通过，实际 release CurseForge 导出清单验证 Fabric/Quilt loader ID。
+
+真实 CurseForge 鉴权验收已通过：`tests/tui_curseforge_smoke.py` 在 Linux release PTY 搜索 AppleSkin，按 Fabric 1.21.1 选择文件，列出必需 Fabric API 并确认同一任务。取消预览、仅元数据、同时下载均通过；校验实际项目/文件 ID、下载模式、大小与 SHA-1，队列和终端输出不含密钥。具体文件证据与适用范围见验收对照。

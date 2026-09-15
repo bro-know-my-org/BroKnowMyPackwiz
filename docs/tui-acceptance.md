@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | inspect / list / scan / check | 整合包页同名菜单 | `src/tui/pack.rs::ACTIONS`；Linux release 队列烟测 |
 | init / refresh | 整合包页；新目录默认选中 init | 新目录入口单测；Linux release 队列烟测 |
-| add-curseforge | 添加页搜索、项目、文件、依赖确认 | `src/tui/catalog.rs`、`dialog.rs`；可控响应测试；四类加载器从 pack.toml 到 API/本地兼容判断已有测试；真实鉴权添加待验 |
+| add-curseforge | 添加页搜索、项目、文件、依赖确认 | `src/tui/catalog.rs`、`dialog.rs`；可控响应测试；四类加载器从 pack.toml 到 API/本地兼容判断已有测试；Linux release PTY 真实鉴权搜索、必需依赖、取消预览和两种添加模式通过 |
 | add-github | 添加页 G，仓库 → Release → 附件 | `src/tui/github.rs`、`source.rs`；Linux release PTY 真实 Release/附件选择、仅元数据及同时下载均通过 |
 | add-url / add-file | 添加页 U / A | `src/tui/source.rs`、`catalog/source.rs`；本地及 HTTP 测试 |
 | add-resourcepack / add-shaderpack | 添加来源表单中的资源类型；CF F 切换分类 | `src/tui/source.rs`、`catalog.rs`；类型和兼容规则测试 |
@@ -87,10 +87,29 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 预期值取自真实 API，脚本会核对 TUI 最终选择及产物；发布期间附件发生变化会失败。
 这项证据不覆盖 CurseForge 鉴权、Windows/macOS 终端或所有 GitHub 项目。
 
+## CurseForge 真实鉴权添加
+
+`python3 tests/tui_curseforge_smoke.py` 从环境变量 `CURSEFORGE_API_KEY` 读取密钥，
+通过 Linux release PTY 搜索 AppleSkin、选择 Fabric 1.21.1 文件、预览并确认必需的 Fabric API 依赖。
+测试只操作隔离临时整合包，不执行下载文件；不把密钥传入命令行参数。
+
+2026-09-15 本地通过取消预览、仅元数据、同时下载三种模式。取消不写入整合包；
+两种添加模式均为单一队列任务，核对项目/file ID、`metadata:curseforge` 模式、SHA-1，
+下载模式还核对文件大小和实际摘要；全部正常恢复终端，队列历史和终端输出均不含该密钥。
+实际文件如下：
+
+| 项目 | 项目 ID / 文件 ID | 文件 | SHA-1 |
+| --- | --- | --- | --- |
+| AppleSkin | 248787 / 5864741 | appleskin-fabric-mc1.21-3.0.6.jar | 97452cfadfde1f8f8c67838643019eabafa58fbb |
+| Fabric API（必需依赖） | 306612 / 8786256 | fabric-api-0.116.17+1.21.1.jar | 810b2b0195371a012906241d8b85a32a1d6de53c |
+
+真实 API 的当前匹配文件作为预期，执行期间文件变化会令测试失败。
+这项证据不替代其他项目的依赖冲突/循环测试，也不代表所有下载源或平台组合均已联网实测。
+
 ## 完成前仍需取得的证据
 
 1. 剩余应用自身诊断与消息键调用的收尾核查。文件搜索/过滤/排序/详情、搜索焦点下页签切换、平台分页/右键文件选择、表单双向选项、设置页滚轮与可见行点击已有双语测试；错误弹窗已验证中文长文本滚动、缩放限位、替换重置及搜索焦点隔离；文件与 CurseForge 详情已验证独立滚动、底部内容可见和条目切换重置；任务日志与表单预览已有键鼠滚动入口，其余组合仍需最终核对。
-2. 真实 CurseForge 鉴权搜索 → 文件/依赖选择 → 元数据添加及可选下载；CurseForge 真实添加结果验证；GitHub 两种添加模式已通过下述独立联网烟测。
+2. GitHub 与 CurseForge 的代表性真实添加流程已通过独立联网烟测；保留真实响应变化、项目类型差异等证据边界。
 3. Linux CI 结果仍待取得；Windows/macOS 的构建和真实终端验收按用户要求挂起，不作为当前继续工作的阻塞项，也不标记通过。
 4. 将计划中其余队列持久化、秘密不入任务参数、模板/多输出行为逐项归档到最终验收证据。目录切换的加载/未处理门禁和完成后真实终端往返已归档。已有测试不自动推导为所有组合已覆盖。
 
