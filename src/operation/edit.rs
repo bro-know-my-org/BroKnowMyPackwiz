@@ -195,7 +195,7 @@ pub fn execute_files(
     super::manifest::record(&workspace.staged, files, control)?;
     let config = crate::config::ProjectConfig::load_operation(&workspace.staged)?;
     let layout = crate::layout::PackLayout::from_config(&config);
-    crate::refresh::refresh(&workspace.staged, &config, &layout).map_err(Error::from)?;
+    crate::refresh::refresh_operation(&workspace.staged, &config, &layout)?;
     let changes = workspace.changes(control)?;
     let mut txn = Transaction::prepare(task, changes, control)?;
     txn.commit(control)

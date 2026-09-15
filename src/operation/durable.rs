@@ -93,7 +93,7 @@ pub fn fingerprint(path: &Path) -> Result<Option<String>> {
         )
         .context(path.display().to_string()));
     }
-    let hash = crate::sha256::sha256_file_hex(path).map_err(Error::from)?;
+    let hash = crate::sha256::sha256_file_hex_operation(path)?;
     #[cfg(unix)]
     let mode = {
         use std::os::unix::fs::PermissionsExt;

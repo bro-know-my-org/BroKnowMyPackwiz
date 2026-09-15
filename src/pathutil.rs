@@ -125,31 +125,67 @@ pub fn join_slash(root: &Path, slash_path: &str) -> PathBuf {
 }
 
 pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), String> {
+    write_atomic_operation(path, bytes).map_err(|error| error.detail)
+}
+
+pub fn write_atomic_operation(
+    path: &Path,
+    bytes: impl AsRef<[u8]>,
+) -> crate::operation::Result<()> {
+    use crate::operation::{Error, ErrorCode};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|err| {
+            Error::named(
+                ErrorCode::Failed,
+                "create_directory_failed",
+                format!("failed to create {}: {err}", parent.display()),
+            )
+            .context(format!("{}: {err}", parent.display()))
+        })?;
     }
     let tmp = temp_sibling(path, COUNTER.fetch_add(1, Ordering::Relaxed));
-    fs::write(&tmp, bytes.as_ref())
-        .map_err(|err| format!("failed to write {}: {err}", tmp.display()))?;
+    fs::write(&tmp, bytes.as_ref()).map_err(|err| {
+        Error::named(
+            ErrorCode::Failed,
+            "write_file_failed",
+            format!("failed to write {}: {err}", tmp.display()),
+        )
+        .context(format!("{}: {err}", tmp.display()))
+    })?;
     match fs::rename(&tmp, path) {
         Ok(()) => Ok(()),
         Err(first_err) if path.exists() => {
-            fs::remove_file(path)
-                .map_err(|err| format!("failed to remove {}: {err}", path.display()))?;
+            fs::remove_file(path).map_err(|err| {
+                Error::named(
+                    ErrorCode::Failed,
+                    "remove_file_failed",
+                    format!("failed to remove {}: {err}", path.display()),
+                )
+                .context(format!("{}: {err}", path.display()))
+            })?;
             fs::rename(&tmp, path).map_err(|err| {
                 let _ = fs::remove_file(&tmp);
-                format!(
-                    "failed to replace {}: {err}; initial rename error: {first_err}",
-                    path.display()
+                Error::named(
+                    ErrorCode::Failed,
+                    "replace_file_failed",
+                    format!(
+                        "failed to replace {}: {err}; initial rename error: {first_err}",
+                        path.display()
+                    ),
                 )
+                .context(format!("{}: {err}; {first_err}", path.display()))
             })
         }
         Err(err) => {
             let _ = fs::remove_file(&tmp);
-            Err(format!("failed to replace {}: {err}", path.display()))
+            Err(Error::named(
+                ErrorCode::Failed,
+                "replace_file_failed",
+                format!("failed to replace {}: {err}", path.display()),
+            )
+            .context(format!("{}: {err}", path.display())))
         }
     }
 }

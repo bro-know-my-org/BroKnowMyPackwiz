@@ -66,6 +66,28 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("open_file_failed", "Could not open file", "无法打开文件"),
+    (
+        "create_directory_failed",
+        "Could not create directory",
+        "无法创建目录",
+    ),
+    ("write_file_failed", "Could not write file", "无法写入文件"),
+    (
+        "remove_file_failed",
+        "Could not remove file",
+        "无法删除文件",
+    ),
+    (
+        "replace_file_failed",
+        "Could not replace file",
+        "无法替换文件",
+    ),
+    (
+        "metadata_unknown_side",
+        "Metadata contains an unsupported side",
+        "元数据包含不支持的运行端",
+    ),
     ("read_file_failed", "Could not read file", "无法读取文件"),
     (
         "read_directory_failed",
@@ -1096,6 +1118,58 @@ const MESSAGES: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_hash_and_write_errors_localize_without_changing_cli_results() {
+        use crate::{
+            config::ProjectConfig, layout::PackLayout, operation::durable, pathutil, refresh,
+            sha256,
+        };
+        let root = std::env::temp_dir().join(durable::unique_id());
+        std::fs::create_dir_all(root.join("mods")).unwrap();
+        std::fs::write(
+            root.join("mods/bad.pw.toml"),
+            "name = \"Bad\"\nside = \"invalid-side\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("index.toml"), "original index").unwrap();
+        let config = ProjectConfig::load(&root).unwrap();
+        let layout = PackLayout::from_config(&config);
+        let error = refresh::refresh_operation(&root, &config, &layout).unwrap_err();
+        assert_eq!(
+            refresh::refresh(&root, &config, &layout).unwrap_err(),
+            error.detail
+        );
+        assert_eq!(
+            error.detail,
+            "metadata has unsupported side: mods/bad.pw.toml: invalid-side"
+        );
+        assert_eq!(
+            Language::ZhCn.error(&error),
+            "元数据包含不支持的运行端: mods/bad.pw.toml: invalid-side"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("index.toml")).unwrap(),
+            "original index"
+        );
+        let missing = root.join("missing.jar");
+        let error = sha256::sha256_file_hex_operation(&missing).unwrap_err();
+        assert_eq!(sha256::sha256_file_hex(&missing).unwrap_err(), error.detail);
+        assert!(Language::ZhCn.error(&error).starts_with("无法打开文件:"));
+        std::fs::write(root.join("block"), "original").unwrap();
+        let output = root.join("block/new");
+        let error = pathutil::write_atomic_operation(&output, "new").unwrap_err();
+        assert_eq!(
+            pathutil::write_atomic(&output, "new").unwrap_err(),
+            error.detail
+        );
+        assert!(Language::ZhCn.error(&error).starts_with("无法创建目录:"));
+        assert_eq!(
+            std::fs::read_to_string(root.join("block")).unwrap(),
+            "original"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn scan_and_metadata_read_errors_retain_legacy_diagnostics_and_localize() {

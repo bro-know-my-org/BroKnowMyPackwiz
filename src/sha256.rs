@@ -5,14 +5,30 @@ use std::path::Path;
 use sha2::{Digest, Sha256 as Sha256Hasher};
 
 pub fn sha256_file_hex(path: &Path) -> Result<String, String> {
-    let mut file =
-        File::open(path).map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+    sha256_file_hex_operation(path).map_err(|error| error.detail)
+}
+
+pub fn sha256_file_hex_operation(path: &Path) -> crate::operation::Result<String> {
+    use crate::operation::{Error, ErrorCode};
+    let mut file = File::open(path).map_err(|err| {
+        Error::named(
+            ErrorCode::Failed,
+            "open_file_failed",
+            format!("failed to open {}: {err}", path.display()),
+        )
+        .context(format!("{}: {err}", path.display()))
+    })?;
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 8192];
     loop {
-        let read = file
-            .read(&mut buf)
-            .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+        let read = file.read(&mut buf).map_err(|err| {
+            Error::named(
+                ErrorCode::Failed,
+                "read_file_failed",
+                format!("failed to read {}: {err}", path.display()),
+            )
+            .context(format!("{}: {err}", path.display()))
+        })?;
         if read == 0 {
             break;
         }
