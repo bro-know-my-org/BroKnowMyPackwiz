@@ -49,19 +49,21 @@ pub struct ConflictFile {
     pub directory: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
-struct Journal {
+pub(super) struct Journal {
     version: u32,
-    state: State,
+    pub(super) state: State,
     entries: Vec<Entry>,
     directories: Vec<PathBuf>,
     #[serde(default)]
     requested_directories: Vec<PathBuf>,
-    conflicts: Vec<PathBuf>,
+    pub(super) conflicts: Vec<PathBuf>,
+    #[serde(default)]
+    pub(super) directory_changes: Vec<super::directory::Entry>,
 }
 
 pub struct Transaction {
     pub directory: PathBuf,
-    journal: Journal,
+    pub(super) journal: Journal,
 }
 
 impl Transaction {
@@ -78,6 +80,7 @@ impl Transaction {
                 directories: Vec::new(),
                 requested_directories: Vec::new(),
                 conflicts: Vec::new(),
+                directory_changes: Vec::new(),
             },
         };
         txn.save()?;
@@ -158,6 +161,7 @@ impl Transaction {
             .directories
             .iter()
             .chain(&journal.requested_directories)
+            .chain(journal.directory_changes.iter().map(|entry| &entry.target))
             .any(|path| !path.is_absolute())
         {
             return Err(Error::new(
@@ -212,7 +216,14 @@ impl Transaction {
                 self.journal
                     .conflicts
                     .iter()
-                    .filter(|path| self.journal.directories.contains(path))
+                    .filter(|path| {
+                        self.journal.directories.contains(path)
+                            || self
+                                .journal
+                                .directory_changes
+                                .iter()
+                                .any(|entry| &entry.target == *path)
+                    })
                     .map(|path| ConflictFile {
                         target: path.clone(),
                         backup: self.directory.join("before"),
@@ -226,6 +237,8 @@ impl Transaction {
     /// Explicit resolution retains original backups and archives an external
     /// version before restoring over it. A saved decision survives interruption.
     pub fn resolve_all(&mut self, keep_external: bool) -> Result<()> {
+        self.resolve_directory_conflicts(keep_external)?;
+        self.save()?;
         if keep_external {
             self.journal
                 .directories
@@ -270,6 +283,12 @@ impl Transaction {
             .map(|e| e.target.clone())
             .chain(self.journal.directories.iter().cloned())
             .chain(self.journal.requested_directories.iter().cloned())
+            .chain(
+                self.journal
+                    .directory_changes
+                    .iter()
+                    .map(|entry| entry.target.clone()),
+            )
             .collect()
     }
     fn backup(&self, i: usize) -> PathBuf {
@@ -278,7 +297,7 @@ impl Transaction {
     fn staged(&self, i: usize) -> PathBuf {
         self.directory.join("after").join(i.to_string())
     }
-    fn save(&self) -> Result<()> {
+    pub(super) fn save(&self) -> Result<()> {
         durable::write(
             &self.directory.join("journal.json"),
             &serde_json::to_vec_pretty(&self.journal)
@@ -346,6 +365,7 @@ impl Transaction {
                 total: Some(self.journal.entries.len() as u64),
             });
         }
+        self.apply_directories(control)?;
         control.check()?;
         self.journal.state = State::Committed;
         if let Err(error) = self.save() {
@@ -386,6 +406,7 @@ impl Transaction {
         self.journal.state = State::RollingBack;
         self.journal.conflicts.clear();
         self.save()?;
+        self.restore_directories()?;
         for i in (0..self.journal.entries.len()).rev() {
             if matches!(self.journal.entries[i].step, Step::Pending | Step::Restored) {
                 continue;

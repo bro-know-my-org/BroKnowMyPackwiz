@@ -66,6 +66,16 @@ impl Language {
 
 const MESSAGES: &[(&str, &str, &str)] = &[
     (
+        "directory_changed",
+        "Directory or permissions changed outside this task",
+        "目录或权限被本任务之外的操作修改",
+    ),
+    (
+        "transaction_not_prepared",
+        "Transaction is not ready to commit",
+        "事务尚未准备好提交",
+    ),
+    (
         "dependency_side_unknown",
         "Dependency installation side is unknown",
         "依赖的安装环境未知",

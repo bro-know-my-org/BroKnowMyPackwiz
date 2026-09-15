@@ -96,9 +96,11 @@ fn execute_with(
     control.check()?;
     let mut changes = primary.changes(control)?;
     let mut directories = primary.new_directories(control)?;
+    let mut directory_changes = primary.directory_changes(control)?;
     if let Some(workspace) = external {
         changes.extend(workspace.changes(control)?);
         directories.extend(workspace.new_directories(control)?);
+        directory_changes.extend(workspace.directory_changes(control)?);
     }
     if let (Some(target), Some(mapped)) = (&target, &mapped_target) {
         if request.kind.output() == Output::File && !target.starts_with(original) {
@@ -117,6 +119,7 @@ fn execute_with(
     }
     let mut transaction = Transaction::prepare(task, changes, control)?;
     transaction.create_directories(directories)?;
+    transaction.change_directories(directory_changes)?;
     transaction.commit(control)
 }
 
@@ -153,6 +156,27 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn replacing_external_output_removes_stale_empty_directories() {
+        let fixture = Fixture::new();
+        let output = fixture.0.join("output");
+        fs::create_dir_all(output.join("stale/empty")).unwrap();
+        fs::write(output.join("stale/old.txt"), "old").unwrap();
+        let mut request = Request::new(Kind::PrepareServer);
+        request.output = Some(output.clone());
+        fixture
+            .run(&request, |_, target| {
+                let target = target.unwrap();
+                fs::remove_dir_all(target)?;
+                fs::create_dir_all(target)?;
+                fs::write(target.join("new.txt"), "new")?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(!output.join("stale").exists());
+        assert_eq!(fs::read_to_string(output.join("new.txt")).unwrap(), "new");
     }
 
     #[test]

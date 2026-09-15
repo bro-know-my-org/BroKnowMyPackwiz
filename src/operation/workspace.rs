@@ -1,6 +1,6 @@
 use super::{Control, Error, ErrorCode, Event, Result, durable, transaction::Change};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -12,7 +12,7 @@ pub struct Workspace {
     pub original: PathBuf,
     pub staged: PathBuf,
     baseline: BTreeMap<PathBuf, String>,
-    directories: BTreeSet<PathBuf>,
+    directories: BTreeMap<PathBuf, u32>,
 }
 
 impl Workspace {
@@ -40,7 +40,7 @@ impl Workspace {
             ));
         }
         control.emit(Event::Phase("snapshotting".into()));
-        for relative in &directories {
+        for relative in directories.keys() {
             fs::create_dir_all(staged.join(relative))?;
         }
         for (index, (rel, expected)) in baseline.iter().enumerate() {
@@ -58,6 +58,13 @@ impl Workspace {
                 current: (index + 1) as u64,
                 total: Some(baseline.len() as u64),
             });
+        }
+        for (relative, mode) in directories.iter().rev() {
+            super::directory::set_mode(&staged.join(relative), *mode)?;
+        }
+        if inventory(&original, control)? != (baseline.clone(), directories.clone()) {
+            return Err(Error::key(ErrorCode::Conflict, "directory_changed")
+                .context(original.display().to_string()));
         }
         Ok(Self {
             original,
@@ -96,22 +103,38 @@ impl Workspace {
             .collect())
     }
 
+    pub fn directory_changes(&self, control: &Control) -> Result<Vec<super::directory::Change>> {
+        let (_, updated) = inventory(&self.staged, control)?;
+        Ok(self
+            .directories
+            .iter()
+            .filter(|(path, mode)| updated.get(*path) != Some(*mode))
+            .map(|(path, before)| super::directory::Change {
+                target: self.original.join(path),
+                before: *before,
+                after: updated.get(path).copied(),
+            })
+            .collect())
+    }
+
     pub fn new_directories(&self, control: &Control) -> Result<Vec<PathBuf>> {
         let (_, updated) = inventory(&self.staged, control)?;
         Ok(updated
-            .difference(&self.directories)
+            .keys()
+            .filter(|path| !self.directories.contains_key(*path))
             .map(|relative| self.original.join(relative))
             .collect())
     }
 }
 
-type Inventory = (BTreeMap<PathBuf, String>, BTreeSet<PathBuf>);
+type Inventory = (BTreeMap<PathBuf, String>, BTreeMap<PathBuf, u32>);
 fn inventory(root: &Path, control: &Control) -> Result<Inventory> {
     let mut files = BTreeMap::new();
-    let mut directories = BTreeSet::new();
+    let mut directories = BTreeMap::new();
     if !root.exists() {
         return Ok((files, directories));
     }
+    directories.insert(PathBuf::new(), super::directory::mode(root)?.unwrap());
     walk(root, root, control, &mut files, &mut directories)?;
     Ok((files, directories))
 }
@@ -121,7 +144,7 @@ fn walk(
     current: &Path,
     control: &Control,
     files: &mut BTreeMap<PathBuf, String>,
-    directories: &mut BTreeSet<PathBuf>,
+    directories: &mut BTreeMap<PathBuf, u32>,
 ) -> Result<()> {
     for entry in fs::read_dir(current)? {
         control.check()?;
@@ -141,7 +164,7 @@ fn walk(
             ));
         }
         if kind.is_dir() {
-            directories.insert(rel.to_path_buf());
+            directories.insert(rel.to_path_buf(), super::directory::mode(&path)?.unwrap());
             walk(root, &path, control, files, directories)?;
         } else {
             let stamp = durable::fingerprint(&path)?
