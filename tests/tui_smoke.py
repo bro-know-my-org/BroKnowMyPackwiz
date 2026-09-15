@@ -41,6 +41,12 @@ def smoke(binary):
         )
         (root / "templates").mkdir()
         (root / "templates/README.md").write_text("Smoke pack\n", encoding="utf-8")
+        (root / "config").mkdir()
+        (root / "config/probe.properties").write_text("probe=true\n", encoding="utf-8")
+        server_output = root / ".bkmpw/server-pack"
+        (server_output / "README.md").mkdir(parents=True)
+        (server_output / "README.md/stale").write_text("old", encoding="utf-8")
+        (server_output / "config").write_text("old file", encoding="utf-8")
         with (root / ".pw/config.toml").open("a", encoding="utf-8") as config:
             config.write('\n[release]\ntemplate-dir = "templates"\ntemplate-files = "README.md"\n')
         subprocess.run([binary, "refresh", str(root)], env=env, check=True, capture_output=True)
@@ -110,6 +116,8 @@ def smoke(binary):
             assert (root / "mods/manual.jar").read_bytes() == b"manual"
             assert (base / "installed/mods/managed.jar").read_bytes() == payload
             assert (root / "README.md").read_text() == "Smoke pack\n"
+            assert (server_output / "README.md").read_text() == "Smoke pack\n"
+            assert (server_output / "config/probe.properties").read_text() == "probe=true\n"
             for name in ("client-full.zip", "server-pack.zip", "server-installer.zip", "curseforge-export.zip"):
                 assert (root / name).stat().st_size > 0, name
             assert all(task.get("logs") for task in tasks)
