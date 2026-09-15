@@ -790,6 +790,12 @@ impl App {
     }
 
     fn switch_root(&mut self, root: PathBuf) -> crate::operation::Result<()> {
+        if self.jobs.loading() {
+            return Err(crate::operation::Error::key(
+                crate::operation::ErrorCode::Busy,
+                "queue_loading_before_switch",
+            ));
+        }
         if self.jobs.queue.as_ref().is_some_and(|q| q.pending()) {
             return Err(crate::operation::Error::named(
                 crate::operation::ErrorCode::Busy,

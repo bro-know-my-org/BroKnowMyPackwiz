@@ -145,11 +145,31 @@ def smoke(binary):
             for name in ("client-full.zip", "server-pack.zip", "server-installer.zip", "curseforge-export.zip"):
                 assert (root / name).stat().st_size > 0, name
             assert all(task.get("logs") for task in tasks)
+            # Completed queues may switch packs; the recent picker returns to
+            # the original pack and keeps its completed history on disk.
+            other = base / "第二个 pack"
+            other.mkdir()
+            subprocess.run([binary, "init", str(other)], env=env, check=True, capture_output=True)
+            key(b"\t")  # Tasks -> Settings
+            key(b"\x1b[B" * 3)
+            key(b"\r")  # Open pack form, path focused
+            key(b"\x7f" * len(str(root)))
+            key(b"\x1b[200~" + str(other).encode() + b"\x1b[201~")
+            key(b"\t\t\r")
+            drain(0.4)
+            assert json.loads(preferences.read_text())["recent"][0] == str(other)
+            assert json.loads(queue_path.read_text())["tasks"] == tasks
+            key(b"\t" * 4)  # New pack Files -> Settings; open setting stays selected
+            key(b"\r")
+            key(b"\t\x1b[C\t\r")  # Recent: original pack -> Save
+            drain(0.4)
+            assert json.loads(preferences.read_text())["recent"][:2] == [str(root), str(other)]
+            assert json.loads(queue_path.read_text())["tasks"] == tasks
             key(b"q")
             process.wait(timeout=5)
             assert process.returncode == 0
             assert termios.tcgetattr(slave) == before
-            print(f"PASS: {len(tasks)} offline command tasks, restart confirmation, Unicode paths, manual files, terminal restoration")
+            print(f"PASS: {len(tasks)} offline command tasks, restart confirmation, Unicode paths, manual files, directory/recent switching, terminal restoration")
         finally:
             if process.poll() is None:
                 process.kill()

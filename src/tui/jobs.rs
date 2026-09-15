@@ -28,6 +28,10 @@ pub struct Jobs {
 }
 
 impl Jobs {
+    pub fn loading(&self) -> bool {
+        self.pending.is_some()
+    }
+
     pub fn connect(&mut self, root: PathBuf) {
         let (tx, rx) = mpsc::channel();
         self.pending = Some(rx);
@@ -271,4 +275,78 @@ pub fn draw(frame: &mut Frame, jobs: &mut Jobs, lang: Language, area: Rect) {
         bands[1],
     );
     frame.render_widget(Paragraph::new(lang.text("task_keys")), bands[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::operation::queue::{Status, Task};
+    use crate::tui::{app::App, dialog::Dialog, i18n::Language};
+    use crossterm::event::{Event as Input, KeyEvent, KeyModifiers};
+
+    fn request_switch(app: &mut App, destination: &Path, recent: bool) {
+        app.preferences.recent = vec![destination.to_owned()];
+        let mut dialog = Dialog::settings(&app.root, 3, &app.preferences).unwrap();
+        let field = dialog
+            .form
+            .fields
+            .iter_mut()
+            .find(|f| f.key == if recent { "recent" } else { "path" })
+            .unwrap();
+        field.value = destination.display().to_string();
+        dialog.form.focus = dialog.form.fields.len();
+        app.dialog = Some(dialog);
+        app.event(Input::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+    }
+
+    #[test]
+    fn switching_pack_waits_for_queue_loading_and_retains_its_result() {
+        for language in [Language::En, Language::ZhCn] {
+            for recent in [false, true] {
+                let base = std::env::temp_dir().join(durable::unique_id());
+                std::fs::create_dir_all(base.join("old")).unwrap();
+                std::fs::create_dir_all(base.join("new")).unwrap();
+                let root = durable::canonical(&base.join("old")).unwrap();
+                let mut app = App::new(root.clone());
+                app.language = language;
+                let (sender, receiver) = mpsc::channel();
+                app.jobs.pending = Some(receiver);
+                request_switch(&mut app, &base.join("new"), recent);
+                assert_eq!(app.root, root);
+                assert!(app.jobs.loading());
+                assert_eq!(
+                    app.dialog.as_ref().unwrap().form.error.as_deref(),
+                    Some(language.text("queue_loading_before_switch"))
+                );
+
+                let mut queue = Queue::open(&root, &base.join("state")).unwrap();
+                queue.tasks.push(Task {
+                    id: "1-1".into(),
+                    label: "edit".into(),
+                    request: Request::Edit(Vec::new()),
+                    status: Status::Waiting,
+                    error: None,
+                    logs: Vec::new(),
+                });
+                sender.send(Ok(queue)).unwrap();
+                app.jobs.poll().unwrap();
+                assert!(!app.jobs.loading());
+                assert_eq!(app.jobs.queue.as_ref().unwrap().root, root);
+                assert!(app.jobs.queue.as_ref().unwrap().paused);
+                for status in [Status::Waiting, Status::NeedsRecovery, Status::Conflict] {
+                    app.jobs.queue.as_mut().unwrap().tasks[0].status = status;
+                    request_switch(&mut app, &base.join("new"), recent);
+                    assert_eq!(app.root, root);
+                    assert_eq!(app.jobs.queue.as_ref().unwrap().tasks[0].status, status);
+                    let error = app.dialog.as_ref().unwrap().form.error.as_ref().unwrap();
+                    assert!(error.contains(language.text("queue_before_switch")));
+                }
+                drop(app);
+                std::fs::remove_dir_all(base).unwrap();
+            }
+        }
+    }
 }
