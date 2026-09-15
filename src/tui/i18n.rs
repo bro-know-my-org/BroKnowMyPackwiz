@@ -291,6 +291,11 @@ const MESSAGES: &[(&str, &str, &str)] = &[
     ("filename_required", "Enter a filename", "请输入文件名"),
     ("directory_required", "Enter a directory", "请输入目录"),
     (
+        "parent_not_directory",
+        "A parent path is not a directory",
+        "父路径不是目录",
+    ),
+    (
         "field_parent_not_table",
         "Field parent must be a TOML table",
         "字段的父级必须是 TOML 表",
