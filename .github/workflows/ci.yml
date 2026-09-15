@@ -15,8 +15,12 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify
-    runs-on: ubuntu-latest
+    name: Verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
     steps:
@@ -25,7 +29,7 @@ jobs:
 
       - name: Set up Rust
         run: |
-          rustup toolchain install stable --profile minimal
+          rustup toolchain install stable --profile minimal --component rustfmt
           rustup default stable
 
       - name: Cache Cargo dependencies
@@ -49,3 +53,16 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --locked
+
+      - name: CLI smoke test
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            target/release/bkmpw.exe --help
+          else
+            target/release/bkmpw --help
+          fi
+
+      - name: Linux TUI and transactional queue smoke test
+        if: runner.os == 'Linux'
+        run: python3 tests/tui_smoke.py
