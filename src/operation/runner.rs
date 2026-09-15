@@ -159,6 +159,21 @@ mod tests {
     }
 
     #[test]
+    fn initialization_can_publish_into_a_previously_missing_root() {
+        let fixture = Fixture::new();
+        fs::remove_dir_all(fixture.0.join("pack")).unwrap();
+        fixture
+            .run(&Request::new(Kind::Init), |root, _| {
+                fs::create_dir_all(root.join("mods/common"))?;
+                fs::write(root.join("pack.toml"), "name = 'New'")?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(fixture.0.join("pack/mods/common").is_dir());
+        assert!(fixture.0.join("pack/pack.toml").is_file());
+    }
+
+    #[test]
     fn replacing_external_output_removes_stale_empty_directories() {
         let fixture = Fixture::new();
         let output = fixture.0.join("output");

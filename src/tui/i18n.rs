@@ -187,8 +187,8 @@ const MESSAGES: &[(&str, &str, &str)] = &[
     ),
     (
         "directory_conflict",
-        "A directory created by this task contains external content or cannot be removed. Keep it, or move the external content yourself before retrying recovery.",
-        "本任务创建的目录包含外部内容或无法移除。可以选择保留，或手动移走外部内容后重试恢复。",
+        "Directory contents, type, or permissions conflict with recovery. Keep the external state, restore recorded permissions, or resolve the contents/type manually before retrying.",
+        "目录内容、类型或权限与恢复操作冲突。可保留外部状态、恢复记录的权限，或手动处理内容及类型冲突后重试。",
     ),
     ("fabric", "Fabric", "Fabric"),
     ("quilt", "Quilt", "Quilt"),
