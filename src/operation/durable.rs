@@ -128,7 +128,8 @@ pub fn absolute(path: &Path) -> Result<PathBuf> {
         std::env::current_dir()?.join(path)
     };
     let mut output = PathBuf::new();
-    for part in path.components() {
+    let mut components = path.components().peekable();
+    while let Some(part) = components.next() {
         match part {
             Component::Prefix(_) => {
                 // A Windows drive/UNC prefix is not a filesystem path until
@@ -170,6 +171,13 @@ pub fn absolute(path: &Path) -> Result<PathBuf> {
                     format!("symlink: {}", output.display()),
                 )
                 .context(output.display().to_string()));
+            }
+            Ok(meta) if !meta.is_dir() && components.peek().is_some() => {
+                // Windows can report a child of a regular file as NotFound.
+                // Reject the ancestor explicitly instead of planning a path
+                // that cannot exist or treating a hidden child as deleted.
+                return Err(Error::key(ErrorCode::Invalid, "parent_not_directory")
+                    .context(output.display().to_string()));
             }
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
