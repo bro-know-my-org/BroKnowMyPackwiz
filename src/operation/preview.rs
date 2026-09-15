@@ -102,7 +102,12 @@ impl Guard {
     }
 }
 fn stale(path: &str) -> Error {
-    Error::new(ErrorCode::Conflict, format!("preview_stale: {path}"))
+    Error::named(
+        ErrorCode::Conflict,
+        "preview_stale",
+        format!("preview_stale: {path}"),
+    )
+    .context(path)
 }
 
 #[cfg(test)]

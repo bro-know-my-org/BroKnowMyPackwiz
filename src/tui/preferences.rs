@@ -19,8 +19,9 @@ impl Preferences {
         directories::ProjectDirs::from("org", "bro-know-my", "bkmpw")
             .map(|dirs| dirs.config_dir().join("tui.json"))
             .ok_or_else(|| {
-                Error::new(
+                Error::named(
                     ErrorCode::Invalid,
+                    "user_config_unavailable",
                     "user configuration directory unavailable",
                 )
             })

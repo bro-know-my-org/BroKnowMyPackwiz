@@ -55,7 +55,11 @@ impl External {
                 .map_err(|e| Error::new(ErrorCode::Invalid, e.to_string()))?
         };
         if command.is_empty() {
-            return Err(Error::new(ErrorCode::Invalid, "empty editor command"));
+            return Err(Error::named(
+                ErrorCode::Invalid,
+                "empty_editor_command",
+                "empty editor command",
+            ));
         }
         Ok(Self {
             relative: relative.into(),
@@ -72,20 +76,24 @@ impl External {
             .arg(&self.source)
             .status()?;
         if !status.success() {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Failed,
+                "editor_failed",
                 format!(
                     "editor exited with {status}; draft: {}",
                     self.source.display()
                 ),
-            ));
+            )
+            .context(format!("{status}; {}", self.source.display())));
         }
         let text = fs::read_to_string(&self.source)?;
         let document = text.parse::<toml_edit::DocumentMut>().map_err(|e| {
-            Error::new(
+            Error::named(
                 ErrorCode::Invalid,
+                "editor_invalid_document",
                 format!("{e}; draft: {}", self.source.display()),
             )
+            .context(format!("{e}; {}", self.source.display()))
         })?;
         let preview = preview(&self.original, &text);
         Ok(Dialog::review(

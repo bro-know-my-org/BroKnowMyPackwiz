@@ -20,13 +20,18 @@ impl Workspace {
         let original = durable::canonical(original)?;
         let staged = durable::absolute(staged)?;
         if staged.starts_with(&original) || original.starts_with(&staged) {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Invalid,
+                "staging_outside_pack",
                 "staging must be outside the pack",
             ));
         }
         if staged.exists() {
-            return Err(Error::new(ErrorCode::Invalid, "staging already exists"));
+            return Err(Error::named(
+                ErrorCode::Invalid,
+                "staging_exists",
+                "staging already exists",
+            ));
         }
         fs::create_dir_all(&staged)?;
         let (baseline, directories) = inventory(&original, control)?;
@@ -34,8 +39,9 @@ impl Workspace {
             fs::metadata(original.join(rel)).map(|m| sum.saturating_add(m.len()))
         })?;
         if fs2::available_space(&staged)? < required.saturating_mul(3).saturating_add(1024 * 1024) {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Io,
+                "staging_space_insufficient",
                 "insufficient space for staging and recovery backups",
             ));
         }
@@ -78,10 +84,12 @@ impl Workspace {
         control.check()?;
         if inventory(&self.original, control)? != (self.baseline.clone(), self.directories.clone())
         {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Conflict,
+                "workspace_changed",
                 format!("workspace changed: {}", self.original.display()),
-            ));
+            )
+            .context(self.original.display().to_string()));
         }
         let (updated, _) = inventory(&self.staged, control)?;
         let mut paths: Vec<_> = self
@@ -158,10 +166,12 @@ fn walk(
         }
         let kind = entry.file_type()?;
         if kind.is_symlink() {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Invalid,
+                "symlink_rejected",
                 format!("symlink: {}", path.display()),
-            ));
+            )
+            .context(path.display().to_string()));
         }
         if kind.is_dir() {
             directories.insert(rel.to_path_buf(), super::directory::mode(&path)?.unwrap());

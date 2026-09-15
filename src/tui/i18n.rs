@@ -67,6 +67,124 @@ impl Language {
 
 const MESSAGES: &[(&str, &str, &str)] = &[
     (
+        "editor_failed",
+        "Editor failed; draft retained",
+        "编辑器未成功退出，草稿已保留",
+    ),
+    (
+        "editor_invalid_document",
+        "Editor returned invalid TOML; draft retained",
+        "编辑结果不是有效的 TOML，草稿已保留",
+    ),
+    (
+        "not_regular_file",
+        "Expected a regular file",
+        "目标不是普通文件",
+    ),
+    (
+        "symlink_rejected",
+        "Symbolic links are not supported for transaction targets",
+        "事务目标不支持符号链接",
+    ),
+    (
+        "workspace_changed",
+        "Pack changed after the workspace snapshot",
+        "整合包在工作副本创建后发生了变化",
+    ),
+    (
+        "backup_changed",
+        "Recovery backup changed",
+        "恢复备份已被修改",
+    ),
+    (
+        "command_exit",
+        "Command exited unsuccessfully",
+        "命令未成功退出",
+    ),
+    (
+        "preview_stale",
+        "Preview is out of date; prepare a new preview",
+        "预览已过期，请重新生成预览",
+    ),
+    (
+        "missing_parent",
+        "Path has no parent directory",
+        "路径缺少父目录",
+    ),
+    (
+        "invalid_parent_path",
+        "Invalid parent path",
+        "父目录路径无效",
+    ),
+    ("invalid_path", "Invalid path", "路径无效"),
+    ("invalid_parent", "Invalid parent directory", "父目录无效"),
+    (
+        "user_directories_unavailable",
+        "User state directory is unavailable",
+        "无法获取用户状态目录",
+    ),
+    (
+        "staging_outside_pack",
+        "Staging and pack directories must not contain each other",
+        "暂存目录与整合包目录不能互相包含",
+    ),
+    (
+        "staging_exists",
+        "Staging directory already exists",
+        "暂存目录已存在",
+    ),
+    (
+        "staging_space_insufficient",
+        "Insufficient space for staging and recovery backups",
+        "空间不足，无法保存暂存内容与恢复备份",
+    ),
+    (
+        "duplicate_transaction_target",
+        "Duplicate transaction target",
+        "事务目标重复",
+    ),
+    (
+        "missing_staged_source",
+        "Staged source is missing",
+        "暂存源文件缺失",
+    ),
+    (
+        "unsupported_transaction_version",
+        "Unsupported transaction journal version",
+        "不支持此事务日志版本",
+    ),
+    (
+        "transaction_target_not_absolute",
+        "Transaction target must be an absolute path",
+        "事务目标必须使用绝对路径",
+    ),
+    (
+        "transaction_directory_not_absolute",
+        "Transaction directory must be an absolute path",
+        "事务目录必须使用绝对路径",
+    ),
+    (
+        "staged_content_changed",
+        "Staged content changed",
+        "暂存内容已被修改",
+    ),
+    ("missing_root", "Path has no root", "路径缺少根目录"),
+    (
+        "committed_task_rollback",
+        "A committed task cannot be rolled back",
+        "已提交的任务无法回滚",
+    ),
+    (
+        "user_config_unavailable",
+        "User configuration directory is unavailable",
+        "无法获取用户配置目录",
+    ),
+    (
+        "empty_editor_command",
+        "Editor command is empty",
+        "编辑器命令为空",
+    ),
+    (
         "queue_identity_mismatch",
         "Saved queue version or pack directory does not match",
         "保存的队列版本或整合包目录不匹配",
@@ -888,6 +1006,28 @@ const MESSAGES: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_validation_has_localized_messages_without_changing_cli_diagnostics() {
+        use crate::operation::durable;
+        let root = std::env::temp_dir().join(durable::unique_id());
+        std::fs::create_dir(&root).unwrap();
+        let error = durable::fingerprint(&root).unwrap_err();
+        let path = root.display().to_string();
+        assert_eq!(
+            error.to_string(),
+            format!("Invalid: not a regular file: {path}")
+        );
+        assert_eq!(
+            Language::ZhCn.error(&error),
+            format!("目标不是普通文件: {path}")
+        );
+        assert_eq!(
+            Language::En.error(&error),
+            format!("Expected a regular file: {path}")
+        );
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn named_errors_preserve_cli_text_and_persist_localized_context() {

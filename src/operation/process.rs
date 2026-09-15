@@ -67,10 +67,12 @@ pub fn run(mut command: Command, cwd: &Path, logs: &Path, control: &Control) -> 
     error_result?;
     control.check()?;
     if !status.success() {
-        return Err(Error::new(
+        return Err(Error::named(
             ErrorCode::Failed,
+            "command_exit",
             format!("command_exit: {status}"),
-        ));
+        )
+        .context(status.to_string()));
     }
     Ok(())
 }
