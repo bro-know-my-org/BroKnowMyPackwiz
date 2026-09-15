@@ -27,6 +27,31 @@ fn key(app: &mut App, code: KeyCode) -> bool {
 }
 
 #[test]
+fn narrow_toolbar_keeps_all_file_actions_clickable() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+    for language in [Language::En, Language::ZhCn] {
+        app.language = language;
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        for code in [
+            KeyCode::Char('u'),
+            KeyCode::Delete,
+            KeyCode::Char('d'),
+            KeyCode::Char('a'),
+            KeyCode::Char('e'),
+            KeyCode::Char('p'),
+            KeyCode::Char('E'),
+        ] {
+            assert!(
+                app.buttons
+                    .iter()
+                    .any(|(key, area)| *key == code && area.width > 0)
+            );
+        }
+    }
+}
+
+#[test]
 fn new_directory_starts_at_initialization_and_keeps_open_directory_available() {
     let root = std::env::temp_dir().join(crate::operation::durable::unique_id());
     let mut app = App::new(root);

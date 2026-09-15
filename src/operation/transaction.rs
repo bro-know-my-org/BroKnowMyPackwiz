@@ -46,6 +46,7 @@ pub struct ConflictFile {
     pub target: PathBuf,
     pub backup: PathBuf,
     pub staged: PathBuf,
+    pub directory: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
 struct Journal {
@@ -205,7 +206,20 @@ impl Transaction {
                 target: entry.target.clone(),
                 backup: self.backup(i),
                 staged: self.staged(i),
+                directory: false,
             })
+            .chain(
+                self.journal
+                    .conflicts
+                    .iter()
+                    .filter(|path| self.journal.directories.contains(path))
+                    .map(|path| ConflictFile {
+                        target: path.clone(),
+                        backup: self.directory.join("before"),
+                        staged: self.directory.join("after"),
+                        directory: true,
+                    }),
+            )
             .collect()
     }
 
@@ -421,13 +435,19 @@ impl Transaction {
             ));
         }
         for path in self.journal.directories.iter().rev() {
+            if durable::absolute(path).is_err() {
+                self.journal.conflicts.push(path.clone());
+                continue;
+            }
             match fs::remove_dir(path) {
                 Ok(()) => durable::sync_dir(path.parent().unwrap())?,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
                     self.journal.conflicts.push(path.clone());
                 }
-                Err(e) => return Err(e.into()),
+                Err(_) => {
+                    self.journal.conflicts.push(path.clone());
+                }
             }
         }
         if !self.journal.conflicts.is_empty() {

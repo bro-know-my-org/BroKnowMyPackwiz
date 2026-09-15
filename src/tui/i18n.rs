@@ -65,6 +65,11 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    (
+        "directory_conflict",
+        "A directory created by this task contains external content or cannot be removed. Keep it, or move the external content yourself before retrying recovery.",
+        "本任务创建的目录包含外部内容或无法移除。可以选择保留，或手动移走外部内容后重试恢复。",
+    ),
     ("fabric", "Fabric", "Fabric"),
     ("quilt", "Quilt", "Quilt"),
     (
