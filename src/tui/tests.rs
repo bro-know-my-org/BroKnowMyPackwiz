@@ -27,6 +27,33 @@ fn key(app: &mut App, code: KeyCode) -> bool {
 }
 
 #[test]
+fn failed_queue_save_does_not_leak_a_new_form_draft() {
+    use crate::operation::{durable, edit, queue::Queue};
+    let base = std::env::temp_dir().join(durable::unique_id());
+    let root = base.join("pack");
+    std::fs::create_dir_all(root.join("mods")).unwrap();
+    std::fs::write(root.join("pack.toml"), "name = 'Pack'").unwrap();
+    std::fs::write(root.join("mods/a.pw.toml"), "name = 'A'").unwrap();
+    let state = base.join("state");
+    let mut app = App::new(root.clone());
+    app.jobs.queue = Some(Queue::open(&root, &state).unwrap());
+    std::fs::write(state.join("queues"), "block queue persistence").unwrap();
+    let (document, expected) = edit::document(&root, "mods/a.pw.toml").unwrap();
+    app.dialog = Some(super::dialog::Dialog::review(
+        "mods/a.pw.toml".into(),
+        expected,
+        document,
+        "Review".into(),
+    ));
+    key(&mut app, KeyCode::Enter);
+    assert!(app.dialog.as_ref().unwrap().form.error.is_some());
+    assert!(app.jobs.queue.as_ref().unwrap().tasks.is_empty());
+    assert_eq!(std::fs::read_dir(state.join("drafts")).unwrap().count(), 0);
+    drop(app);
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
 fn narrow_toolbar_keeps_all_file_actions_clickable() {
     let mut app = app();
     let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();

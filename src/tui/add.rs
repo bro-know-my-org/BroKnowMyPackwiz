@@ -13,8 +13,12 @@ use std::{
 
 #[derive(Default)]
 pub struct Workflow {
-    pending: Option<Receiver<Result<Output>>>,
+    pending: Option<Receiver<Prepared>>,
     control: Control,
+}
+pub struct Prepared {
+    pub result: Result<Output>,
+    pub artifacts: crate::operation::artifacts::Lease,
 }
 pub enum Output {
     UpdatePreview(crate::catalog::updates::Preview),
@@ -157,6 +161,7 @@ impl Workflow {
         let (tx, rx) = mpsc::channel();
         self.pending = Some(rx);
         std::thread::spawn(move || {
+            let scope = crate::operation::artifacts::Scope::new();
             let result = control
                 .check()
                 .and_then(|()| work(control.clone()))
@@ -164,22 +169,31 @@ impl Workflow {
                     control.check()?;
                     Ok(output)
                 });
-            let _ = tx.send(result);
+            let _ = tx.send(Prepared {
+                result,
+                artifacts: scope.finish(),
+            });
         });
         Ok(())
     }
-    pub fn poll(&mut self) -> Option<Result<Output>> {
+    pub fn poll(&mut self) -> Option<Prepared> {
         let rx = self.pending.as_ref()?;
-        let result = match rx.try_recv() {
+        let mut prepared = match rx.try_recv() {
             Ok(result) => result,
             Err(mpsc::TryRecvError::Empty) => return None,
-            Err(mpsc::TryRecvError::Disconnected) => Err(Error::key(
-                ErrorCode::Interrupted,
-                "preview_worker_disconnected",
-            )),
+            Err(mpsc::TryRecvError::Disconnected) => Prepared {
+                result: Err(Error::key(
+                    ErrorCode::Interrupted,
+                    "preview_worker_disconnected",
+                )),
+                artifacts: Default::default(),
+            },
         };
+        if let Err(error) = self.control.check() {
+            prepared.result = Err(error);
+        }
         self.pending = None;
-        Some(result)
+        Some(prepared)
     }
 }
 impl Drop for Workflow {
@@ -201,6 +215,116 @@ mod tests {
         time::{Duration, Instant},
     };
     #[test]
+    fn closing_a_running_workflow_cleans_files_when_the_worker_finishes() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        let state = base.clone();
+        let (sender, receiver) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        let mut workflow = Workflow::default();
+        workflow
+            .run(move |_| {
+                let draft = edit::draft(
+                    &state,
+                    "mods/a.pw.toml",
+                    None,
+                    &"name = 'A'".parse().unwrap(),
+                )?;
+                sender.send(draft.source).unwrap();
+                wait.recv_timeout(Duration::from_secs(5)).unwrap();
+                let (picker, form) = super::super::github::Picker::repository();
+                Ok(Output::GitHub(picker, form))
+            })
+            .unwrap();
+        let path = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(workflow);
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while path.exists() {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn cancelling_a_finished_preview_cleans_its_unsubmitted_artifacts() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        let state = base.clone();
+        let (sender, receiver) = mpsc::channel();
+        let mut workflow = Workflow::default();
+        workflow
+            .run(move |_| {
+                let draft = edit::draft(
+                    &state,
+                    "mods/a.pw.toml",
+                    None,
+                    &"name = 'A'".parse().unwrap(),
+                )?;
+                sender.send(draft.source).unwrap();
+                let (picker, form) = super::super::github::Picker::repository();
+                Ok(Output::GitHub(picker, form))
+            })
+            .unwrap();
+        let path = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        workflow.cancel();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(prepared) = workflow.poll() {
+                assert!(
+                    matches!(&prepared.result, Err(error) if error.code == ErrorCode::Cancelled)
+                );
+                drop(prepared);
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(!path.exists());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn dropping_the_confirmation_dialog_releases_prepared_files() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        let root = base.join("pack");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("pack.toml"), "name = 'Pack'").unwrap();
+        let state = base.join("state");
+        let mut app = super::super::app::App::new(root.clone());
+        let (sender, receiver) = mpsc::channel();
+        app.adding
+            .run(move |control| {
+                let draft = edit::draft(
+                    &state,
+                    "mods/a.pw.toml",
+                    None,
+                    &"name = 'A'".parse().unwrap(),
+                )?;
+                sender.send(draft.source.clone()).unwrap();
+                Ok(Output::UpdateReady(crate::catalog::update_plan::Planned {
+                    request: Request::PreparedEdit {
+                        drafts: vec![draft],
+                        guard: Guard::capture(&root, &control)?,
+                    },
+                    rows: Vec::new(),
+                    download: false,
+                }))
+            })
+            .unwrap();
+        let path = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while app.dialog.is_none() {
+            app.poll();
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(path.exists());
+        drop(app);
+        assert!(!path.exists());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn direct_updates_submit_the_same_prepared_request_without_a_confirmation_dialog() {
         let base = std::env::temp_dir().join(durable::unique_id());
         fs::create_dir_all(base.join("pack/mods")).unwrap();
@@ -209,25 +333,27 @@ mod tests {
         let state = base.join("state");
         fs::write(root.join("pack.toml"), "name = \"Test\"\n").unwrap();
         let guard = Guard::capture(&root, &Control::default()).unwrap();
-        let draft = edit::draft(
-            &state,
-            "mods/new.pw.toml",
-            None,
-            &"name = \"New\"".parse().unwrap(),
-        )
-        .unwrap();
-        let planned = crate::catalog::update_plan::Planned {
-            request: Request::PreparedEdit {
-                drafts: vec![draft],
-                guard,
-            },
-            rows: Vec::new(),
-            download: false,
-        };
         let mut app = super::super::app::App::new(root.clone());
         app.jobs.queue = Some(Queue::open(&root, &state).unwrap());
         app.adding
-            .run(move |_| Ok(Output::UpdateDirect(planned)))
+            .run(move |_| {
+                let draft = edit::draft(
+                    &state,
+                    "mods/new.pw.toml",
+                    None,
+                    &"name = \"New\"".parse().unwrap(),
+                )
+                .unwrap();
+                let planned = crate::catalog::update_plan::Planned {
+                    request: Request::PreparedEdit {
+                        drafts: vec![draft],
+                        guard,
+                    },
+                    rows: Vec::new(),
+                    download: false,
+                };
+                Ok(Output::UpdateDirect(planned))
+            })
             .unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {

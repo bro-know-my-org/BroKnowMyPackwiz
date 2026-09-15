@@ -1,3 +1,4 @@
+pub mod artifacts;
 pub mod command;
 pub mod directory;
 pub mod download;

@@ -92,6 +92,7 @@ pub fn draft(
         fs::set_permissions(&source, fs::Permissions::from_mode(0o600))?;
     }
     let prepared = durable::fingerprint(&source)?.unwrap();
+    super::artifacts::record(&source, &prepared);
     Ok(Draft {
         relative: relative.into(),
         source,

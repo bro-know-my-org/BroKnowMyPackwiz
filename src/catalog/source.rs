@@ -64,7 +64,7 @@ pub fn prepare(
     let payload = directory.join(durable::unique_id());
     let result = prepare_inner(root, state, &input, &options, &payload, control);
     if result.is_err() || !options.download {
-        let _ = fs::remove_file(&payload);
+        crate::operation::artifacts::remove_temporary(&payload);
     }
     result
 }
