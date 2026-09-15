@@ -14,7 +14,7 @@
 
 每一批改动独立验证和提交；状态只根据已完成证据更新。
 
-当前全套 288 项测试通过，`cargo fmt --check` 和 release 构建通过。
+当前全套 292 项测试通过，`cargo fmt --check` 和 release 构建通过。
 新增 Linux release PTY 烟测覆盖添加页、中文查询、API key 缺失提示及终端恢复。
 CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release PTY 已通过公开 GitHub 仓库的 Release/附件查询、取消及终端恢复。真实平台文件添加和 Windows/macOS 终端尚未实测。
 本地 HTTP 故障测试验证：批量下载后项摘要错误时，前项文件及元数据均不发布；全部校验成功时一起提交。
@@ -65,3 +65,5 @@ CurseForge / GitHub 的分页与依赖使用可控响应验证；Linux release P
 设置页支持滚轮并记录实际可见偏移；双语窄窗口测试确认滚动后点击打开对应设置项。288 项测试、格式检查与 release 构建通过。
 
 错误与退出弹窗支持方向键、翻页键、Home/End 和滚轮，底部保留可见操作。错误弹窗隔离后台页面快捷键与两个搜索框的粘贴输入；中文长文本尾部、缩放限位、内容替换重置和关闭有双语测试。290 项测试、格式检查与 release 构建通过，Linux release PTY 的 17 类离线任务烟测再次通过。
+
+文件详情与 CurseForge 详情增加独立滚动：PgUp/PgDn、Home/End 阅读长内容，详情区域滚轮不改变列表选中项，内容变化后回到顶部；文件窄屏详情及宽屏分栏、长中文简介底部均有双语测试。292 项测试、格式检查与 release 构建通过。 Linux release PTY 的 17 类离线任务烟测再次通过。

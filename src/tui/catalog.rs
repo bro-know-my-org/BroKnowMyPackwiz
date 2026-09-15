@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, List, ListItem, ListState, Paragraph},
 };
 use std::{
     path::Path,
@@ -68,6 +68,7 @@ pub struct Browser {
     error: Option<Error>,
     area: Rect,
     input: Rect,
+    detail_view: super::view::DetailView,
     buttons: Vec<(KeyCode, Rect)>,
 }
 impl Browser {
@@ -168,6 +169,9 @@ impl Browser {
                     return;
                 }
             }
+            if self.detail_view.mouse(mouse) {
+                return;
+            }
             if self.area.contains(point) {
                 match mouse.kind {
                     MouseEventKind::ScrollDown => self.move_by(1),
@@ -219,6 +223,9 @@ impl Browser {
         }
     }
     fn key(&mut self, code: KeyCode, root: &Path) {
+        if self.detail_view.key(code) {
+            return;
+        }
         if code == KeyCode::Char('/') {
             self.editing = true;
             return;
@@ -368,12 +375,7 @@ impl Browser {
         } else {
             detail
         };
-        frame.render_widget(
-            Paragraph::new(detail)
-                .wrap(Wrap { trim: false })
-                .block(Block::bordered().title(lang.text("details"))),
-            panes[1],
-        );
+        self.detail_view.draw(frame, lang, &detail, panes[1]);
         self.buttons.clear();
         super::view::draw_buttons(frame, lang, ACTIONS, rows[2], &mut self.buttons);
     }
@@ -382,6 +384,63 @@ impl Browser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_project_details_scroll_independently_and_reset_on_selection() {
+        for language in [Language::En, Language::ZhCn] {
+            let mut browser = Browser::default();
+            browser.results = Some(Results::Projects(Page {
+                items: (1..=2)
+                    .map(|id| Project {
+                        id,
+                        name: format!("Project {id}"),
+                        summary: "中文简介 ".repeat(200),
+                        website: "FINAL_MARKER".into(),
+                        class_id: 6,
+                    })
+                    .collect(),
+                total: 2,
+                offset: 0,
+            }));
+            browser.selection.select(Some(0));
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 24)).unwrap();
+            terminal
+                .draw(|frame| browser.draw(frame, frame.area(), language))
+                .unwrap();
+            browser.key(KeyCode::End, Path::new("."));
+            terminal
+                .draw(|frame| browser.draw(frame, frame.area(), language))
+                .unwrap();
+            assert!(browser.detail_view.scroll > 0);
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(text.contains("FINAL_MARKER"));
+            let scroll = browser.detail_view.scroll;
+            browser.event(
+                Event::Mouse(crossterm::event::MouseEvent {
+                    kind: MouseEventKind::ScrollUp,
+                    column: browser.detail_view.area.x,
+                    row: browser.detail_view.area.y,
+                    modifiers: KeyModifiers::NONE,
+                }),
+                Path::new("."),
+            );
+            assert_eq!(browser.detail_view.scroll, scroll.saturating_sub(3));
+            assert_eq!(browser.selection.selected(), Some(0));
+            browser.key(KeyCode::Down, Path::new("."));
+            terminal
+                .draw(|frame| browser.draw(frame, frame.area(), language))
+                .unwrap();
+            assert_eq!(browser.detail_view.scroll, 0);
+            assert_eq!(browser.selection.selected(), Some(1));
+        }
+    }
 
     #[test]
     fn narrow_catalog_keeps_controls_and_right_click_chooses_the_clicked_file() {

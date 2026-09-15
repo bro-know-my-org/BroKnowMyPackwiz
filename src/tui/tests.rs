@@ -510,3 +510,45 @@ fn error_popup_consumes_background_shortcuts_and_paste_in_both_search_fields() {
         assert_eq!(app.popup_scroll, 0);
     }
 }
+
+#[test]
+fn file_details_scroll_without_changing_selection_and_reset_on_new_entry() {
+    for language in [Language::En, Language::ZhCn] {
+        for width in [80, 120] {
+            let mut app = app();
+            app.language = language;
+            app.detail = true;
+            app.entries[1].metadata.filename = Some("中文长文件名".repeat(80));
+            let mut terminal = Terminal::new(TestBackend::new(width, 18)).unwrap();
+            terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+            key(&mut app, KeyCode::End);
+            terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+            assert!(app.detail_view.scroll > 0);
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(
+                text.replace(' ', "")
+                    .contains(&language.text("preserve").replace(' ', ""))
+            );
+            let selected = app.table.selected();
+            let scroll = app.detail_view.scroll;
+            app.event(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::ScrollUp,
+                column: app.detail_view.area.x,
+                row: app.detail_view.area.y,
+                modifiers: KeyModifiers::NONE,
+            }));
+            assert_eq!(app.detail_view.scroll, scroll.saturating_sub(3));
+            assert_eq!(app.table.selected(), selected);
+            key(&mut app, KeyCode::Down);
+            terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+            assert_ne!(app.table.selected(), selected);
+            assert_eq!(app.detail_view.scroll, 0);
+        }
+    }
+}
