@@ -341,6 +341,12 @@ impl Transaction {
         self.journal.state = State::Committing;
         self.save()?;
         control.emit(Event::Phase("committing".into()));
+        for i in 0..self.journal.entries.len() {
+            if self.journal.entries[i].after.is_none() {
+                self.apply_file(i, control)?;
+            }
+        }
+        self.apply_directory_removals(control)?;
         for path in self.journal.requested_directories.clone() {
             control.check()?;
             durable::absolute(&path)?;
@@ -352,43 +358,55 @@ impl Transaction {
         }
         self.prepare_created_modes()?;
         for i in 0..self.journal.entries.len() {
-            control.check()?;
-            let entry = &self.journal.entries[i];
-            let target = entry.target.clone();
-            durable::absolute(&target)?;
-            if durable::fingerprint(&target)? != entry.before {
-                return Err(conflict(&target));
-            }
-            if entry.before == entry.after {
-                continue;
-            }
-            if entry.after.is_some() && durable::fingerprint(&self.staged(i))? != entry.after {
-                return Err(Error::new(ErrorCode::Invalid, "staged content changed"));
-            }
-            self.journal.entries[i].step = Step::Applying;
-            self.save()?;
-            self.ensure_parents(&target)?;
             if self.journal.entries[i].after.is_some() {
-                durable::replace(&self.staged(i), &target)?;
-            } else {
-                fs::remove_file(&target)?;
-                durable::sync_dir(target.parent().unwrap())?;
+                self.apply_file(i, control)?;
             }
-            self.journal.entries[i].step = Step::Applied;
-            self.save()?;
-            control.emit(Event::Progress {
-                label: target.display().to_string(),
-                current: (i + 1) as u64,
-                total: Some(self.journal.entries.len() as u64),
-            });
         }
-        self.apply_directories(control)?;
+        self.apply_directory_modes(control)?;
         control.check()?;
         self.journal.state = State::Committed;
         if let Err(error) = self.save() {
             self.journal.state = State::Committing;
             return Err(error);
         }
+        Ok(())
+    }
+
+    fn apply_file(&mut self, i: usize, control: &Control) -> Result<()> {
+        control.check()?;
+        let entry = &self.journal.entries[i];
+        let target = entry.target.clone();
+        durable::absolute(&target)?;
+        if durable::fingerprint(&target)? != entry.before {
+            return Err(conflict(&target));
+        }
+        if entry.before == entry.after {
+            return Ok(());
+        }
+        if entry.after.is_some() && durable::fingerprint(&self.staged(i))? != entry.after {
+            return Err(Error::new(ErrorCode::Invalid, "staged content changed"));
+        }
+        self.journal.entries[i].step = Step::Applying;
+        self.save()?;
+        self.ensure_parents(&target)?;
+        if self.journal.entries[i].after.is_some() {
+            durable::replace(&self.staged(i), &target)?;
+        } else {
+            fs::remove_file(&target)?;
+            durable::sync_dir(target.parent().unwrap())?;
+        }
+        self.journal.entries[i].step = Step::Applied;
+        self.save()?;
+        control.emit(Event::Progress {
+            label: target.display().to_string(),
+            current: self
+                .journal
+                .entries
+                .iter()
+                .filter(|entry| entry.step == Step::Applied)
+                .count() as u64,
+            total: Some(self.journal.entries.len() as u64),
+        });
         Ok(())
     }
 
@@ -423,8 +441,27 @@ impl Transaction {
         self.journal.state = State::RollingBack;
         self.journal.conflicts.clear();
         self.save()?;
-        self.restore_directories()?;
+        self.restore_directory_modes()?;
+        self.restore_files(false)?;
+        self.remove_created_directories()?;
+        self.restore_removed_directories()?;
+        self.restore_files(true)?;
+        if !self.journal.conflicts.is_empty() {
+            self.journal.state = State::Conflict;
+            self.save()?;
+            return Err(Error::new(
+                ErrorCode::Conflict,
+                self.directory.display().to_string(),
+            ));
+        }
+        self.journal.state = State::RolledBack;
+        self.save()
+    }
+    fn restore_files(&mut self, existing: bool) -> Result<()> {
         for i in (0..self.journal.entries.len()).rev() {
+            if self.journal.entries[i].before.is_some() != existing {
+                continue;
+            }
             if matches!(self.journal.entries[i].step, Step::Pending | Step::Restored) {
                 continue;
             }
@@ -464,26 +501,29 @@ impl Transaction {
             self.journal.entries[i].step = Step::Restored;
             self.save()?;
         }
-        if !self.journal.conflicts.is_empty() {
-            self.journal.state = State::Conflict;
-            self.save()?;
-            return Err(Error::new(
-                ErrorCode::Conflict,
-                format!("{}", self.directory.display()),
-            ));
-        }
-        for path in self.journal.directories.iter().rev() {
-            if !self.created_mode_matches(path) {
+        Ok(())
+    }
+
+    fn remove_created_directories(&mut self) -> Result<()> {
+        for path in self.journal.directories.clone().into_iter().rev() {
+            if !self.created_mode_matches(&path) {
                 self.journal.conflicts.push(path.clone());
                 continue;
             }
-            if durable::absolute(path).is_err() {
+            if durable::absolute(&path).is_err() {
                 self.journal.conflicts.push(path.clone());
                 continue;
             }
-            match fs::remove_dir(path) {
-                Ok(()) => durable::sync_dir(path.parent().unwrap())?,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            match fs::remove_dir(&path) {
+                Ok(()) => {
+                    durable::sync_dir(path.parent().unwrap())?;
+                    self.journal.directories.retain(|pending| pending != &path);
+                    self.save()?;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    self.journal.directories.retain(|pending| pending != &path);
+                    self.save()?;
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
                     self.journal.conflicts.push(path.clone());
                 }
@@ -492,16 +532,7 @@ impl Transaction {
                 }
             }
         }
-        if !self.journal.conflicts.is_empty() {
-            self.journal.state = State::Conflict;
-            self.save()?;
-            return Err(Error::new(
-                ErrorCode::Conflict,
-                self.directory.display().to_string(),
-            ));
-        }
-        self.journal.state = State::RolledBack;
-        self.save()
+        Ok(())
     }
 }
 
