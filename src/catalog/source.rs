@@ -132,7 +132,7 @@ fn prepare_inner(
             if !sha256.is_empty() {
                 validate_hash(sha256)?;
             }
-            let hash = if options.download || sha256.is_empty() {
+            let hash = if sha256.is_empty() {
                 transfer::download(
                     url,
                     payload,
@@ -172,7 +172,7 @@ fn prepare_inner(
             {
                 return Err(Error::new(ErrorCode::Conflict, "github_asset_changed"));
             }
-            let hash = if options.download || asset.sha256.is_none() {
+            let hash = if asset.sha256.is_none() {
                 let hashes = transfer::download(
                     &asset.url,
                     payload,
@@ -224,7 +224,20 @@ fn prepare_inner(
     }
     guard.validate(root, control)?;
     let drafts = vec![edit::draft(state, &path, None, &document)?];
-    let request = if options.download {
+    let request = if options.download && !payload.exists() {
+        Request::Download {
+            drafts,
+            downloads: vec![crate::operation::download::Download {
+                relative: target,
+                expected: None,
+                source: crate::operation::download::Source::Url(url),
+                hash_format: "sha256".into(),
+                hash: hash.clone(),
+                preserve: false,
+            }],
+            guard,
+        }
+    } else if options.download {
         let file = Attachment {
             relative: target,
             source: payload.into(),
@@ -299,6 +312,21 @@ mod tests {
             &control,
         )
         .unwrap();
+        let remote = prepare(
+            &root,
+            &state,
+            Input::Url {
+                url: "http://127.0.0.1:1/test.jar".into(),
+                sha256: "a".repeat(64),
+            },
+            Options {
+                download: true,
+                ..options.clone()
+            },
+            &control,
+        )
+        .unwrap();
+        assert!(matches!(remote.request, Request::Download { .. }));
         assert!(matches!(metadata.request, Request::PreparedEdit { .. }));
         let copy = prepare(
             &root,

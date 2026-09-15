@@ -78,6 +78,8 @@ fn dependency_confirmation_is_required_before_enqueueing() {
         rows: Vec::new(),
         drafts: vec![draft.clone()],
         guard: guard.clone(),
+        downloads: Vec::new(),
+        download: false,
     };
     let mut app = App::new(root.clone());
     app.jobs.queue = Some(Queue::open(&root, &state).unwrap());
@@ -87,6 +89,14 @@ fn dependency_confirmation_is_required_before_enqueueing() {
     app.dialog = Some(super::dialog::Dialog::prepared(preview(), Language::En));
     key(&mut app, KeyCode::Enter);
     assert_eq!(app.jobs.queue.as_ref().unwrap().tasks.len(), 1);
+    let mut with_download = preview();
+    with_download.download = true;
+    app.dialog = Some(super::dialog::Dialog::prepared(with_download, Language::En));
+    key(&mut app, KeyCode::Enter);
+    assert!(matches!(
+        app.jobs.queue.as_ref().unwrap().tasks[1].request,
+        crate::operation::queue::Request::Download { .. }
+    ));
     assert!(!root.join("mods/new.pw.toml").exists());
     drop(app);
     fs::remove_dir_all(base).unwrap();

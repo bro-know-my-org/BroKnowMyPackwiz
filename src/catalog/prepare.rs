@@ -27,6 +27,8 @@ pub struct Preview {
     pub rows: Vec<Row>,
     pub drafts: Vec<Draft>,
     pub guard: Guard,
+    pub downloads: Vec<crate::operation::download::Download>,
+    pub download: bool,
 }
 struct Existing {
     path: String,
@@ -158,6 +160,7 @@ pub fn curseforge<T: Transport>(
     let entries = dependencies::plan(&source, selected, side, &root_filter, &installed, control)?;
     let mut rows = Vec::new();
     let mut drafts = Vec::new();
+    let mut downloads = Vec::new();
     for entry in entries {
         control.check()?;
         let id = entry.file.project_id;
@@ -178,6 +181,7 @@ pub fn curseforge<T: Transport>(
             ));
         }
         let old = existing.get(&id);
+        let mut download_target = old.and_then(|old| old.target.clone());
         let name = old
             .and_then(|o| o.metadata.name.clone())
             .unwrap_or(project.name);
@@ -217,6 +221,7 @@ pub fn curseforge<T: Transport>(
                 return Err(collision(&target));
             }
             guard.watch(root, &target)?;
+            download_target = Some(target.clone());
             metadata_paths.insert(path.to_lowercase(), path.clone());
             targets.insert(target.to_lowercase(), path.clone());
             for (keys, value) in [
@@ -242,6 +247,23 @@ pub fn curseforge<T: Transport>(
             }
             drafts.push(edit::draft(state, &path, expected, &document)?);
         }
+        if let Some(target) = download_target {
+            guard.watch(root, &target)?;
+            downloads.push(crate::operation::download::Download {
+                expected: crate::operation::durable::fingerprint(&root.join(&target))?,
+                relative: target,
+                source: crate::operation::download::Source::CurseForge {
+                    project: id,
+                    file: entry.file.id,
+                    filename: entry.file.filename.clone(),
+                },
+                hash_format: "sha1".into(),
+                hash: entry.file.sha1.clone(),
+                preserve: old.is_some_and(|old| old.metadata.preserve),
+            });
+        } else {
+            return Err(Error::new(ErrorCode::Invalid, "missing_download_target"));
+        }
         rows.push(Row {
             name,
             old: old.and_then(|o| o.metadata.curseforge_file_id),
@@ -255,6 +277,8 @@ pub fn curseforge<T: Transport>(
         rows,
         drafts,
         guard,
+        downloads,
+        download: false,
     })
 }
 fn integer(value: u64) -> Result<Value> {

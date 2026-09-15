@@ -39,6 +39,7 @@ pub struct Selection {
     pub file: File,
     pub relaxed: bool,
     pub class_id: u64,
+    pub download: bool,
 }
 #[derive(Default)]
 pub struct Browser {
@@ -248,6 +249,7 @@ impl Browser {
                                 file: file.clone(),
                                 relaxed: self.relaxed,
                                 class_id: self.project.as_ref().map_or(6, |p| p.class_id),
+                                download: false,
                             });
                         }
                     }
