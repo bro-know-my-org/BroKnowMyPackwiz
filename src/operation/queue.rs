@@ -29,6 +29,28 @@ pub enum Request {
         guard: super::preview::Guard,
     },
 }
+impl Request {
+    fn sources(&self) -> Vec<(&Path, &str)> {
+        let drafts = match self {
+            Self::Edit(drafts)
+            | Self::PreparedEdit { drafts, .. }
+            | Self::PreparedFiles { drafts, .. }
+            | Self::Download { drafts, .. } => drafts,
+        };
+        let mut sources: Vec<_> = drafts
+            .iter()
+            .map(|draft| (draft.source.as_path(), draft.prepared.as_str()))
+            .collect();
+        if let Self::PreparedFiles { files, .. } = self {
+            sources.extend(
+                files
+                    .iter()
+                    .map(|file| (file.source.as_path(), file.prepared.as_str())),
+            );
+        }
+        sources
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
     Waiting,
@@ -91,6 +113,35 @@ pub struct Queue {
 }
 
 impl Queue {
+    /// Remove only our unchanged private drafts that no unfinished task needs.
+    pub fn discard(&self, request: &Request) {
+        let Ok(directory) = durable::absolute(&self.state.join("drafts")) else {
+            return;
+        };
+        let protected: Vec<_> = self
+            .tasks
+            .iter()
+            .filter(|task| {
+                !matches!(
+                    task.status,
+                    Status::Completed | Status::Failed | Status::Cancelled
+                )
+            })
+            .flat_map(|task| task.request.sources())
+            .filter_map(|(path, _)| durable::absolute(path).ok())
+            .collect();
+        for (path, expected) in request.sources() {
+            let Ok(path) = durable::absolute(path) else {
+                continue;
+            };
+            if path.starts_with(&directory)
+                && !protected.contains(&path)
+                && durable::fingerprint(&path).ok().flatten().as_deref() == Some(expected)
+            {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
     pub fn open(root: &Path, state: &Path) -> Result<Self> {
         let root = durable::canonical(root)?;
         let id = root_key(&root);
@@ -217,7 +268,11 @@ impl Queue {
             _ => return Err(Error::new(ErrorCode::Invalid, "task cannot be cancelled")),
         }
         self.paused = true;
-        self.save()
+        self.save()?;
+        if self.tasks[index].status == Status::Cancelled {
+            self.discard(&self.tasks[index].request);
+        }
+        Ok(())
     }
     pub fn cancel_current(&mut self) -> Result<()> {
         let index = self
@@ -290,6 +345,7 @@ impl Queue {
                 let _ = fs::remove_dir_all(directory.join("workspace"));
                 let _ = fs::remove_dir_all(directory.join("transactions"));
                 let _ = fs::remove_dir_all(directory.join("incoming"));
+                self.discard(&task.request);
             }
         }
         if self.running.is_none() {
@@ -455,6 +511,36 @@ pub fn root_key(root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draft_cleanup_preserves_shared_pending_and_externally_changed_sources() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        fs::create_dir_all(base.join("pack")).unwrap();
+        let base = fs::canonicalize(base).unwrap();
+        let state = base.join("state");
+        let doc = "name = \"Test\"".parse().unwrap();
+        let draft = edit::draft(&state, "mods/a.pw.toml", None, &doc).unwrap();
+        let mut queue = Queue::open(&base.join("pack"), &state).unwrap();
+        queue
+            .enqueue("first", Request::Edit(vec![draft.clone()]))
+            .unwrap();
+        queue
+            .enqueue("second", Request::Edit(vec![draft.clone()]))
+            .unwrap();
+        queue.cancel(0).unwrap();
+        assert!(draft.source.exists());
+        queue.cancel(1).unwrap();
+        assert!(!draft.source.exists());
+        let changed = edit::draft(&state, "mods/b.pw.toml", None, &doc).unwrap();
+        queue
+            .enqueue("changed", Request::Edit(vec![changed.clone()]))
+            .unwrap();
+        fs::write(&changed.source, b"external change").unwrap();
+        queue.cancel(2).unwrap();
+        assert_eq!(fs::read(&changed.source).unwrap(), b"external change");
+        drop(queue);
+        fs::remove_dir_all(base).unwrap();
+    }
 
     #[test]
     fn reopened_queue_waits_for_confirmation_and_edits_transactionally() {
