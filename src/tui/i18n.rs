@@ -1368,6 +1368,7 @@ mod tests {
             assert!(displayed.starts_with(zh), "{displayed}");
             assert!(displayed.contains(&format!("{}:2", source.display())));
             assert!(!displayed.contains("PRIVATE"));
+            assert!(!serde_json::to_string(&error).unwrap().contains("PRIVATE"));
             assert_ne!(Language::En.error(&error), displayed);
         }
         std::fs::write(&source, "[install]\njobs = -1").unwrap();
@@ -1389,6 +1390,14 @@ mod tests {
                 .message
                 .as_deref(),
             Some("config_invalid_line")
+        );
+        std::fs::write(&source, "[curseforge]\napi-key PRIVATE_WITHOUT_EQUALS").unwrap();
+        let error = ProjectConfig::load_operation(&root).unwrap_err();
+        assert_eq!(error.message.as_deref(), Some("config_invalid_line"));
+        assert!(
+            !serde_json::to_string(&error)
+                .unwrap()
+                .contains("PRIVATE_WITHOUT_EQUALS")
         );
         std::fs::remove_dir_all(root).unwrap();
     }

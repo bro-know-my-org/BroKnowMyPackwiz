@@ -40,6 +40,7 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 | 恢复中途再次崩溃 | `crash_after_restoring_a_file_can_resume_recovery_again` | 在恢复替换后模拟进程中断，再次打开日志完成恢复；非真实断电 |
 | 外部修改不强制覆盖 | `transaction_tests.rs` 的文件与目录冲突、显式保留/恢复、外部内容归档测试 | 指纹检测依赖文件系统、日志及备份仍可用 |
 | 串行队列和重启确认 | `src/operation/queue.rs` 测试；`tests/tui_smoke.py` 保存队列后重启，确认前不执行 | Linux release 真实进程验证；外平台待验 |
+| 配置错误不泄露原始字段值到队列历史 | `queue.rs::malformed_config_values_do_not_leak_into_saved_task_errors`；配置错误序列化测试 | 虚构 token、错误落盘及重启读取；CLI 字符串诊断与私有备份保持原行为 |
 | 不清理手动 JAR | Linux release 队列烟测在下载/同步/安装后核对未托管 JAR | 离线 fixture，非用户真实整合包 |
 | 元数据与下载同任务 | `src/operation/edit.rs`、`transfer.rs`、`download.rs` 的文件树和本地 HTTP 测试 | 来源平台真实鉴权添加另列 |
 
