@@ -43,6 +43,37 @@ fn click_action(app: &mut App, terminal: &mut Terminal<TestBackend>, code: KeyCo
 }
 
 #[test]
+fn settings_wheel_and_click_track_the_visible_scrolled_row() {
+    for language in [Language::En, Language::ZhCn] {
+        let mut app = app();
+        app.language = language;
+        app.page = 4;
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        for _ in 1..super::dialog::SETTINGS.len() {
+            terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+            app.event(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: app.menu_area.x,
+                row: app.menu_area.y,
+                modifiers: KeyModifiers::NONE,
+            }));
+        }
+        assert_eq!(app.settings_index, super::dialog::SETTINGS.len() - 1);
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        let offset = app.settings_offset;
+        assert!(offset > 0);
+        app.event(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: app.menu_area.x,
+            row: app.menu_area.y,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(app.settings_index, offset);
+        assert!(app.dialog.is_some());
+    }
+}
+
+#[test]
 fn file_search_filter_sort_and_details_have_mouse_actions() {
     for language in [Language::En, Language::ZhCn] {
         let mut app = app();
