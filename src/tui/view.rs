@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Clear, Paragraph, Row, Table, Wrap},
 };
 
-type Action = (KeyCode, &'static str, &'static str);
+pub(super) type Action = (KeyCode, &'static str, &'static str);
 const CLOSE: &[Action] = &[(KeyCode::Esc, "Esc", "close")];
 const QUIT: &[Action] = &[
     (KeyCode::Char('w'), "W", "wait_exit"),
@@ -175,7 +175,7 @@ fn toolbar_height(app: &App, width: u16) -> u16 {
     button_rows(&actions(app), app.language, width) + 1
 }
 
-fn button_rows(actions: &[Action], lang: Language, width: u16) -> u16 {
+pub(super) fn button_rows(actions: &[Action], lang: Language, width: u16) -> u16 {
     let mut rows = 1;
     let mut used = 0;
     for (_, key, label) in actions {
@@ -204,7 +204,7 @@ fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
-fn draw_buttons(
+pub(super) fn draw_buttons(
     frame: &mut Frame,
     lang: Language,
     actions: &[Action],
@@ -232,7 +232,18 @@ fn draw_buttons(
 
 fn files(frame: &mut Frame, app: &mut App, area: Rect) {
     let lang = app.language;
-    let rows = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(area);
+    let controls = [
+        (KeyCode::Char('f'), "F", "cf_type"),
+        (KeyCode::Char('s'), "S", "sort"),
+        (KeyCode::Enter, "Enter", "details"),
+        (KeyCode::Char('r'), "R", "reload_files"),
+    ];
+    let rows = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Length(button_rows(&controls, lang, area.width)),
+        Constraint::Min(1),
+    ])
+    .split(area);
     frame.render_widget(
         Paragraph::new(format!(
             "{}: {}  [{}]",
@@ -248,12 +259,14 @@ fn files(frame: &mut Frame, app: &mut App, area: Rect) {
         }),
         rows[0],
     );
-    let panes = if rows[1].width >= 95 {
+    app.buttons.push((KeyCode::Char('/'), rows[0]));
+    draw_buttons(frame, lang, &controls, rows[1], &mut app.buttons);
+    let panes = if rows[2].width >= 95 {
         Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .split(rows[1])
+            .split(rows[2])
             .to_vec()
     } else {
-        vec![rows[1]]
+        vec![rows[2]]
     };
     if panes.len() == 1 && app.detail {
         details(frame, app, panes[0]);

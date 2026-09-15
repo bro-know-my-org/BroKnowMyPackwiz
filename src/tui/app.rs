@@ -257,6 +257,18 @@ impl App {
         }
         if let Event::Mouse(mouse) = &event {
             if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                if !self.help && !self.jobs.quit_prompt && self.error.is_none() {
+                    if let Some(page) = self
+                        .tabs
+                        .iter()
+                        .position(|area| area.contains((mouse.column, mouse.row).into()))
+                    {
+                        self.editing = false;
+                        self.catalog.editing = false;
+                        self.page = page;
+                        return false;
+                    }
+                }
                 if let Some(code) = self
                     .buttons
                     .iter()
@@ -552,11 +564,6 @@ impl App {
             }
             Event::Mouse(mouse) if !self.help && !self.editing => {
                 let point = ratatui::layout::Position::new(mouse.column, mouse.row);
-                if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-                    if let Some(page) = self.tabs.iter().position(|rect| rect.contains(point)) {
-                        self.page = page;
-                    }
-                }
                 if self.page == 0 && self.table_area.contains(point) {
                     match mouse.kind {
                         MouseEventKind::ScrollDown => self.move_cursor(1),

@@ -15,10 +15,21 @@ use std::{
     sync::mpsc::{self, Receiver},
 };
 
+const ACTIONS: &[super::view::Action] = &[
+    (KeyCode::Char('/'), "/", "search"),
+    (KeyCode::Enter, "Enter", "cf_choose"),
+    (KeyCode::Char('f'), "F", "cf_type"),
+    (KeyCode::Char('v'), "V", "cf_filter"),
+    (KeyCode::Left, "←", "cf_prev"),
+    (KeyCode::Right, "→", "cf_next"),
+    (KeyCode::Esc, "Esc", "back"),
+];
+
 enum Results {
     Projects(Page<Project>),
     Files(Page<File>),
 }
+
 impl Results {
     fn len(&self) -> usize {
         match self {
@@ -140,7 +151,16 @@ impl Browser {
             if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
                 if let Some((code, _)) = self.buttons.iter().find(|(_, area)| area.contains(point))
                 {
-                    self.key(*code, root);
+                    let code = *code;
+                    if code == KeyCode::Enter && self.editing {
+                        self.event(
+                            Event::Key(crossterm::event::KeyEvent::new(code, KeyModifiers::NONE)),
+                            root,
+                        );
+                    } else {
+                        self.editing = false;
+                        self.key(code, root);
+                    }
                     return;
                 }
                 if self.input.contains(point) {
@@ -152,13 +172,16 @@ impl Browser {
                 match mouse.kind {
                     MouseEventKind::ScrollDown => self.move_by(1),
                     MouseEventKind::ScrollUp => self.move_by(-1),
-                    MouseEventKind::Down(MouseButton::Left) => {
+                    MouseEventKind::Down(MouseButton::Left | MouseButton::Right) => {
                         let index = self.selection.offset() + (mouse.row - self.area.y) as usize;
                         if index < self.results.as_ref().map_or(0, Results::len) {
+                            self.editing = false;
                             self.selection.select(Some(index));
+                            if mouse.kind == MouseEventKind::Down(MouseButton::Right) {
+                                self.key(KeyCode::Enter, root);
+                            }
                         }
                     }
-                    MouseEventKind::Down(MouseButton::Right) => self.key(KeyCode::Enter, root),
                     _ => {}
                 }
             }
@@ -263,7 +286,7 @@ impl Browser {
         let rows = Layout::vertical([
             Constraint::Length(3),
             Constraint::Min(1),
-            Constraint::Length(2),
+            Constraint::Length(super::view::button_rows(ACTIONS, lang, area.width)),
         ])
         .split(area);
         self.input = rows[0];
@@ -352,40 +375,91 @@ impl Browser {
             panes[1],
         );
         self.buttons.clear();
-        let actions = [
-            (KeyCode::Char('/'), "/", "search"),
-            (KeyCode::Enter, "Enter", "cf_choose"),
-            (KeyCode::Char('f'), "F", "cf_type"),
-            (KeyCode::Char('v'), "V", "cf_filter"),
-            (KeyCode::Left, "←", "cf_prev"),
-            (KeyCode::Right, "→", "cf_next"),
-        ];
-        let mut x = rows[2].x;
-        let mut y = rows[2].y;
-        for (code, key, label) in actions {
-            let text = format!(" {key} {} ", lang.text(label));
-            let width = unicode_width::UnicodeWidthStr::width(text.as_str()) as u16;
-            if x + width > rows[2].right() {
-                x = rows[2].x;
-                y += 1;
-            }
-            if y >= rows[2].bottom() {
-                break;
-            }
-            let rect = Rect::new(x, y, width.min(rows[2].width), 1);
-            frame.render_widget(
-                Paragraph::new(text).style(Style::default().fg(Color::Cyan)),
-                rect,
-            );
-            self.buttons.push((code, rect));
-            x += width;
-        }
+        super::view::draw_buttons(frame, lang, ACTIONS, rows[2], &mut self.buttons);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn narrow_catalog_keeps_controls_and_right_click_chooses_the_clicked_file() {
+        for language in [Language::En, Language::ZhCn] {
+            let mut browser = Browser::default();
+            browser.results = Some(Results::Files(Page {
+                items: (1..=2)
+                    .map(|id| File {
+                        project_id: 10,
+                        id,
+                        name: format!("File {id}"),
+                        filename: format!("{id}.jar"),
+                        versions: vec!["1.20.1".into()],
+                        date: String::new(),
+                        release_type: 1,
+                        size: 1,
+                        sha1: "hash".into(),
+                        dependencies: Vec::new(),
+                    })
+                    .collect(),
+                total: 2,
+                offset: 0,
+            }));
+            browser.selection.select(Some(0));
+            browser.editing = true;
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 14)).unwrap();
+            terminal
+                .draw(|frame| browser.draw(frame, frame.area(), language))
+                .unwrap();
+            for (code, _, _) in ACTIONS {
+                assert!(
+                    browser
+                        .buttons
+                        .iter()
+                        .any(|(key, area)| key == code && area.width > 0 && area.height > 0),
+                    "missing {code:?}"
+                );
+            }
+            browser.event(
+                Event::Mouse(crossterm::event::MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Right),
+                    column: browser.area.x,
+                    row: browser.area.y + 1,
+                    modifiers: KeyModifiers::NONE,
+                }),
+                Path::new("."),
+            );
+            assert!(!browser.editing);
+            assert_eq!(browser.selection.selected(), Some(1));
+            assert_eq!(browser.chosen.take().unwrap().file.id, 2);
+
+            // While a search is pending, mouse Enter follows keyboard Enter:
+            // leave text focus, but do not choose a stale file or start a second query.
+            let (_sender, receiver) = mpsc::channel();
+            browser.pending = Some(receiver);
+            browser.editing = true;
+            let button = browser
+                .buttons
+                .iter()
+                .find(|(key, _)| *key == KeyCode::Enter)
+                .unwrap()
+                .1;
+            browser.event(
+                Event::Mouse(crossterm::event::MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: button.x,
+                    row: button.y,
+                    modifiers: KeyModifiers::NONE,
+                }),
+                Path::new("."),
+            );
+            assert!(!browser.editing);
+            assert!(browser.pending.is_some());
+            assert!(browser.chosen.is_none());
+        }
+    }
+
     #[test]
     fn query_input_preserves_unicode_without_activating_shortcuts() {
         let mut browser = Browser {

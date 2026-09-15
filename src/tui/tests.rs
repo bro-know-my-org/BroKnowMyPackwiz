@@ -43,6 +43,43 @@ fn click_action(app: &mut App, terminal: &mut Terminal<TestBackend>, code: KeyCo
 }
 
 #[test]
+fn file_search_filter_sort_and_details_have_mouse_actions() {
+    for language in [Language::En, Language::ZhCn] {
+        let mut app = app();
+        app.language = language;
+        let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+        click_action(&mut app, &mut terminal, KeyCode::Char('/'));
+        assert!(app.editing);
+        app.event(Event::Paste("中文".into()));
+        click_action(&mut app, &mut terminal, KeyCode::Char('f'));
+        assert!(!app.editing);
+        assert_eq!(app.filter, "中文");
+        assert_eq!(app.kind, 1);
+        click_action(&mut app, &mut terminal, KeyCode::Char('s'));
+        assert!(app.descending);
+        click_action(&mut app, &mut terminal, KeyCode::Enter);
+        assert!(app.detail);
+        click_action(&mut app, &mut terminal, KeyCode::Enter);
+        assert!(!app.detail);
+        for (current, target) in [(0, 1), (1, 0)] {
+            app.page = current;
+            app.editing = current == 0;
+            app.catalog.editing = current == 1;
+            terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+            let tab = app.tabs[target];
+            app.event(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: tab.x,
+                row: tab.y,
+                modifiers: KeyModifiers::NONE,
+            }));
+            assert_eq!(app.page, target);
+            assert!(!app.editing && !app.catalog.editing);
+        }
+    }
+}
+
+#[test]
 fn mouse_can_open_close_help_and_errors_without_clicking_through() {
     for language in [Language::En, Language::ZhCn] {
         let mut app = app();
