@@ -310,24 +310,30 @@ fn files(frame: &mut Frame, app: &mut App, area: Rect) {
                 entry.name.clone(),
                 entry.source.clone(),
                 lang.text(if entry.present {
-                    "installed"
+                    "local_present"
                 } else {
-                    "missing"
+                    "local_missing"
                 })
                 .to_string(),
             ])
         })
         .collect();
-    let header = Row::new(["", lang.text("name"), lang.text("source"), ""]);
+    let header = Row::new([
+        "",
+        lang.text("name"),
+        lang.text("source"),
+        lang.text("local_file"),
+    ]);
     let table = Table::new(
         table_rows,
         [
             Constraint::Length(2),
             Constraint::Min(10),
             Constraint::Length(10),
-            Constraint::Length(8),
+            Constraint::Length(10),
         ],
     )
+    .column_spacing(2)
     .header(header)
     .block(Block::bordered().title(title))
     .row_highlight_style(active());
