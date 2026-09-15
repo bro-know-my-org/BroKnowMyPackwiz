@@ -1,5 +1,48 @@
 use super::*;
 
+#[test]
+fn empty_directories_commit_and_failure_rolls_them_back() {
+    let f = Fixture::new();
+    let mut tx = f.prepare(Vec::new());
+    tx.create_directories(vec![
+        f.root.join("pack/mods/common"),
+        f.root.join("pack/shaderpacks"),
+    ])
+    .unwrap();
+    tx.commit(&Control::default()).unwrap();
+    assert!(f.root.join("pack/mods/common").is_dir());
+    assert!(f.root.join("pack/shaderpacks").is_dir());
+
+    f.file("source", b"new");
+    let mut tx = f.prepare(vec![f.change("new-file", Some("source"))]);
+    tx.create_directories(vec![f.root.join("new-tree/empty")])
+        .unwrap();
+    fs::remove_file(tx.staged(0)).unwrap();
+    assert!(tx.commit(&Control::default()).is_err());
+    assert!(!f.root.join("new-tree").exists());
+    assert!(f.root.join("pack/mods/common").exists());
+}
+
+#[test]
+fn recovery_retains_external_content_in_created_directory_until_resolved() {
+    let f = Fixture::new();
+    let mut tx = f.prepare(Vec::new());
+    tx.journal.state = State::Committing;
+    tx.ensure_parents(&f.root.join("new-tree/empty/unused"))
+        .unwrap();
+    f.file("new-tree/empty/external", b"external");
+    let mut reopened = Transaction::open(&tx.directory).unwrap();
+    assert_eq!(reopened.rollback().unwrap_err().code, ErrorCode::Conflict);
+    assert_eq!(reopened.state(), State::Conflict);
+    assert_eq!(
+        fs::read(f.root.join("new-tree/empty/external")).unwrap(),
+        b"external"
+    );
+    reopened.resolve_all(true).unwrap();
+    assert_eq!(reopened.state(), State::RolledBack);
+    assert!(f.root.join("new-tree/empty/external").exists());
+}
+
 struct Fixture {
     root: PathBuf,
 }

@@ -92,8 +92,10 @@ fn execute_with(
     run(&mapped_root, mapped_target.as_deref())?;
     control.check()?;
     let mut changes = primary.changes(control)?;
+    let mut directories = primary.new_directories(control)?;
     if let Some(workspace) = external {
         changes.extend(workspace.changes(control)?);
+        directories.extend(workspace.new_directories(control)?);
     }
     if let (Some(target), Some(mapped)) = (&target, &mapped_target) {
         if request.kind.output() == Output::File && !target.starts_with(original) {
@@ -111,6 +113,7 @@ fn execute_with(
         }
     }
     let mut transaction = Transaction::prepare(task, changes, control)?;
+    transaction.create_directories(directories)?;
     transaction.commit(control)
 }
 
@@ -147,6 +150,25 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn initializes_empty_directory_skeleton_without_marker_files() {
+        let fixture = Fixture::new();
+        fixture
+            .run(&Request::new(Kind::Init), |root, _| {
+                fs::create_dir_all(root.join("mods/common"))?;
+                fs::create_dir_all(root.join("shaderpacks"))?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(fixture.0.join("pack/mods/common").is_dir());
+        assert_eq!(
+            fs::read_dir(fixture.0.join("pack/mods/common"))
+                .unwrap()
+                .count(),
+            0
+        );
     }
 
     #[test]

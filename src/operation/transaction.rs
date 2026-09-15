@@ -53,6 +53,8 @@ struct Journal {
     state: State,
     entries: Vec<Entry>,
     directories: Vec<PathBuf>,
+    #[serde(default)]
+    requested_directories: Vec<PathBuf>,
     conflicts: Vec<PathBuf>,
 }
 
@@ -73,6 +75,7 @@ impl Transaction {
                 state: State::Prepared,
                 entries: Vec::new(),
                 directories: Vec::new(),
+                requested_directories: Vec::new(),
                 conflicts: Vec::new(),
             },
         };
@@ -150,6 +153,17 @@ impl Transaction {
                 ));
             }
         }
+        if journal
+            .directories
+            .iter()
+            .chain(&journal.requested_directories)
+            .any(|path| !path.is_absolute())
+        {
+            return Err(Error::new(
+                ErrorCode::Invalid,
+                "non-absolute transaction directory",
+            ));
+        }
         Ok(Self {
             directory: directory.to_path_buf(),
             journal,
@@ -158,6 +172,24 @@ impl Transaction {
 
     pub fn state(&self) -> State {
         self.journal.state
+    }
+    pub fn create_directories(&mut self, paths: Vec<PathBuf>) -> Result<()> {
+        if self.journal.state != State::Prepared {
+            return Err(Error::new(
+                ErrorCode::Invalid,
+                "transaction is not prepared",
+            ));
+        }
+        let mut directories = BTreeSet::new();
+        for path in paths {
+            let path = durable::absolute(&path)?;
+            if path.exists() {
+                return Err(conflict(&path));
+            }
+            directories.insert(path);
+        }
+        self.journal.requested_directories = directories.into_iter().collect();
+        self.save()
     }
     pub fn conflicts(&self) -> &[PathBuf] {
         &self.journal.conflicts
@@ -180,6 +212,12 @@ impl Transaction {
     /// Explicit resolution retains original backups and archives an external
     /// version before restoring over it. A saved decision survives interruption.
     pub fn resolve_all(&mut self, keep_external: bool) -> Result<()> {
+        if keep_external {
+            self.journal
+                .directories
+                .retain(|path| !self.journal.conflicts.contains(path));
+            self.save()?;
+        }
         for i in 0..self.journal.entries.len() {
             let target = self.journal.entries[i].target.clone();
             if !self.journal.conflicts.contains(&target) {
@@ -216,6 +254,8 @@ impl Transaction {
             .entries
             .iter()
             .map(|e| e.target.clone())
+            .chain(self.journal.directories.iter().cloned())
+            .chain(self.journal.requested_directories.iter().cloned())
             .collect()
     }
     fn backup(&self, i: usize) -> PathBuf {
@@ -252,6 +292,15 @@ impl Transaction {
         self.journal.state = State::Committing;
         self.save()?;
         control.emit(Event::Phase("committing".into()));
+        for path in self.journal.requested_directories.clone() {
+            control.check()?;
+            durable::absolute(&path)?;
+            if path.exists() {
+                return Err(conflict(&path));
+            }
+            // ensure_parents only examines the parent; no marker is written.
+            self.ensure_parents(&path.join("unused"))?;
+        }
         for i in 0..self.journal.entries.len() {
             control.check()?;
             let entry = &self.journal.entries[i];
@@ -374,11 +423,20 @@ impl Transaction {
         for path in self.journal.directories.iter().rev() {
             match fs::remove_dir(path) {
                 Ok(()) => durable::sync_dir(path.parent().unwrap())?,
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::NotFound
-                        || e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+                    self.journal.conflicts.push(path.clone());
+                }
                 Err(e) => return Err(e.into()),
             }
+        }
+        if !self.journal.conflicts.is_empty() {
+            self.journal.state = State::Conflict;
+            self.save()?;
+            return Err(Error::new(
+                ErrorCode::Conflict,
+                self.directory.display().to_string(),
+            ));
         }
         self.journal.state = State::RolledBack;
         self.save()
