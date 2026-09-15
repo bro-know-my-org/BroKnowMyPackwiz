@@ -51,7 +51,7 @@ pub struct Filter {
 }
 impl Filter {
     pub fn for_pack(root: &Path) -> Result<Self> {
-        let pack = crate::packinfo::PackInfo::load(root).map_err(Error::from)?;
+        let pack = crate::packinfo::PackInfo::load_operation(root)?;
         Ok(Self {
             loader: pack.loader_name().map(str::to_string),
             minecraft: pack.minecraft,
@@ -322,6 +322,35 @@ fn invalid(key: &str) -> Error {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn pack_loader_reaches_search_parameters_and_local_file_compatibility() {
+        let root = std::env::temp_dir().join(crate::operation::durable::unique_id());
+        std::fs::create_dir_all(&root).unwrap();
+        for (loader, api_id) in [("neoforge", 6), ("forge", 1), ("fabric", 4), ("quilt", 5)] {
+            std::fs::write(
+                root.join("pack.toml"),
+                format!("[versions]\nminecraft = \"1.21.1\"\n{loader} = \"1.2.3\"\n"),
+            )
+            .unwrap();
+            let filter = Filter::for_pack(&root).unwrap();
+            assert_eq!(filter.loader.as_deref(), Some(loader));
+            let client = Client {
+                transport: |path: &str| {
+                    assert!(path.contains("gameVersion=1.21.1"));
+                    assert!(path.contains(&format!("modLoaderType={api_id}")));
+                    Ok(json!({"data":[]}))
+                },
+            };
+            client.search("test", &filter, 6, 0).unwrap();
+            client.files(1, &filter, 0).unwrap();
+            for candidate_loader in ["neoforge", "forge", "fabric", "quilt"] {
+                let candidate = file(&json!({"id":2,"modId":1,"fileName":"mod.jar","gameVersions":["1.21.1",candidate_loader],"hashes":[{"algo":1,"value":"a".repeat(40)}]}),1).unwrap();
+                assert_eq!(candidate.compatible(&filter), candidate_loader == loader);
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn search_encodes_queries_and_preserves_pagination() {
         let requested = std::cell::RefCell::new(String::new());

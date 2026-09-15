@@ -597,3 +597,21 @@ fn source_name_and_repository_errors_have_localized_adapters() {
         );
     }
 }
+
+#[test]
+fn pack_info_read_errors_preserve_cli_text_and_localize_tui_context() {
+    let root = std::env::temp_dir().join(crate::operation::durable::unique_id());
+    std::fs::create_dir_all(root.join("pack.toml")).unwrap();
+    let error = crate::packinfo::PackInfo::load_operation(&root).unwrap_err();
+    assert_eq!(
+        error.detail,
+        crate::packinfo::PackInfo::load(&root).unwrap_err()
+    );
+    assert!(Language::ZhCn.error(&error).contains("无法读取整合包信息"));
+    assert!(
+        Language::En
+            .error(&error)
+            .contains("Could not read pack information")
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

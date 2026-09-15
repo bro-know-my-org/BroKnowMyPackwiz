@@ -259,6 +259,11 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "无法分配唯一的 GitHub 下载临时目录",
     ),
     (
+        "pack_info_read_failed",
+        "Could not read pack information",
+        "无法读取整合包信息",
+    ),
+    (
         "invalid_github_project",
         "Invalid GitHub repository; enter owner/repo or a github.com repository URL",
         "GitHub 仓库格式无效，请输入 owner/repo 或 github.com 仓库链接",
