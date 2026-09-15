@@ -109,8 +109,9 @@ impl Transaction {
             control.check()?;
             let target = planned_path(&change.target, &deleted)?;
             if !targets.insert(target.clone()) {
-                return Err(Error::new(
+                return Err(Error::named(
                     ErrorCode::Invalid,
+                    "duplicate_transaction_target",
                     "duplicate transaction target",
                 ));
             }
@@ -141,7 +142,11 @@ impl Transaction {
                 Some(source) => {
                     let stamp = durable::fingerprint(&source)?;
                     if stamp.is_none() {
-                        return Err(Error::new(ErrorCode::Invalid, "missing staged source"));
+                        return Err(Error::named(
+                            ErrorCode::Invalid,
+                            "missing_staged_source",
+                            "missing staged source",
+                        ));
                     }
                     fs::copy(&source, txn.staged(i))?;
                     fs::File::open(txn.staged(i))?.sync_all()?;
@@ -173,15 +178,17 @@ impl Transaction {
         let journal: Journal = serde_json::from_slice(&fs::read(directory.join("journal.json"))?)
             .map_err(|e| Error::new(ErrorCode::Invalid, e.to_string()))?;
         if journal.version != 1 {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Invalid,
+                "unsupported_transaction_version",
                 "unsupported transaction version",
             ));
         }
         for entry in &journal.entries {
             if !entry.target.is_absolute() {
-                return Err(Error::new(
+                return Err(Error::named(
                     ErrorCode::Invalid,
+                    "transaction_target_not_absolute",
                     "non-absolute transaction target",
                 ));
             }
@@ -194,8 +201,9 @@ impl Transaction {
             .chain(journal.requested_modes.iter().map(|(path, _)| path))
             .any(|path| !path.is_absolute())
         {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Invalid,
+                "transaction_directory_not_absolute",
                 "non-absolute transaction directory",
             ));
         }
@@ -210,8 +218,9 @@ impl Transaction {
     }
     pub fn create_directories(&mut self, paths: Vec<PathBuf>) -> Result<()> {
         if self.journal.state != State::Prepared {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Invalid,
+                "transaction_not_prepared",
                 "transaction is not prepared",
             ));
         }
@@ -381,8 +390,9 @@ impl Transaction {
 
     pub fn commit(&mut self, control: &Control) -> Result<()> {
         if self.journal.state != State::Prepared {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Invalid,
+                "transaction_not_prepared",
                 "transaction is not prepared",
             ));
         }
@@ -442,7 +452,11 @@ impl Transaction {
             return Ok(());
         }
         if entry.after.is_some() && durable::fingerprint(&self.staged(i))? != entry.after {
-            return Err(Error::new(ErrorCode::Invalid, "staged content changed"));
+            return Err(Error::named(
+                ErrorCode::Invalid,
+                "staged_content_changed",
+                "staged content changed",
+            ));
         }
         self.journal.entries[i].step = Step::Applying;
         self.save()?;
@@ -475,7 +489,7 @@ impl Transaction {
             missing.push(parent.to_path_buf());
             parent = parent
                 .parent()
-                .ok_or_else(|| Error::new(ErrorCode::Invalid, "missing root"))?;
+                .ok_or_else(|| Error::named(ErrorCode::Invalid, "missing_root", "missing root"))?;
         }
         for path in missing.into_iter().rev() {
             self.journal.directories.push(path.clone());
@@ -488,8 +502,9 @@ impl Transaction {
 
     pub fn rollback(&mut self) -> Result<()> {
         if self.journal.state == State::Committed {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Invalid,
+                "committed_task_rollback",
                 "cannot roll back committed task",
             ));
         }
@@ -545,10 +560,12 @@ impl Transaction {
             if current != self.journal.entries[i].before {
                 if self.journal.entries[i].before.is_some() {
                     if durable::fingerprint(&self.backup(i))? != self.journal.entries[i].before {
-                        return Err(Error::new(
+                        return Err(Error::named(
                             ErrorCode::Conflict,
+                            "backup_changed",
                             format!("backup changed: {}", self.backup(i).display()),
-                        ));
+                        )
+                        .context(self.backup(i).display().to_string()));
                     }
                     durable::replace(&self.backup(i), &target)?;
                 } else {

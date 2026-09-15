@@ -134,7 +134,7 @@ impl Control {
     }
     pub fn check(&self) -> Result<()> {
         if self.cancelled.load(Ordering::Acquire) {
-            Err(Error::new(ErrorCode::Cancelled, "cancelled"))
+            Err(Error::named(ErrorCode::Cancelled, "cancelled", "cancelled"))
         } else {
             Ok(())
         }
