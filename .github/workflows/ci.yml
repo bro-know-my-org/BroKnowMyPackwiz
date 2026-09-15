@@ -66,3 +66,7 @@ jobs:
       - name: Linux TUI and transactional queue smoke test
         if: runner.os == 'Linux'
         run: python3 tests/tui_smoke.py
+
+      - name: Linux TUI external editor smoke test
+        if: runner.os == 'Linux'
+        run: python3 tests/tui_editor_smoke.py
