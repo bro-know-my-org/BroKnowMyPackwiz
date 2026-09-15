@@ -8,6 +8,7 @@ mod form;
 mod i18n;
 mod jobs;
 mod preferences;
+mod source;
 mod terminal;
 #[cfg(test)]
 mod tests;
