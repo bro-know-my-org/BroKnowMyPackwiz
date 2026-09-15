@@ -96,6 +96,7 @@ fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
         ],
         1 if app.adding.busy() => vec![(KeyCode::Char('c'), "C", "cf_cancel_preview")],
         1 => vec![
+            (KeyCode::Char('g'), "G", "github_repository"),
             (KeyCode::Char('u'), "U", "source_url"),
             (KeyCode::Char('a'), "A", "source_local"),
         ],

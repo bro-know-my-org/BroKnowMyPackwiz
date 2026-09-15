@@ -19,8 +19,36 @@ pub struct Workflow {
 pub enum Output {
     CurseForge(Preview),
     Source(crate::catalog::source::Prepared),
+    GitHub(super::github::Picker, super::form::Form),
 }
 impl Workflow {
+    pub fn github(&mut self, action: super::github::Action) -> Result<()> {
+        self.run(move |control| {
+            use super::github::{Action, Picker};
+            let client = crate::catalog::github::Client {
+                transport: crate::catalog::github::Http,
+            };
+            control.check()?;
+            let (picker, form) = match action {
+                Action::Releases { repository, page } => {
+                    let releases = client.releases(&repository, page)?;
+                    Picker::releases(repository, page, releases)
+                }
+                Action::Assets {
+                    repository,
+                    release,
+                    page,
+                } => {
+                    let assets = client.assets(&repository, release.id, page)?;
+                    Picker::assets(repository, release, page, assets)
+                }
+                Action::Add(_) => {
+                    return Err(Error::new(ErrorCode::Invalid, "unexpected_add_action"));
+                }
+            };
+            Ok(Output::GitHub(picker, form))
+        })
+    }
     pub fn busy(&self) -> bool {
         self.pending.is_some()
     }

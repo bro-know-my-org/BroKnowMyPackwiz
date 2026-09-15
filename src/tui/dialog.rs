@@ -12,6 +12,7 @@ use toml_edit::{DocumentMut, Item, Value};
 
 pub const SETTINGS: [&str; 4] = ["pack_info", "project_config", "preferences", "open_pack"];
 enum Purpose {
+    GitHub(super::github::Picker),
     Source(super::source::Editor),
     CurseForge(super::catalog::Selection),
     Prepared {
@@ -35,6 +36,7 @@ pub struct Dialog {
     purpose: Purpose,
 }
 pub enum Submission {
+    GitHub(super::github::Action),
     Source {
         input: crate::catalog::source::Input,
         options: crate::catalog::source::Options,
@@ -57,6 +59,18 @@ pub enum Submission {
 }
 
 impl Dialog {
+    pub fn github(picker: super::github::Picker, mut form: Form, lang: Language) -> Self {
+        picker.preview(&mut form, lang);
+        Self {
+            form,
+            purpose: Purpose::GitHub(picker),
+        }
+    }
+    pub fn refresh_preview(&mut self, lang: Language) {
+        if let Purpose::GitHub(picker) = &self.purpose {
+            picker.preview(&mut self.form, lang);
+        }
+    }
     pub fn source(input: crate::catalog::source::Input) -> Self {
         let (editor, form) = super::source::Editor::open(input);
         Self {
@@ -380,6 +394,7 @@ impl Dialog {
 
     pub fn submit(&self, state: &Path, prefs: &Preferences) -> Result<Submission> {
         match &self.purpose {
+            Purpose::GitHub(picker) => Ok(Submission::GitHub(picker.submit(&self.form)?)),
             Purpose::Source(editor) => {
                 let (input, options) = editor.submit(&self.form)?;
                 Ok(Submission::Source { input, options })
