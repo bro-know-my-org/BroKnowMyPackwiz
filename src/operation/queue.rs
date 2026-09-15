@@ -13,6 +13,11 @@ use std::{
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
+    Download {
+        drafts: Vec<Draft>,
+        downloads: Vec<super::download::Download>,
+        guard: super::preview::Guard,
+    },
     Edit(Vec<Draft>),
     PreparedEdit {
         drafts: Vec<Draft>,
@@ -284,6 +289,7 @@ impl Queue {
                 // full pack copy after every successful metadata edit.
                 let _ = fs::remove_dir_all(directory.join("workspace"));
                 let _ = fs::remove_dir_all(directory.join("transactions"));
+                let _ = fs::remove_dir_all(directory.join("incoming"));
             }
         }
         if self.running.is_none() {
@@ -331,6 +337,19 @@ impl Queue {
                 }
             } else {
                 match task.request {
+                    Request::Download {
+                        drafts,
+                        downloads,
+                        guard,
+                    } => super::download::execute(
+                        &root,
+                        &state,
+                        &directory,
+                        &drafts,
+                        &downloads,
+                        &guard,
+                        &worker_control,
+                    ),
                     Request::PreparedFiles {
                         drafts,
                         files,

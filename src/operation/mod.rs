@@ -1,3 +1,4 @@
+pub mod download;
 pub mod durable;
 pub mod edit;
 pub mod lock;
