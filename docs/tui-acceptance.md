@@ -40,6 +40,7 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 | 恢复中途再次崩溃 | `crash_after_restoring_a_file_can_resume_recovery_again` | 在恢复替换后模拟进程中断，再次打开日志完成恢复；非真实断电 |
 | 外部修改不强制覆盖 | `transaction_tests.rs` 的文件与目录冲突、显式保留/恢复、外部内容归档测试 | 指纹检测依赖文件系统、日志及备份仍可用 |
 | 串行队列和重启确认 | `src/operation/queue.rs` 测试；`tests/tui_smoke.py` 保存队列后重启，确认前不执行 | Linux release 真实进程验证；外平台待验 |
+| 切换前处理当前队列 | `tui::jobs::tests::switching_pack_waits_for_queue_loading_and_retains_its_result` | 双语、手填/最近目录：加载中及 Waiting/NeedsRecovery/Conflict 阻止切换，加载结果仍归原目录；Linux release PTY 验证全部完成后手填切换及最近列表返回、历史不变 |
 | 配置错误不泄露原始字段值到队列历史 | `queue.rs::malformed_config_values_do_not_leak_into_saved_task_errors`；配置错误序列化测试 | 虚构 token、错误落盘及重启读取；CLI 字符串诊断与私有备份保持原行为 |
 | 不清理手动 JAR | Linux release 队列烟测在下载/同步/安装后核对未托管 JAR | 离线 fixture，非用户真实整合包 |
 | 元数据与下载同任务 | `src/operation/edit.rs`、`transfer.rs`、`download.rs` 的文件树和本地 HTTP 测试 | 来源平台真实鉴权添加另列 |
@@ -75,6 +76,6 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 1. 剩余应用自身诊断与消息键调用的收尾核查。文件搜索/过滤/排序/详情、搜索焦点下页签切换、平台分页/右键文件选择、表单双向选项、设置页滚轮与可见行点击已有双语测试；错误弹窗已验证中文长文本滚动、缩放限位、替换重置及搜索焦点隔离；文件与 CurseForge 详情已验证独立滚动、底部内容可见和条目切换重置；任务日志与表单预览已有键鼠滚动入口，其余组合仍需最终核对。
 2. 真实 CurseForge 鉴权搜索 → 文件/依赖选择 → 元数据添加及可选下载；CurseForge 真实添加结果验证；GitHub 两种添加模式已通过下述独立联网烟测。
 3. 本次代码在 Windows、macOS、Linux 的 CI 结果，及 Windows/macOS 真实终端验收。
-4. 将计划中其余队列持久化、目录切换、秘密不入任务参数、模板/多输出行为逐项归档到最终验收证据。已有测试不自动推导为所有组合已覆盖。
+4. 将计划中其余队列持久化、秘密不入任务参数、模板/多输出行为逐项归档到最终验收证据。目录切换的加载/未处理门禁和完成后真实终端往返已归档。已有测试不自动推导为所有组合已覆盖。
 
 最新测试数量和构建记录见 [实施记录](tui-progress.md)。

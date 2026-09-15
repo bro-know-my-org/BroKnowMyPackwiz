@@ -214,6 +214,11 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "相对路径不安全",
     ),
     (
+        "queue_loading_before_switch",
+        "Wait for the current task queue to load before switching packs",
+        "请等待当前任务队列加载完成后再切换整合包",
+    ),
+    (
         "queue_before_switch",
         "Finish or cancel the current queue before switching packs",
         "请先完成或取消当前队列，再切换整合包",
