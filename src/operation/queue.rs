@@ -87,6 +87,8 @@ pub struct Task {
     pub request: Request,
     pub status: Status,
     pub error: Option<Error>,
+    #[serde(default)]
+    pub logs: Vec<Event>,
 }
 #[derive(Serialize, Deserialize)]
 struct Saved {
@@ -162,9 +164,13 @@ impl Queue {
         } else {
             Vec::new()
         };
+        let mut ids = std::collections::HashSet::new();
         for task in &mut tasks {
             if task.id.is_empty() || !task.id.chars().all(|c| c.is_ascii_digit() || c == '-') {
                 return Err(Error::new(ErrorCode::Invalid, "invalid task id"));
+            }
+            if !ids.insert(task.id.clone()) {
+                return Err(Error::new(ErrorCode::Invalid, "duplicate task id"));
             }
             if matches!(task.status, Status::Running | Status::Cancelling) {
                 task.status = Status::NeedsRecovery;
@@ -212,6 +218,7 @@ impl Queue {
             request,
             status: Status::Waiting,
             error: None,
+            logs: Vec::new(),
         });
         if let Err(e) = self.save() {
             self.tasks.pop();
@@ -301,10 +308,7 @@ impl Queue {
     }
 
     pub fn poll(&mut self) -> Result<bool> {
-        self.logs.extend(self.events.try_iter());
-        if self.logs.len() > 2000 {
-            self.logs.drain(..self.logs.len() - 2000);
-        }
+        self.collect_events()?;
         let result = self
             .running
             .as_ref()
@@ -318,6 +322,9 @@ impl Queue {
             });
         let changed = result.is_some();
         if let Some(result) = result {
+            // The worker sends its final result after all events. Drain again
+            // before moving to the next task so late events keep their owner.
+            self.collect_events()?;
             let running = self.running.take().unwrap();
             let task = &mut self.tasks[running.index];
             task.status = match &result {
@@ -364,6 +371,26 @@ impl Queue {
             }
         }
         Ok(changed)
+    }
+
+    fn collect_events(&mut self) -> Result<()> {
+        let events: Vec<_> = self.events.try_iter().collect();
+        if events.is_empty() {
+            return Ok(());
+        }
+        self.logs.extend(events.iter().cloned());
+        if self.logs.len() > 2000 {
+            self.logs.drain(..self.logs.len() - 2000);
+        }
+        if let Some(running) = &self.running {
+            let logs = &mut self.tasks[running.index].logs;
+            logs.extend(events);
+            if logs.len() > 2000 {
+                logs.drain(..logs.len() - 2000);
+            }
+            self.save()?;
+        }
+        Ok(())
     }
 
     fn start(&mut self, index: usize, recovery: bool, resolution: Option<bool>) -> Result<()> {
@@ -527,6 +554,47 @@ pub fn root_key(root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn task_logs_survive_restart_and_duplicate_ids_are_rejected() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        fs::create_dir_all(base.join("pack")).unwrap();
+        let root = base.join("pack");
+        let state = base.join("state");
+        let mut queue = Queue::open(&root, &state).unwrap();
+        queue.enqueue("first", Request::Edit(Vec::new())).unwrap();
+        queue.enqueue("second", Request::Edit(Vec::new())).unwrap();
+        let (_tx, result) = mpsc::channel();
+        queue.running = Some(Running {
+            index: 0,
+            control: Control::default(),
+            result,
+            recovery: false,
+        });
+        queue
+            .sender
+            .send(Event::Log("first output".into()))
+            .unwrap();
+        queue.collect_events().unwrap();
+        queue.running.as_mut().unwrap().index = 1;
+        queue
+            .sender
+            .send(Event::Log("second output".into()))
+            .unwrap();
+        queue.collect_events().unwrap();
+        drop(queue);
+        let mut queue = Queue::open(&root, &state).unwrap();
+        assert!(matches!(&queue.tasks[0].logs[..], [Event::Log(text)] if text == "first output"));
+        assert!(matches!(&queue.tasks[1].logs[..], [Event::Log(text)] if text == "second output"));
+        queue.tasks[1].id = queue.tasks[0].id.clone();
+        queue.save().unwrap();
+        drop(queue);
+        assert_eq!(
+            Queue::open(&root, &state).err().unwrap().detail,
+            "duplicate task id"
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn recovery_locks_external_outputs_before_restoring_them() {
         let base = std::env::temp_dir().join(durable::unique_id());

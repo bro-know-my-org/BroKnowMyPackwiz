@@ -211,11 +211,12 @@ pub fn draw(frame: &mut Frame, jobs: &mut Jobs, lang: Language, area: Rect) {
     jobs.list_area = Block::bordered().inner(bands[0]);
     jobs.list_offset = selection.offset();
     jobs.log_area = Block::bordered().inner(bands[1]);
-    let mut logs: Vec<_> = queue
-        .logs
-        .iter()
+    let selected = queue.tasks.get(jobs.selected);
+    let mut logs: Vec<_> = selected
+        .into_iter()
+        .flat_map(|task| &task.logs)
         .rev()
-        .take(100)
+        .take(2000)
         .map(|event| match event {
             Event::Phase(key) => lang.text(key).to_string(),
             Event::Progress {
@@ -231,6 +232,27 @@ pub fn draw(frame: &mut Frame, jobs: &mut Jobs, lang: Language, area: Rect) {
         })
         .collect();
     logs.reverse();
+    if let Some(task) = selected {
+        if let Request::Command(request) = &task.request {
+            if let Ok(Some(output)) = request.target(&queue.root) {
+                logs.push(format!(
+                    "{}: {}",
+                    lang.text("command_output"),
+                    output.display()
+                ));
+            }
+            logs.push(format!(
+                "{}: {}",
+                lang.text("raw_logs"),
+                queue
+                    .state
+                    .join("tasks")
+                    .join(&task.id)
+                    .join("logs")
+                    .display()
+            ));
+        }
+    }
     if let Some(error) = queue
         .tasks
         .get(jobs.selected)
