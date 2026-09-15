@@ -50,7 +50,7 @@ impl Provider for Online<'_> {
         client.latest_compatible(id, &filter)
     }
     fn github(&self, metadata: &ModMetadata) -> Result<GitHubFileInfo> {
-        crate::github::resolve_github_release_asset(
+        crate::github::resolve_github_release_asset_operation(
             metadata
                 .github_project
                 .as_deref()
@@ -60,7 +60,6 @@ impl Provider for Online<'_> {
             None,
             None,
         )
-        .map_err(Error::from)
     }
 }
 /// Query only. The apply phase receives these exact candidates, never "latest".

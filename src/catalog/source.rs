@@ -97,7 +97,7 @@ fn prepare_inner(
     if matches!(side, Side::Unknown(_)) {
         return Err(invalid("unknown_side"));
     }
-    let slug = crate::ops::safe_slug(&options.name).map_err(Error::from)?;
+    let slug = crate::operation::paths::metadata_slug(&options.name)?;
     let path = format!(
         "{directory}/{}",
         crate::ops::metadata_filename(&slug, &layout)
@@ -208,7 +208,7 @@ fn prepare_inner(
         for (key, value) in [
             (
                 "project",
-                crate::github::normalize_project(repository).map_err(Error::from)?,
+                crate::operation::paths::github_project(repository)?,
             ),
             ("tag", update_tag.clone()),
             ("asset", update_filter.clone()),

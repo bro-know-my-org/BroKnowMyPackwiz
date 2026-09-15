@@ -129,8 +129,7 @@ impl Picker {
     pub fn submit(&self, form: &Form) -> Result<Action> {
         if let Step::Repository = &self.step {
             return Ok(Action::Releases {
-                repository: crate::github::normalize_project(form.value("repository"))
-                    .map_err(Error::from)?,
+                repository: crate::operation::paths::github_project(form.value("repository"))?,
                 page: 0,
             });
         }

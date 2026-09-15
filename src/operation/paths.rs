@@ -21,3 +21,15 @@ pub fn relativize(root: &std::path::Path, path: &std::path::Path) -> Result<Stri
         ))
     })
 }
+
+pub fn github_project(value: &str) -> Result<String> {
+    crate::github::normalize_project(value).map_err(|legacy| {
+        Error::named(ErrorCode::Invalid, "invalid_github_project", legacy).context(value)
+    })
+}
+
+pub fn metadata_slug(value: &str) -> Result<String> {
+    crate::ops::safe_slug(value).map_err(|legacy| {
+        Error::named(ErrorCode::Invalid, "invalid_metadata_name", legacy).context(value)
+    })
+}

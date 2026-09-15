@@ -46,7 +46,7 @@ pub struct Page<T> {
 }
 impl<T: Transport> Client<T> {
     pub fn releases(&self, repository: &str, page: usize) -> Result<Page<Release>> {
-        let repo = crate::github::normalize_project(repository).map_err(Error::from)?;
+        let repo = crate::operation::paths::github_project(repository)?;
         let path = format!(
             "repos/{repo}/releases?per_page={PAGE_SIZE}&page={}",
             api_page(page)?
@@ -65,7 +65,7 @@ impl<T: Transport> Client<T> {
         if release_id == 0 {
             return Err(invalid("missing_release_id"));
         }
-        let repo = crate::github::normalize_project(repository).map_err(Error::from)?;
+        let repo = crate::operation::paths::github_project(repository)?;
         let path = format!(
             "repos/{repo}/releases/{release_id}/assets?per_page={PAGE_SIZE}&page={}",
             api_page(page)?
@@ -82,7 +82,7 @@ impl<T: Transport> Client<T> {
         if id == 0 {
             return Err(invalid("missing_asset_id"));
         }
-        let repo = crate::github::normalize_project(repository).map_err(Error::from)?;
+        let repo = crate::operation::paths::github_project(repository)?;
         let result = asset(
             &self
                 .transport
