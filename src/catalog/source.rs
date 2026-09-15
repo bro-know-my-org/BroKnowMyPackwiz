@@ -154,7 +154,7 @@ fn prepare_inner(
                 transfer::hash(&path, control)?
             };
             if durable::fingerprint(&path)? != expected {
-                return Err(Error::new(ErrorCode::Conflict, "local_source_changed"));
+                return Err(Error::key(ErrorCode::Conflict, "local_source_changed"));
             }
             (String::new(), hashes.sha256)
         }
@@ -170,7 +170,7 @@ fn prepare_inner(
                 || current.size != asset.size
                 || current.sha256 != asset.sha256
             {
-                return Err(Error::new(ErrorCode::Conflict, "github_asset_changed"));
+                return Err(Error::key(ErrorCode::Conflict, "github_asset_changed"));
             }
             let hash = if asset.sha256.is_none() {
                 let hashes = transfer::download(
@@ -180,7 +180,7 @@ fn prepare_inner(
                     control,
                 )?;
                 if hashes.size != asset.size {
-                    return Err(Error::new(ErrorCode::Failed, "github_asset_size_mismatch"));
+                    return Err(Error::key(ErrorCode::Failed, "github_asset_size_mismatch"));
                 }
                 hashes.sha256
             } else {
@@ -277,7 +277,7 @@ fn validate_hash(value: &str) -> Result<()> {
     Ok(())
 }
 fn invalid(message: &str) -> Error {
-    Error::new(ErrorCode::Invalid, message)
+    Error::key(ErrorCode::Invalid, message)
 }
 fn collision(path: &str) -> Error {
     Error::new(ErrorCode::Conflict, format!("file_collision: {path}"))

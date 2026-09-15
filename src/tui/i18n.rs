@@ -8,6 +8,28 @@ pub enum Language {
 }
 
 impl Language {
+    pub fn error(self, error: &crate::operation::Error) -> String {
+        use crate::operation::ErrorCode;
+        let category = match error.code {
+            ErrorCode::Io => "error_io",
+            ErrorCode::Invalid => "error_invalid",
+            ErrorCode::Conflict => "error_conflict",
+            ErrorCode::Cancelled => "cancelled",
+            ErrorCode::Busy => "error_busy",
+            ErrorCode::Interrupted => "error_interrupted",
+            ErrorCode::Failed => "error",
+        };
+        if let Some(key) = &error.message {
+            let message = self.text(key);
+            if error.detail == *key {
+                message.into()
+            } else {
+                format!("{message}: {}", error.detail)
+            }
+        } else {
+            format!("{}: {}", self.text(category), error.detail)
+        }
+    }
     pub fn detect() -> Self {
         ["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"]
             .iter()
@@ -43,6 +65,275 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("error_io", "File access failed", "文件读写失败"),
+    ("error_invalid", "Invalid input or data", "输入或数据无效"),
+    ("error_conflict", "Conflicting changes", "检测到改动冲突"),
+    ("error_busy", "Resource is busy", "资源正被占用"),
+    ("error_interrupted", "Operation interrupted", "操作已中断"),
+    (
+        "asset_identity_mismatch",
+        "Attachment identity does not match",
+        "附件身份不匹配",
+    ),
+    (
+        "curseforge_api_key_required",
+        "Configure a CurseForge API key in Settings",
+        "请在设置中配置 CurseForge API key",
+    ),
+    (
+        "duplicate_download_target",
+        "Multiple downloads share a destination",
+        "多个下载使用同一目标路径",
+    ),
+    (
+        "duplicate_managed_target",
+        "Multiple managed files share a destination",
+        "多个托管文件使用同一目标路径",
+    ),
+    (
+        "duplicate_update_target",
+        "Multiple updates share a destination",
+        "多个更新使用同一目标路径",
+    ),
+    (
+        "github_asset_changed",
+        "GitHub attachment changed; preview again",
+        "GitHub 附件已变化，请重新预览",
+    ),
+    (
+        "github_asset_size_mismatch",
+        "GitHub attachment size does not match",
+        "GitHub 附件大小不匹配",
+    ),
+    (
+        "http_url_required",
+        "Enter an HTTP or HTTPS URL",
+        "请输入 HTTP 或 HTTPS 链接",
+    ),
+    (
+        "identifier_overflow",
+        "Identifier exceeds the supported range",
+        "标识符超出支持范围",
+    ),
+    (
+        "invalid_asset_digest",
+        "Attachment checksum is invalid",
+        "附件校验摘要无效",
+    ),
+    (
+        "invalid_asset_url",
+        "Attachment URL is invalid",
+        "附件链接无效",
+    ),
+    (
+        "local_source_changed",
+        "Local source changed; preview again",
+        "本地源文件已变化，请重新预览",
+    ),
+    (
+        "missing_array",
+        "Platform response is missing a list",
+        "平台响应缺少列表数据",
+    ),
+    (
+        "missing_asset_id",
+        "Attachment identifier is missing",
+        "附件缺少标识符",
+    ),
+    (
+        "missing_asset_size",
+        "Attachment size is missing",
+        "附件缺少大小信息",
+    ),
+    (
+        "missing_curseforge_project",
+        "CurseForge project is missing",
+        "缺少 CurseForge 项目",
+    ),
+    (
+        "missing_download_target",
+        "Download destination is missing",
+        "缺少下载目标路径",
+    ),
+    (
+        "missing_github_project",
+        "GitHub repository is missing",
+        "缺少 GitHub 仓库",
+    ),
+    (
+        "missing_id",
+        "Platform identifier is missing",
+        "缺少平台标识符",
+    ),
+    (
+        "missing_payload",
+        "Prepared file is missing",
+        "暂存文件缺失",
+    ),
+    (
+        "missing_release_id",
+        "Release identifier is missing",
+        "Release 缺少标识符",
+    ),
+    (
+        "missing_release_tag",
+        "Release tag is missing",
+        "Release 缺少标签",
+    ),
+    ("name_required", "Enter a name", "请输入名称"),
+    (
+        "page_overflow",
+        "Page exceeds the supported range",
+        "页码超出支持范围",
+    ),
+    (
+        "sha256_required",
+        "Enter a valid SHA-256 checksum",
+        "请输入有效的 SHA-256 摘要",
+    ),
+    (
+        "unknown_file_type",
+        "Unsupported file type",
+        "不支持此文件类型",
+    ),
+    (
+        "unknown_side",
+        "Unsupported installation side",
+        "不支持此安装环境",
+    ),
+    (
+        "unknown_update_candidate",
+        "Update candidate is no longer available",
+        "更新候选已不可用",
+    ),
+    (
+        "unsupported_curseforge_class",
+        "Unsupported CurseForge project type",
+        "不支持此 CurseForge 项目类型",
+    ),
+    (
+        "update_hash_missing",
+        "Update is missing a checksum",
+        "更新缺少校验摘要",
+    ),
+    (
+        "update_project_mismatch",
+        "Update belongs to a different project",
+        "更新属于其他项目",
+    ),
+    (
+        "update_target_missing",
+        "Update target is missing",
+        "更新目标缺失",
+    ),
+    ("download_failed", "Download failed", "下载失败"),
+    (
+        "download_hash_mismatch",
+        "Downloaded checksum does not match",
+        "下载文件校验摘要不匹配",
+    ),
+    (
+        "download_size_mismatch",
+        "Downloaded size does not match",
+        "下载文件大小不匹配",
+    ),
+    (
+        "download_url_missing",
+        "Download URL is missing",
+        "缺少下载链接",
+    ),
+    (
+        "duplicate_batch_target",
+        "Multiple changes share a destination",
+        "多个改动使用同一目标路径",
+    ),
+    (
+        "duplicate_manifest_path",
+        "Managed file record contains duplicate paths",
+        "托管文件记录包含重复路径",
+    ),
+    (
+        "file_size_overflow",
+        "File size exceeds the supported range",
+        "文件大小超出支持范围",
+    ),
+    (
+        "hash_input_required",
+        "Select an existing file and hash algorithm",
+        "请选择现有文件和哈希算法",
+    ),
+    (
+        "invalid_manifest_files",
+        "Managed file records are invalid",
+        "托管文件记录无效",
+    ),
+    (
+        "invalid_manifest_path",
+        "Managed file path is invalid",
+        "托管文件路径无效",
+    ),
+    (
+        "jobs_must_be_positive",
+        "Parallel jobs must be greater than zero",
+        "并发数必须大于零",
+    ),
+    (
+        "output_missing",
+        "Command produced no output file",
+        "命令未生成输出文件",
+    ),
+    ("output_required", "Enter an output path", "请输入输出路径"),
+    (
+        "remove_selection_required",
+        "Select metadata to remove",
+        "请选择要移除的元数据",
+    ),
+    (
+        "stderr_capture_failed",
+        "Could not capture command errors",
+        "无法读取命令错误输出",
+    ),
+    (
+        "stdout_capture_failed",
+        "Could not capture command output",
+        "无法读取命令输出",
+    ),
+    (
+        "unsupported_hash_format",
+        "Unsupported checksum format",
+        "不支持此校验摘要格式",
+    ),
+    (
+        "unsupported_manifest_format",
+        "Unsupported managed file record format",
+        "不支持此托管记录格式",
+    ),
+    ("github_no_next_page", "No next page", "没有下一页"),
+    (
+        "github_page_required",
+        "Enter a valid page number",
+        "请输入有效页码",
+    ),
+    (
+        "preview_running",
+        "A preview is already running",
+        "已有预览正在进行",
+    ),
+    (
+        "preview_worker_disconnected",
+        "Preview worker stopped unexpectedly",
+        "预览任务意外停止",
+    ),
+    (
+        "source_path_required",
+        "Select a local source file",
+        "请选择本地源文件",
+    ),
+    (
+        "unexpected_add_action",
+        "Unexpected add operation",
+        "添加操作状态异常",
+    ),
     ("remove", "Remove metadata", "移除元数据"),
     (
         "remove_preview",
@@ -405,6 +696,19 @@ const MESSAGES: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stable_error_messages_translate_without_parsing_raw_diagnostics() {
+        use crate::operation::{Error, ErrorCode};
+        let error = Error::key(ErrorCode::Invalid, "output_required");
+        assert_eq!(Language::ZhCn.error(&error), "请输入输出路径");
+        assert_eq!(Language::En.error(&error), "Enter an output path");
+        let error = error.context("/tmp/中文");
+        assert_eq!(Language::ZhCn.error(&error), "请输入输出路径: /tmp/中文");
+        let raw: Error =
+            serde_json::from_str(r#"{"code":"Failed","detail":"output_required"}"#).unwrap();
+        assert_eq!(Language::ZhCn.error(&raw), "操作失败: output_required");
+    }
 
     #[test]
     fn resources_are_complete_and_unique() {

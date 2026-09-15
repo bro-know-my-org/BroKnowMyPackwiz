@@ -236,7 +236,7 @@ impl Request {
     }
 }
 fn invalid(key: &str) -> Error {
-    Error::new(ErrorCode::Invalid, key)
+    Error::key(ErrorCode::Invalid, key)
 }
 
 #[cfg(test)]

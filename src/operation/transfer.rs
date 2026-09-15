@@ -18,10 +18,10 @@ impl Hashes {
         let actual = match format {
             "sha1" => &self.sha1,
             "sha256" => &self.sha256,
-            _ => return Err(Error::new(ErrorCode::Invalid, "unsupported_hash_format")),
+            _ => return Err(Error::key(ErrorCode::Invalid, "unsupported_hash_format")),
         };
         if !actual.eq_ignore_ascii_case(expected) {
-            return Err(Error::new(ErrorCode::Failed, "download_hash_mismatch"));
+            return Err(Error::key(ErrorCode::Failed, "download_hash_mismatch"));
         }
         Ok(())
     }
@@ -50,7 +50,7 @@ pub fn download(
         .parse::<ureq::http::Uri>()
         .map_err(|e| Error::new(ErrorCode::Invalid, e.to_string()))?;
     if !matches!(uri.scheme_str(), Some("https" | "http")) || uri.authority().is_none() {
-        return Err(Error::new(ErrorCode::Invalid, "http_url_required"));
+        return Err(Error::key(ErrorCode::Invalid, "http_url_required"));
     }
     let mut response = crate::http::agent()
         .get(url)
@@ -116,7 +116,7 @@ pub fn stream(
         sha256.update(&bytes[..count]);
         current = current
             .checked_add(count as u64)
-            .ok_or_else(|| Error::new(ErrorCode::Invalid, "file_size_overflow"))?;
+            .ok_or_else(|| Error::key(ErrorCode::Invalid, "file_size_overflow"))?;
         if last.elapsed() >= Duration::from_millis(100) {
             control.emit(Event::Progress {
                 label: "transfer_bytes".into(),
@@ -128,7 +128,7 @@ pub fn stream(
     }
     control.check()?;
     if total.is_some_and(|length| length != current) {
-        return Err(Error::new(ErrorCode::Failed, "download_size_mismatch"));
+        return Err(Error::key(ErrorCode::Failed, "download_size_mismatch"));
     }
     control.emit(Event::Progress {
         label: "transfer_bytes".into(),
@@ -208,7 +208,7 @@ mod tests {
         let target = dir.join("asset");
         let result = staged(&target, |file| {
             file.write_all(b"partial")?;
-            Err(Error::new(ErrorCode::Failed, "injected"))
+            Err(Error::key(ErrorCode::Failed, "injected"))
         });
         assert!(result.is_err() && !target.exists());
         fs::write(&target, b"original").unwrap();

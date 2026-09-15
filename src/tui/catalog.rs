@@ -339,15 +339,7 @@ impl Browser {
         let detail = if self.pending.is_some() {
             lang.text("loading").into()
         } else if let Some(error) = &self.error {
-            format!(
-                "{}\n\n{}",
-                lang.text(if error.detail == "curseforge_api_key_required" {
-                    "cf_key_required"
-                } else {
-                    "error"
-                }),
-                error
-            )
+            lang.error(error)
         } else if detail.is_empty() {
             lang.text("cf_search_hint").into()
         } else {

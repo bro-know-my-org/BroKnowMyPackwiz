@@ -94,7 +94,7 @@ impl Workflow {
                     Picker::assets(repository, release, page, assets)
                 }
                 Action::Add(_) => {
-                    return Err(Error::new(ErrorCode::Invalid, "unexpected_add_action"));
+                    return Err(Error::key(ErrorCode::Invalid, "unexpected_add_action"));
                 }
             };
             Ok(Output::GitHub(picker, form))
@@ -150,7 +150,7 @@ impl Workflow {
     }
     fn run(&mut self, work: impl FnOnce(Control) -> Result<Output> + Send + 'static) -> Result<()> {
         if self.busy() {
-            return Err(Error::new(ErrorCode::Busy, "preview_running"));
+            return Err(Error::key(ErrorCode::Busy, "preview_running"));
         }
         self.control = Control::default();
         let control = self.control.clone();
@@ -173,7 +173,7 @@ impl Workflow {
         let result = match rx.try_recv() {
             Ok(result) => result,
             Err(mpsc::TryRecvError::Empty) => return None,
-            Err(mpsc::TryRecvError::Disconnected) => Err(Error::new(
+            Err(mpsc::TryRecvError::Disconnected) => Err(Error::key(
                 ErrorCode::Interrupted,
                 "preview_worker_disconnected",
             )),

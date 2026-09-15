@@ -213,7 +213,7 @@ fn form(title: &str, choices: Vec<String>, page: usize) -> Form {
     )
 }
 fn invalid(key: &str) -> Error {
-    Error::new(ErrorCode::Invalid, key)
+    Error::key(ErrorCode::Invalid, key)
 }
 
 #[cfg(test)]

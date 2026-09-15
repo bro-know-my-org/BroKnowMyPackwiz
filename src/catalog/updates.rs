@@ -195,7 +195,7 @@ fn short(value: &str) -> String {
     value.chars().take(12).collect()
 }
 fn invalid(key: &str) -> Error {
-    Error::new(ErrorCode::Invalid, key)
+    Error::key(ErrorCode::Invalid, key)
 }
 
 #[cfg(test)]

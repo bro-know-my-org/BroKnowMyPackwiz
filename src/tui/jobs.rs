@@ -258,7 +258,7 @@ pub fn draw(frame: &mut Frame, jobs: &mut Jobs, lang: Language, area: Rect) {
         .get(jobs.selected)
         .and_then(|t| t.error.as_ref())
     {
-        logs.push(error.to_string());
+        logs.push(lang.error(error));
     }
     jobs.log_scroll = jobs.log_scroll.min(logs.len().saturating_sub(1));
     let start = logs
