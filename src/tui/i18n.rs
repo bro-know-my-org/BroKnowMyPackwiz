@@ -1416,7 +1416,7 @@ mod tests {
         use crate::{config::ProjectConfig, operation::durable};
         let root = std::env::temp_dir().join(durable::unique_id());
         std::fs::create_dir_all(root.join(".pw")).unwrap();
-        let source = root.join(".pw/config.toml");
+        let source = root.join(".pw").join("config.toml");
         for (input, key, legacy, zh) in [
             (
                 "[scan]\nuse-gitignore = maybe",
