@@ -43,6 +43,9 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("downloading", "Downloading", "正在下载"),
+    ("retrying", "Waiting to retry", "等待重试"),
+    ("transfer_bytes", "Transferred bytes", "已传输字节"),
     ("github_repository", "GitHub repository", "GitHub 仓库"),
     (
         "github_releases",

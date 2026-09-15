@@ -77,7 +77,10 @@ impl Workflow {
                         &control,
                     )
                 })
-                .map(Output::CurseForge)
+                .map(|mut preview| {
+                    preview.download = selected.download;
+                    Output::CurseForge(preview)
+                })
         })
     }
     pub fn source(

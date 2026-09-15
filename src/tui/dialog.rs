@@ -111,6 +111,12 @@ impl Dialog {
                 Kind::Choice(sides),
             )],
         );
+        form.fields.push(Field::new(
+            "download",
+            "source_download",
+            "false",
+            Kind::Bool,
+        ));
         form.preview = Some(format!(
             "{}\n{}\n{}",
             selected.file.name,
@@ -149,13 +155,29 @@ impl Dialog {
                 .collect::<Vec<_>>()
                 .join("\n\n"),
         );
+        if let Some(text) = &mut form.preview {
+            text.push_str(&format!(
+                "\n\n{}: {}",
+                lang.text("source_download"),
+                lang.text(if preview.download { "yes" } else { "no" })
+            ));
+        }
+        let request = if preview.download {
+            crate::operation::queue::Request::Download {
+                drafts: preview.drafts,
+                downloads: preview.downloads,
+                guard: preview.guard,
+            }
+        } else {
+            crate::operation::queue::Request::PreparedEdit {
+                drafts: preview.drafts,
+                guard: preview.guard,
+            }
+        };
         Self {
             form,
             purpose: Purpose::Prepared {
-                request: crate::operation::queue::Request::PreparedEdit {
-                    drafts: preview.drafts,
-                    guard: preview.guard,
-                },
+                request,
                 label: "cf_add_task".into(),
             },
         }
@@ -399,10 +421,14 @@ impl Dialog {
                 let (input, options) = editor.submit(&self.form)?;
                 Ok(Submission::Source { input, options })
             }
-            Purpose::CurseForge(selected) => Ok(Submission::CurseForge {
-                selected: selected.clone(),
-                side: crate::metadata::Side::parse(self.form.value("side")),
-            }),
+            Purpose::CurseForge(selected) => {
+                let mut selected = selected.clone();
+                selected.download = self.form.value("download") == "true";
+                Ok(Submission::CurseForge {
+                    selected,
+                    side: crate::metadata::Side::parse(self.form.value("side")),
+                })
+            }
             Purpose::Prepared { request, label } => Ok(Submission::Prepared {
                 request: request.clone(),
                 label: label.clone(),
