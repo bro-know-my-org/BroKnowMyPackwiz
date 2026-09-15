@@ -25,6 +25,7 @@ def smoke(binary):
             XDG_STATE_HOME=str(base / "state"),
             XDG_DATA_HOME=str(base / "data"),
             LANG="en_US.UTF-8",
+            LC_ALL="en_US.UTF-8",
             TERM="xterm-256color",
         )
         subprocess.run([binary, "init", str(root)], env=env, check=True, capture_output=True)
@@ -72,18 +73,26 @@ def smoke(binary):
         process = subprocess.Popen([binary, "tui", str(root)], stdin=slave, stdout=slave, stderr=slave, env=env)
 
         def drain(seconds=0.15):
+            output = bytearray()
             deadline = time.monotonic() + seconds
             while time.monotonic() < deadline:
                 if select.select([master], [], [], 0.02)[0]:
-                    os.read(master, 65536)
+                    output.extend(os.read(master, 65536))
+            return bytes(output)
 
         def key(value):
             os.write(master, value)
-            drain()
+            return drain()
+
+        def click(column, row):
+            return key(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m".encode())
 
         try:
             drain(0.6)
-            key(b"q")
+            assert b"Close" in click(13, 2), "Mouse must open help"
+            # Close button is at the bottom of the centered 120x32 help layer.
+            click(14, 27)
+            click(21, 2)  # Global Quit; cannot reach it while help is still open.
             process.wait(timeout=5)
             assert process.returncode == 0
             assert termios.tcgetattr(slave) == before

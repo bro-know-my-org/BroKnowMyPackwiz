@@ -26,6 +26,87 @@ fn key(app: &mut App, code: KeyCode) -> bool {
     app.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
 }
 
+fn click_action(app: &mut App, terminal: &mut Terminal<TestBackend>, code: KeyCode) -> bool {
+    terminal.draw(|frame| view::draw(frame, app)).unwrap();
+    let area = app
+        .buttons
+        .iter()
+        .find(|(key, rect)| *key == code && rect.width > 0 && rect.height > 0)
+        .unwrap_or_else(|| panic!("missing mouse action {code:?}"))
+        .1;
+    app.event(Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: area.x,
+        row: area.y,
+        modifiers: KeyModifiers::NONE,
+    }))
+}
+
+#[test]
+fn mouse_can_open_close_help_and_errors_without_clicking_through() {
+    for language in [Language::En, Language::ZhCn] {
+        let mut app = app();
+        app.language = language;
+        let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+        assert!(!click_action(&mut app, &mut terminal, KeyCode::Char('?')));
+        assert!(app.help);
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        let tab = app.tabs[3];
+        let click = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: tab.x,
+            row: tab.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        app.event(click.clone());
+        assert_eq!(app.page, 0);
+        assert!(app.help);
+        click_action(&mut app, &mut terminal, KeyCode::Esc);
+        assert!(!app.help);
+        app.error = Some("fixture error".into());
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        app.event(click);
+        assert_eq!(app.page, 0);
+        assert!(app.error.is_some());
+        click_action(&mut app, &mut terminal, KeyCode::Esc);
+        assert!(app.error.is_none());
+        key(&mut app, KeyCode::Char('/'));
+        click_action(&mut app, &mut terminal, KeyCode::Char('l'));
+        assert!(!app.editing);
+        assert!(app.filter.is_empty());
+        assert_ne!(app.language, language);
+        assert!(click_action(&mut app, &mut terminal, KeyCode::Char('q')));
+    }
+}
+
+#[test]
+fn quit_choices_and_recovery_retry_are_clickable_in_both_languages() {
+    for language in [Language::En, Language::ZhCn] {
+        for code in [KeyCode::Char('w'), KeyCode::Char('c'), KeyCode::Esc] {
+            let mut app = app();
+            app.language = language;
+            app.jobs.quit_prompt = true;
+            let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+            assert!(!click_action(&mut app, &mut terminal, code));
+            assert!(!app.jobs.quit_prompt);
+            assert_eq!(app.jobs.should_exit(), code != KeyCode::Esc);
+        }
+        let base = std::env::temp_dir().join(crate::operation::durable::unique_id());
+        std::fs::create_dir_all(base.join("pack")).unwrap();
+        let mut app = app();
+        app.language = language;
+        app.page = 3;
+        app.jobs.queue = Some(
+            crate::operation::queue::Queue::open(&base.join("pack"), &base.join("state")).unwrap(),
+        );
+        let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+        click_action(&mut app, &mut terminal, KeyCode::Char('r'));
+        assert_eq!(app.error.as_deref(), Some(language.text("unknown_task")));
+        drop(app);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+}
+
 #[test]
 fn failed_queue_save_does_not_leak_a_new_form_draft() {
     use crate::operation::{durable, edit, queue::Queue};

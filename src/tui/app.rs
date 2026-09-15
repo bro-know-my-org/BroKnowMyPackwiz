@@ -255,6 +255,27 @@ impl App {
             self.dialog_event(event);
             return false;
         }
+        if let Event::Mouse(mouse) = &event {
+            if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                if let Some(code) = self
+                    .buttons
+                    .iter()
+                    .find(|(_, area)| area.contains((mouse.column, mouse.row).into()))
+                    .map(|(key, _)| *key)
+                {
+                    // Clicking an explicit action leaves text input focus.
+                    self.editing = false;
+                    self.catalog.editing = false;
+                    return self.event(Event::Key(crossterm::event::KeyEvent::new(
+                        code,
+                        KeyModifiers::NONE,
+                    )));
+                }
+            }
+            if self.jobs.quit_prompt || (self.error.is_some() && !self.help) {
+                return false;
+            }
+        }
         if self.help {
             if let Event::Mouse(mouse) = &event {
                 match mouse.kind {
@@ -273,24 +294,6 @@ impl App {
             self.catalog.event(event, &self.root);
             return false;
         }
-        if let Event::Mouse(mouse) = &event {
-            if !self.jobs.quit_prompt
-                && !self.help
-                && mouse.kind == MouseEventKind::Down(MouseButton::Left)
-            {
-                if let Some(code) = self
-                    .buttons
-                    .iter()
-                    .find(|(_, area)| area.contains((mouse.column, mouse.row).into()))
-                    .map(|(key, _)| *key)
-                {
-                    return self.event(Event::Key(crossterm::event::KeyEvent::new(
-                        code,
-                        KeyModifiers::NONE,
-                    )));
-                }
-            }
-        }
         match event {
             Event::Paste(text) if self.editing => {
                 self.filter.extend(text.chars().filter(|c| !c.is_control()));
@@ -299,6 +302,7 @@ impl App {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
                 if self.jobs.quit_prompt {
                     if let Err(error) = self.jobs.quit_key(key.code) {
+                        self.jobs.quit_prompt = false;
                         self.error = Some(self.language.error(&error));
                     }
                     return false;
