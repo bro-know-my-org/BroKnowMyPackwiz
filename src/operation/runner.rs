@@ -48,6 +48,9 @@ fn execute_with(
     let mut paths = vec![root.clone()];
     paths.extend(target.iter().cloned());
     let _locks = WriteLocks::acquire(state, &paths)?;
+    if let Some(guard) = &request.guard {
+        guard.validate(&root, control)?;
+    }
     if request.kind.readonly() {
         return run(&root, target.as_deref());
     }
@@ -150,6 +153,21 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn removal_guard_blocks_execution_after_metadata_changes() {
+        let fixture = Fixture::new();
+        let root = fixture.0.join("pack");
+        fs::create_dir(root.join("mods")).unwrap();
+        fs::write(root.join("mods/a.pw.toml"), "name = 'A'").unwrap();
+        let mut request = Request::new(Kind::Remove);
+        request.names = vec!["mods/a.pw.toml".into()];
+        request.guard =
+            Some(crate::operation::preview::Guard::capture(&root, &Control::default()).unwrap());
+        fs::write(root.join("mods/a.pw.toml"), "name = 'External'").unwrap();
+        let result = fixture.run(&request, |_, _| panic!("stale deletion must not run"));
+        assert_eq!(result.unwrap_err().code, ErrorCode::Conflict);
     }
 
     #[test]

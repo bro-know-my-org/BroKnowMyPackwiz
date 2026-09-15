@@ -99,6 +99,7 @@ fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
         0 if app.adding.busy() => vec![(KeyCode::Char('c'), "C", "cf_cancel_preview")],
         0 => vec![
             (KeyCode::Char('u'), "U", "update_preview"),
+            (KeyCode::Delete, "Del", "remove"),
             (KeyCode::Char('d'), "D", "update_direct"),
             (KeyCode::Char('a'), "A", "select_all"),
             (KeyCode::Char('e'), "E", "edit_metadata"),

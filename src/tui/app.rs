@@ -370,6 +370,22 @@ impl App {
                             self.marked.extend(paths);
                         }
                     }
+                    KeyCode::Delete if self.page == 0 => {
+                        let names: Vec<_> = if self.marked.is_empty() {
+                            self.current()
+                                .map(|entry| entry.path.clone())
+                                .into_iter()
+                                .collect()
+                        } else {
+                            self.marked.iter().cloned().collect()
+                        };
+                        if !names.is_empty() {
+                            match super::dialog::Dialog::remove(&self.root, names, self.language) {
+                                Ok(dialog) => self.dialog = Some(dialog),
+                                Err(error) => self.error = Some(error.to_string()),
+                            }
+                        }
+                    }
                     KeyCode::Char('c') if self.page == 0 => self.adding.cancel(),
                     KeyCode::Char('c') if self.page == 1 => self.adding.cancel(),
                     KeyCode::Char('g') if self.page == 1 => {

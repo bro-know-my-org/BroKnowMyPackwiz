@@ -43,6 +43,12 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("remove", "Remove metadata", "移除元数据"),
+    (
+        "remove_preview",
+        "Remove the selected metadata and refresh the index in one task. Installed files remain until a later synchronization.",
+        "在一个任务中移除选中的元数据并刷新索引。已安装文件保留到后续同步处理。",
+    ),
     ("raw_logs", "Original command logs", "命令原始日志"),
     ("inspect", "Pack overview", "整合包概览"),
     ("list", "List metadata", "列出元数据"),
