@@ -12,6 +12,7 @@ use toml_edit::{DocumentMut, Item, Value};
 
 pub const SETTINGS: [&str; 4] = ["pack_info", "project_config", "preferences", "open_pack"];
 enum Purpose {
+    Command(crate::operation::command::Kind),
     Update(super::update::Selection),
     GitHub(super::github::Picker),
     Source(super::source::Editor),
@@ -65,6 +66,12 @@ pub enum Submission {
 }
 
 impl Dialog {
+    pub fn command(kind: crate::operation::command::Kind, lang: Language) -> Self {
+        Self {
+            form: super::pack::form(kind, lang),
+            purpose: Purpose::Command(kind),
+        }
+    }
     pub fn update(preview: crate::catalog::updates::Preview, lang: Language) -> Self {
         let (selection, form) = super::update::Selection::open(preview, lang);
         Self {
@@ -463,6 +470,12 @@ impl Dialog {
 
     pub fn submit(&self, state: &Path, prefs: &Preferences) -> Result<Submission> {
         match &self.purpose {
+            Purpose::Command(kind) => Ok(Submission::Prepared {
+                request: crate::operation::queue::Request::Command(super::pack::submit(
+                    *kind, &self.form,
+                )?),
+                label: kind.command().into(),
+            }),
             Purpose::Update(selection) => {
                 let (preview, paths, download) = selection.submit(&self.form);
                 Ok(Submission::Update {

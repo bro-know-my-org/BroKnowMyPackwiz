@@ -34,6 +34,7 @@ pub struct App {
     pub preferences: super::preferences::Preferences,
     pub persist_preferences: bool,
     pub settings_index: usize,
+    pub pack_selection: ratatui::widgets::ListState,
     pub external: Option<String>,
     pub buttons: Vec<(KeyCode, Rect)>,
     pub menu_area: Rect,
@@ -65,6 +66,7 @@ impl App {
             preferences: super::preferences::Preferences::default(),
             persist_preferences: false,
             settings_index: 0,
+            pack_selection: ratatui::widgets::ListState::default().with_selected(Some(0)),
             external: None,
             buttons: Vec::new(),
             menu_area: Rect::default(),
@@ -313,6 +315,20 @@ impl App {
                         }
                     }
                     KeyCode::Char('?') => self.help = true,
+                    KeyCode::Down if self.page == 2 => {
+                        let index = self.pack_selection.selected().unwrap_or(0);
+                        self.pack_selection
+                            .select(Some((index + 1).min(super::pack::ACTIONS.len() - 1)));
+                    }
+                    KeyCode::Up if self.page == 2 => {
+                        let index = self.pack_selection.selected().unwrap_or(0);
+                        self.pack_selection.select(Some(index.saturating_sub(1)));
+                    }
+                    KeyCode::Enter if self.page == 2 => {
+                        let kind =
+                            super::pack::ACTIONS[self.pack_selection.selected().unwrap_or(0)];
+                        self.dialog = Some(super::dialog::Dialog::command(kind, self.language));
+                    }
                     KeyCode::Char('r') if self.page != 3 && self.page != 1 => self.reload(),
                     KeyCode::Char(code @ ('u' | 'd')) if self.page == 0 => {
                         let paths: Vec<_> = if self.marked.is_empty() {
@@ -504,6 +520,29 @@ impl App {
                         self.settings_index = index;
                         return self.event(Event::Key(crossterm::event::KeyEvent::new(
                             KeyCode::Enter,
+                            KeyModifiers::NONE,
+                        )));
+                    }
+                }
+                if self.page == 2 && self.menu_area.contains(point) {
+                    let code = match mouse.kind {
+                        MouseEventKind::ScrollDown => Some(KeyCode::Down),
+                        MouseEventKind::ScrollUp => Some(KeyCode::Up),
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            let index = self.pack_selection.offset()
+                                + (mouse.row - self.menu_area.y) as usize;
+                            if index < super::pack::ACTIONS.len() {
+                                self.pack_selection.select(Some(index));
+                                Some(KeyCode::Enter)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some(code) = code {
+                        return self.event(Event::Key(crossterm::event::KeyEvent::new(
+                            code,
                             KeyModifiers::NONE,
                         )));
                     }

@@ -68,10 +68,17 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     } else if app.page == 1 {
         app.catalog.draw(frame, bands[2], lang);
     } else {
-        frame.render_widget(
-            Paragraph::new(lang.text("coming"))
-                .block(Block::bordered().title(lang.text(PAGES[app.page]))),
+        app.menu_area = Block::bordered().inner(bands[2]);
+        let items: Vec<_> = super::pack::ACTIONS
+            .iter()
+            .map(|kind| ratatui::widgets::ListItem::new(lang.text(kind.command())))
+            .collect();
+        frame.render_stateful_widget(
+            ratatui::widgets::List::new(items)
+                .highlight_symbol("› ")
+                .block(Block::bordered().title(lang.text("pack"))),
             bands[2],
+            &mut app.pack_selection,
         );
     }
     toolbar(frame, app, bands[3]);
@@ -110,6 +117,7 @@ fn toolbar(frame: &mut Frame, app: &mut App, area: Rect) {
             (KeyCode::Char('k'), "K", "keep_short"),
             (KeyCode::Char('o'), "O", "restore_short"),
         ],
+        2 => vec![(KeyCode::Enter, "Enter", "command_open")],
         4 => vec![
             (KeyCode::Enter, "Enter", "edit"),
             (KeyCode::Char('E'), "Shift+E", "advanced"),
