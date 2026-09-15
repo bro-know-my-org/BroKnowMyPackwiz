@@ -75,6 +75,39 @@ impl WriteLocks {
         paths.dedup();
         let dir = state.join("locks");
         fs::create_dir_all(&dir)?;
+        // Serialize only lock registration, never the work itself. Sidecar paths
+        // remain readable on Windows while the corresponding OS lock is held.
+        let registry = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(durable::absolute(&dir.join("registry"))?)?;
+        registry.lock_exclusive()?;
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            if entry
+                .path()
+                .extension()
+                .is_none_or(|extension| extension != "lock")
+            {
+                continue;
+            }
+            let path = durable::absolute(&entry.path())?;
+            let file = OpenOptions::new().read(true).write(true).open(&path)?;
+            if file.try_lock_exclusive().is_ok() {
+                continue;
+            }
+            let sidecar = durable::absolute(&path.with_extension("json"))?;
+            let held: PathBuf = fs::read(&sidecar)
+                .ok()
+                .filter(|bytes| bytes.len() < 65536)
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .ok_or_else(|| Error::new(ErrorCode::Busy, "active lock metadata unavailable"))?;
+            if paths.iter().any(|requested| overlaps(requested, &held)) {
+                return Err(Error::new(ErrorCode::Busy, format!("{}", held.display())));
+            }
+        }
         let mut files = Vec::new();
         for path in paths {
             let digest = Sha256::digest(path.to_string_lossy().as_bytes());
@@ -83,16 +116,63 @@ impl WriteLocks {
                 .map(|byte| format!("{byte:02x}"))
                 .collect::<String>()
                 + ".lock";
+            let lock_path = durable::absolute(&dir.join(name))?;
             let file = OpenOptions::new()
                 .create(true)
                 .truncate(false)
                 .read(true)
                 .write(true)
-                .open(dir.join(name))?;
+                .open(&lock_path)?;
             file.try_lock_exclusive()
                 .map_err(|err| Error::new(ErrorCode::Busy, format!("{}: {err}", path.display())))?;
+            let sidecar = durable::absolute(&lock_path.with_extension("json"))?;
+            durable::write(
+                &sidecar,
+                &serde_json::to_vec(&path)
+                    .map_err(|e| Error::new(ErrorCode::Invalid, e.to_string()))?,
+            )?;
             files.push(file);
         }
         Ok(Self { _files: files })
+    }
+}
+
+fn overlaps(a: &Path, b: &Path) -> bool {
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        let a = a.to_string_lossy().replace('\\', "/").to_lowercase();
+        let b = b.to_string_lossy().replace('\\', "/").to_lowercase();
+        a == b
+            || a.starts_with(&(b.trim_end_matches('/').to_string() + "/"))
+            || b.starts_with(&(a.trim_end_matches('/').to_string() + "/"))
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        a.starts_with(b) || b.starts_with(a)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ancestor_and_descendant_writers_conflict_but_siblings_can_run() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        fs::create_dir_all(&base).unwrap();
+        let base = fs::canonicalize(base).unwrap();
+        let state = base.join("state");
+        let root = base.join("pack");
+        let child = root.join("mods/a.jar");
+        let lock = WriteLocks::acquire(&state, &[root.clone(), child.clone()]).unwrap();
+        assert!(WriteLocks::acquire(&state, &[child.clone()]).is_err());
+        assert!(WriteLocks::acquire(&state, &[base.clone()]).is_err());
+        let sibling = WriteLocks::acquire(&state, &[base.join("other-pack")]).unwrap();
+        drop(sibling);
+        drop(lock);
+        let child_lock = WriteLocks::acquire(&state, &[child]).unwrap();
+        assert!(WriteLocks::acquire(&state, &[root.clone()]).is_err());
+        drop(child_lock);
+        drop(WriteLocks::acquire(&state, &[root]).unwrap());
+        fs::remove_dir_all(base).unwrap();
     }
 }

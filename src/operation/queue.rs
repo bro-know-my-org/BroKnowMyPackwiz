@@ -471,7 +471,7 @@ impl Queue {
 }
 
 fn resolve(root: &Path, state: &Path, directory: &Path, keep: bool) -> Result<()> {
-    let _locks = WriteLocks::acquire(state, &[root.to_path_buf()])?;
+    let _locks = WriteLocks::acquire(state, &recovery_paths(root, directory)?)?;
     let path = directory.join("transactions");
     if path.exists() {
         for item in fs::read_dir(path)? {
@@ -487,7 +487,7 @@ fn resolve(root: &Path, state: &Path, directory: &Path, keep: bool) -> Result<()
 }
 
 pub fn recover(root: &Path, state: &Path, directory: &Path) -> Result<()> {
-    let _locks = WriteLocks::acquire(state, &[root.to_path_buf()])?;
+    let _locks = WriteLocks::acquire(state, &recovery_paths(root, directory)?)?;
     let transactions = directory.join("transactions");
     if transactions.exists() {
         for item in fs::read_dir(transactions)? {
@@ -498,6 +498,17 @@ pub fn recover(root: &Path, state: &Path, directory: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn recovery_paths(root: &Path, directory: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = vec![root.to_path_buf()];
+    let transactions = directory.join("transactions");
+    if transactions.exists() {
+        for item in fs::read_dir(transactions)? {
+            paths.extend(Transaction::open(&item?.path())?.targets());
+        }
+    }
+    Ok(paths)
 }
 
 pub fn root_key(root: &Path) -> String {
@@ -511,6 +522,47 @@ pub fn root_key(root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_locks_external_outputs_before_restoring_them() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        fs::create_dir_all(base.join("pack")).unwrap();
+        fs::create_dir_all(base.join("output")).unwrap();
+        let base = fs::canonicalize(base).unwrap();
+        let state = base.join("state");
+        let target = base.join("output/export.zip");
+        let source = base.join("new.zip");
+        fs::write(&target, b"original").unwrap();
+        fs::write(&source, b"new").unwrap();
+        let task = base.join("task");
+        let transaction = Transaction::prepare(
+            &task,
+            vec![super::super::transaction::Change {
+                target: target.clone(),
+                expected: durable::fingerprint(&target).unwrap(),
+                source: Some(source),
+            }],
+            &Control::default(),
+        )
+        .unwrap();
+        // Crash after persisting replacement intent but before marking applied.
+        let journal_path = transaction.directory.join("journal.json");
+        let mut journal: serde_json::Value =
+            serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
+        journal["state"] = "Committing".into();
+        journal["entries"][0]["step"] = "Applying".into();
+        fs::write(journal_path, serde_json::to_vec(&journal).unwrap()).unwrap();
+        fs::write(&target, b"new").unwrap();
+        let external = WriteLocks::acquire(&state, &[base.join("output")]).unwrap();
+        assert_eq!(
+            recover(&base.join("pack"), &state, &task).unwrap_err().code,
+            ErrorCode::Busy
+        );
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        drop(external);
+        recover(&base.join("pack"), &state, &task).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"original");
+        fs::remove_dir_all(base).unwrap();
+    }
 
     #[test]
     fn draft_cleanup_preserves_shared_pending_and_externally_changed_sources() {
