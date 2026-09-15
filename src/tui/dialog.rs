@@ -59,6 +59,11 @@ pub enum Submission {
 }
 
 impl Dialog {
+    pub fn discard(&self, queue: &crate::operation::queue::Queue) {
+        if let Purpose::Prepared { request, .. } = &self.purpose {
+            queue.discard(request);
+        }
+    }
     pub fn github(picker: super::github::Picker, mut form: Form, lang: Language) -> Self {
         picker.preview(&mut form, lang);
         Self {

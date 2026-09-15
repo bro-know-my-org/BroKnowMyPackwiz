@@ -66,17 +66,18 @@ fn dependency_confirmation_is_required_before_enqueueing() {
     let root = base.join("pack");
     fs::write(root.join("pack.toml"), "name = \"Test\"\n").unwrap();
     let state = base.join("state");
-    let draft = edit::draft(
-        &state,
-        "mods/new.pw.toml",
-        None,
-        &"name = \"New\"".parse().unwrap(),
-    )
-    .unwrap();
     let guard = Guard::capture(&root, &Control::default()).unwrap();
     let preview = || crate::catalog::prepare::Preview {
         rows: Vec::new(),
-        drafts: vec![draft.clone()],
+        drafts: vec![
+            edit::draft(
+                &state,
+                "mods/new.pw.toml",
+                None,
+                &"name = \"New\"".parse().unwrap(),
+            )
+            .unwrap(),
+        ],
         guard: guard.clone(),
         downloads: Vec::new(),
         download: false,

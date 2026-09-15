@@ -474,7 +474,12 @@ impl App {
         use super::{dialog::Submission, form::Action};
         let mut dialog = self.dialog.take().unwrap();
         match dialog.form.event(event) {
-            Action::Cancel => return,
+            Action::Cancel => {
+                if let Some(queue) = &self.jobs.queue {
+                    dialog.discard(queue);
+                }
+                return;
+            }
             Action::Continue => {
                 dialog.refresh_preview(self.language);
                 self.dialog = Some(dialog);
