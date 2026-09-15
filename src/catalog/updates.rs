@@ -109,6 +109,7 @@ pub fn query(
                     return Err(invalid("update_project_mismatch"));
                 }
                 let unchanged = metadata.curseforge_file_id == Some(file.id)
+                    && metadata.download_hash_format.as_deref() == Some("sha1")
                     && metadata.filename.as_deref() == Some(&file.filename)
                     && metadata
                         .download_hash
@@ -135,6 +136,7 @@ pub fn query(
             } else if metadata.github_project.is_some() {
                 let file = provider.github(&metadata)?;
                 let unchanged = metadata.filename.as_deref() == Some(&file.filename)
+                    && metadata.download_hash_format.as_deref() == Some(file.hash_format.as_str())
                     && metadata.download_url.as_deref() == Some(&file.url)
                     && metadata
                         .download_hash

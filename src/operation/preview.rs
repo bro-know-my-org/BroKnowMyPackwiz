@@ -10,6 +10,22 @@ pub struct Guard {
     fingerprints: BTreeMap<String, Option<String>>,
 }
 impl Guard {
+    pub fn merge(&mut self, other: Self) -> Result<()> {
+        if self.metadata != other.metadata {
+            return Err(stale("metadata inventory"));
+        }
+        for (path, value) in other.fingerprints {
+            if self
+                .fingerprints
+                .get(&path)
+                .is_some_and(|previous| previous != &value)
+            {
+                return Err(stale(&path));
+            }
+            self.fingerprints.insert(path, value);
+        }
+        Ok(())
+    }
     pub fn capture(root: &Path, control: &Control) -> Result<Self> {
         let config = ProjectConfig::load(root).map_err(Error::from)?;
         let layout = PackLayout::from_config(&config);

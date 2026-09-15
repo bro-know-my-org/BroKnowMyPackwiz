@@ -187,7 +187,7 @@ pub fn curseforge_many<T: Transport>(
     let mut rows = Vec::new();
     let mut drafts = Vec::new();
     let mut downloads = Vec::new();
-    for entry in entries {
+    for mut entry in entries {
         control.check()?;
         let id = entry.file.project_id;
         let project = client.project(id)?;
@@ -207,6 +207,20 @@ pub fn curseforge_many<T: Transport>(
             ));
         }
         let old = existing.get(&id);
+        if entry.action == Action::Reuse
+            && old.is_some_and(|old| {
+                old.metadata.filename.as_deref() != Some(entry.file.filename.as_str())
+                    || !old
+                        .metadata
+                        .download_hash
+                        .as_ref()
+                        .is_some_and(|hash| hash.eq_ignore_ascii_case(&entry.file.sha1))
+                    || old.metadata.download_mode.as_deref() != Some("metadata:curseforge")
+                    || old.metadata.download_hash_format.as_deref() != Some("sha1")
+            })
+        {
+            entry.action = Action::Update;
+        }
         let mut download_target = old.and_then(|old| old.target.clone());
         let name = old
             .and_then(|o| o.metadata.name.clone())
