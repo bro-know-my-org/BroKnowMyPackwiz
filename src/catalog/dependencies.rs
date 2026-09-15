@@ -66,9 +66,25 @@ pub fn plan(
     installed: &[Installed],
     control: &Control,
 ) -> Result<Vec<Entry>> {
+    plan_many(source, vec![(selected, side)], filter, installed, control)
+}
+
+pub fn plan_many(
+    source: &impl Source,
+    selected: Vec<(File, Side)>,
+    filter: &Filter,
+    installed: &[Installed],
+    control: &Control,
+) -> Result<Vec<Entry>> {
     control.check()?;
-    if matches!(side, Side::Unknown(_)) {
-        return Err(conflict("dependency_side_unknown", selected.project_id));
+    let mut forced = BTreeMap::new();
+    for (file, side) in &selected {
+        if matches!(side, Side::Unknown(_)) {
+            return Err(conflict("dependency_side_unknown", file.project_id));
+        }
+        if forced.insert(file.project_id, file.clone()).is_some() {
+            return Err(conflict("duplicate_selected_project", file.project_id));
+        }
     }
     let mut existing = BTreeMap::new();
     for item in installed {
@@ -83,11 +99,14 @@ pub fn plan(
         source,
         filter,
         existing,
+        forced,
         active: BTreeSet::new(),
         entries: Vec::new(),
         control,
     };
-    planner.visit(selected, side)?;
+    for (file, side) in selected {
+        planner.visit(file, side)?;
+    }
     // Compare the complete resulting selection, including untouched installed
     // files, in both directions. A replaced file's old conflicts no longer apply.
     let mut final_files: BTreeMap<_, _> = planner
@@ -115,6 +134,7 @@ struct Planner<'a, S> {
     source: &'a S,
     filter: &'a Filter,
     existing: BTreeMap<u64, &'a Installed>,
+    forced: BTreeMap<u64, File>,
     active: BTreeSet<u64>,
     entries: Vec<Entry>,
     control: &'a Control,
@@ -165,6 +185,8 @@ impl<S: Source> Planner<'_, S> {
                 .find(|e| e.file.project_id == dep.project_id)
             {
                 entry.file.clone()
+            } else if let Some(file) = self.forced.get(&dep.project_id) {
+                file.clone()
             } else if let Some(old) = self.existing.get(&dep.project_id) {
                 if self.source.compatible(&old.file, self.filter)? {
                     old.file.clone()
@@ -193,6 +215,41 @@ mod tests {
     use super::super::curseforge::Dependency;
     use super::*;
     use std::cell::RefCell;
+    #[test]
+    fn a_selected_update_is_used_when_another_selected_project_requires_it() {
+        let source = fake(vec![]);
+        let mut old = file(2, &[]);
+        old.id = 199;
+        let installed = [Installed {
+            file: old,
+            side: Side::Both,
+            pinned: false,
+        }];
+        let entries = plan_many(
+            &source,
+            vec![(file(1, &[(2, 3)]), Side::Both), (file(2, &[]), Side::Both)],
+            &filter(),
+            &installed,
+            &Control::default(),
+        )
+        .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].file.id, 200);
+        assert_eq!(entries[0].action, Action::Update);
+        assert!(source.queries.borrow().is_empty());
+    }
+    #[test]
+    fn conflicting_roots_in_one_batch_block_the_whole_plan() {
+        let error = plan_many(
+            &fake(vec![]),
+            vec![(file(1, &[(2, 5)]), Side::Both), (file(2, &[]), Side::Both)],
+            &filter(),
+            &[],
+            &Control::default(),
+        )
+        .unwrap_err();
+        assert!(error.detail.contains("incompatible_dependency"));
+    }
 
     struct Fake {
         files: BTreeMap<u64, File>,
