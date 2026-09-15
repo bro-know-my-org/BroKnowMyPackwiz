@@ -155,8 +155,9 @@ impl Queue {
             let saved: Saved = serde_json::from_slice(&fs::read(&file)?)
                 .map_err(|e| Error::new(ErrorCode::Invalid, e.to_string()))?;
             if saved.version != 1 || saved.root != root {
-                return Err(Error::new(
+                return Err(Error::named(
                     ErrorCode::Invalid,
+                    "queue_identity_mismatch",
                     "queue version or root mismatch",
                 ));
             }
@@ -167,10 +168,18 @@ impl Queue {
         let mut ids = std::collections::HashSet::new();
         for task in &mut tasks {
             if task.id.is_empty() || !task.id.chars().all(|c| c.is_ascii_digit() || c == '-') {
-                return Err(Error::new(ErrorCode::Invalid, "invalid task id"));
+                return Err(Error::named(
+                    ErrorCode::Invalid,
+                    "invalid_task_id",
+                    "invalid task id",
+                ));
             }
             if !ids.insert(task.id.clone()) {
-                return Err(Error::new(ErrorCode::Invalid, "duplicate task id"));
+                return Err(Error::named(
+                    ErrorCode::Invalid,
+                    "duplicate_task_id",
+                    "duplicate task id",
+                ));
             }
             if matches!(task.status, Status::Running | Status::Cancelling) {
                 task.status = Status::NeedsRecovery;
@@ -206,8 +215,9 @@ impl Queue {
 
     pub fn enqueue(&mut self, label: &str, request: Request) -> Result<()> {
         if self.blocked() {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Conflict,
+                "recovery_before_changes",
                 "resolve recovery before adding changes",
             ));
         }
@@ -250,7 +260,11 @@ impl Queue {
     }
     pub fn resume(&mut self) -> Result<()> {
         if self.blocked() {
-            return Err(Error::new(ErrorCode::Conflict, "recovery unresolved"));
+            return Err(Error::named(
+                ErrorCode::Conflict,
+                "recovery_unresolved",
+                "recovery unresolved",
+            ));
         }
         self.paused = false;
         Ok(())
@@ -259,14 +273,15 @@ impl Queue {
         let task = self
             .tasks
             .get_mut(index)
-            .ok_or_else(|| Error::new(ErrorCode::Invalid, "unknown task"))?;
+            .ok_or_else(|| Error::named(ErrorCode::Invalid, "unknown_task", "unknown task"))?;
         match task.status {
             Status::Waiting => task.status = Status::Cancelled,
             Status::Running => {
                 if let Some(running) = &self.running {
                     if running.recovery {
-                        return Err(Error::new(
+                        return Err(Error::named(
                             ErrorCode::Busy,
+                            "recovery_before_exit",
                             "recovery must finish before exit",
                         ));
                     }
@@ -274,7 +289,13 @@ impl Queue {
                 }
                 task.status = Status::Cancelling;
             }
-            _ => return Err(Error::new(ErrorCode::Invalid, "task cannot be cancelled")),
+            _ => {
+                return Err(Error::named(
+                    ErrorCode::Invalid,
+                    "task_not_cancellable",
+                    "task cannot be cancelled",
+                ));
+            }
         }
         self.paused = true;
         self.save()?;
@@ -287,21 +308,29 @@ impl Queue {
         let index = self
             .running
             .as_ref()
-            .ok_or_else(|| Error::new(ErrorCode::Invalid, "no running task"))?
+            .ok_or_else(|| Error::named(ErrorCode::Invalid, "no_running_task", "no running task"))?
             .index;
         self.cancel(index)
     }
 
     pub fn retry_recovery(&mut self, index: usize) -> Result<()> {
         if self.busy() {
-            return Err(Error::new(ErrorCode::Busy, "task running"));
+            return Err(Error::named(
+                ErrorCode::Busy,
+                "task_running",
+                "task running",
+            ));
         }
         let task = self
             .tasks
             .get_mut(index)
-            .ok_or_else(|| Error::new(ErrorCode::Invalid, "unknown task"))?;
+            .ok_or_else(|| Error::named(ErrorCode::Invalid, "unknown_task", "unknown task"))?;
         if task.status != Status::Conflict {
-            return Err(Error::new(ErrorCode::Invalid, "no recovery conflict"));
+            return Err(Error::named(
+                ErrorCode::Invalid,
+                "no_recovery_conflict",
+                "no recovery conflict",
+            ));
         }
         task.status = Status::NeedsRecovery;
         self.save()
@@ -314,8 +343,9 @@ impl Queue {
             .as_ref()
             .and_then(|r| match r.result.try_recv() {
                 Ok(value) => Some(value),
-                Err(mpsc::TryRecvError::Disconnected) => Some(Err(Error::new(
+                Err(mpsc::TryRecvError::Disconnected) => Some(Err(Error::named(
                     ErrorCode::Interrupted,
+                    "task_worker_disconnected",
                     "worker disconnected",
                 ))),
                 Err(mpsc::TryRecvError::Empty) => None,
@@ -482,7 +512,9 @@ impl Queue {
             .tasks
             .get(index)
             .filter(|t| t.status == Status::Conflict)
-            .ok_or_else(|| Error::new(ErrorCode::Invalid, "no task conflict"))?;
+            .ok_or_else(|| {
+                Error::named(ErrorCode::Invalid, "no_task_conflict", "no task conflict")
+            })?;
         let path = self.state.join("tasks").join(&task.id).join("transactions");
         let mut files = Vec::new();
         if path.exists() {
@@ -495,7 +527,11 @@ impl Queue {
 
     pub fn resolve(&mut self, index: usize, keep_external: bool) -> Result<()> {
         if self.busy() {
-            return Err(Error::new(ErrorCode::Busy, "task running"));
+            return Err(Error::named(
+                ErrorCode::Busy,
+                "task_running",
+                "task running",
+            ));
         }
         self.conflict_files(index)?;
         self.start(index, true, Some(keep_external))
