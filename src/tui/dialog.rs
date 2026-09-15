@@ -66,6 +66,29 @@ pub enum Submission {
 }
 
 impl Dialog {
+    pub fn remove(root: &Path, names: Vec<String>, lang: Language) -> Result<Self> {
+        let mut request =
+            crate::operation::command::Request::new(crate::operation::command::Kind::Remove);
+        request.names = names;
+        request.validate()?;
+        request.guard = Some(crate::operation::preview::Guard::capture(
+            root,
+            &crate::operation::Control::default(),
+        )?);
+        let mut form = Form::new("remove", Vec::new());
+        form.preview = Some(format!(
+            "{}\n\n{}",
+            lang.text("remove_preview"),
+            request.names.join("\n")
+        ));
+        Ok(Self {
+            form,
+            purpose: Purpose::Prepared {
+                request: crate::operation::queue::Request::Command(request),
+                label: "remove".into(),
+            },
+        })
+    }
     pub fn command(kind: crate::operation::command::Kind, lang: Language) -> Self {
         Self {
             form: super::pack::form(kind, lang),
@@ -314,6 +337,15 @@ impl Dialog {
                 ("download.mode", "download_mode", Kind::Text),
                 ("download.hash-format", "hash_format", Kind::Text),
                 ("download.hash", "hash", Kind::Text),
+                (
+                    "update.curseforge.project-id",
+                    "cf_export_project",
+                    Kind::Number,
+                ),
+                ("update.curseforge.file-id", "cf_export_file", Kind::Number),
+                ("update.github.project", "github_repository", Kind::Text),
+                ("update.github.tag", "github_update_tag", Kind::Text),
+                ("update.github.asset", "github_update_filter", Kind::Text),
                 (
                     "export.curseforge.project-id",
                     "cf_export_project",

@@ -91,6 +91,8 @@ impl Kind {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Request {
+    #[serde(default)]
+    pub guard: Option<super::preview::Guard>,
     pub kind: Kind,
     pub output: Option<PathBuf>,
     pub input: Option<PathBuf>,
@@ -107,6 +109,7 @@ pub struct Request {
 impl Request {
     pub fn new(kind: Kind) -> Self {
         Self {
+            guard: None,
             kind,
             output: None,
             input: None,
