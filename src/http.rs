@@ -355,7 +355,7 @@ fn ensure_success(url: &str, status: ureq::http::StatusCode) -> Result<(), Strin
     }
 }
 
-fn agent() -> &'static ureq::Agent {
+pub(crate) fn agent() -> &'static ureq::Agent {
     static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
         ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(HTTP_TIMEOUT_SECONDS)))
