@@ -27,7 +27,7 @@ impl Transport for Http {
             &self.key,
         )
         .map_err(Error::from)?;
-        serde_json::from_str(&text).map_err(|e| invalid(e.to_string()))
+        serde_json::from_str(&text).map_err(|e| Error::new(ErrorCode::Invalid, e.to_string()))
     }
 }
 pub struct Client<T = Http> {
@@ -64,7 +64,7 @@ impl Filter {
         }
         if let Some(loader) = self.loader.as_ref().filter(|v| !v.is_empty()) {
             let id = crate::curseforge::loader_type(loader)
-                .ok_or_else(|| invalid("unsupported loader"))?;
+                .ok_or_else(|| invalid("unsupported_loader"))?;
             query.push_str(&format!("&modLoaderType={id}"));
         }
         Ok(query)
@@ -134,7 +134,7 @@ impl<T: Transport> Client<T> {
     ) -> Result<Page<Project>> {
         let offset = page
             .checked_mul(PAGE_SIZE)
-            .ok_or_else(|| invalid("page overflow"))?;
+            .ok_or_else(|| invalid("page_overflow"))?;
         let path = format!(
             "mods/search?gameId=432&classId={class_id}&searchFilter={}&index={offset}&pageSize={PAGE_SIZE}&sortField=2&sortOrder=desc{}",
             encode(query),
@@ -152,17 +152,17 @@ impl<T: Transport> Client<T> {
         let result = project(
             value
                 .get("data")
-                .ok_or_else(|| invalid("missing project data"))?,
+                .ok_or_else(|| invalid("missing_project_data"))?,
         )?;
         if result.id != id {
-            return Err(invalid("project identity mismatch"));
+            return Err(invalid("project_identity_mismatch"));
         }
         Ok(result)
     }
     pub fn files(&self, project_id: u64, filter: &Filter, page: usize) -> Result<Page<File>> {
         let offset = page
             .checked_mul(PAGE_SIZE)
-            .ok_or_else(|| invalid("page overflow"))?;
+            .ok_or_else(|| invalid("page_overflow"))?;
         let value = self.transport.get(&format!(
             "mods/{project_id}/files?index={offset}&pageSize={PAGE_SIZE}{}",
             filter.query()?
@@ -180,11 +180,11 @@ impl<T: Transport> Client<T> {
         let result = file(
             value
                 .get("data")
-                .ok_or_else(|| invalid("missing file data"))?,
+                .ok_or_else(|| invalid("missing_file_data"))?,
             project_id,
         )?;
         if result.id != file_id {
-            return Err(invalid("file identity mismatch"));
+            return Err(invalid("file_identity_mismatch"));
         }
         Ok(result)
     }
@@ -196,10 +196,8 @@ impl<T: Transport> Client<T> {
                 return Ok(file.clone());
             }
             if !response.has_more() || response.items.is_empty() {
-                return Err(Error::new(
-                    ErrorCode::Conflict,
-                    format!("no compatible file: {project_id}"),
-                ));
+                return Err(Error::key(ErrorCode::Conflict, "no_compatible_file")
+                    .context(project_id.to_string()));
             }
             page += 1;
         }
@@ -210,14 +208,14 @@ fn array(value: &Value) -> Result<&Vec<Value>> {
     value
         .get("data")
         .and_then(Value::as_array)
-        .ok_or_else(|| invalid("missing data array"))
+        .ok_or_else(|| invalid("missing_array"))
 }
 fn number(value: &Value, key: &str) -> Result<u64> {
     value
         .get(key)
         .and_then(Value::as_u64)
         .filter(|v| *v > 0)
-        .ok_or_else(|| invalid(format!("missing {key}")))
+        .ok_or_else(|| Error::key(ErrorCode::Invalid, "missing_platform_field").context(key))
 }
 fn string(value: &Value, key: &str) -> String {
     value
@@ -245,7 +243,7 @@ fn file(value: &Value, project_id: u64) -> Result<File> {
         .and_then(Value::as_u64)
         .is_some_and(|v| v != project_id)
     {
-        return Err(invalid("file project mismatch"));
+        return Err(invalid("file_project_mismatch"));
     }
     let filename = string(value, "fileName");
     crate::pathutil::safe_filename(&filename).map_err(Error::from)?;
@@ -258,9 +256,9 @@ fn file(value: &Value, project_id: u64) -> Result<File> {
                 .find(|hash| hash.get("algo").and_then(Value::as_u64) == Some(1))
         })
         .map(|hash| string(hash, "value").to_ascii_lowercase())
-        .ok_or_else(|| invalid("missing SHA-1"))?;
+        .ok_or_else(|| invalid("missing_sha1"))?;
     if sha1.len() != 40 || !sha1.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return Err(invalid("invalid SHA-1"));
+        return Err(invalid("invalid_sha1"));
     }
     let dependencies = value
         .get("dependencies")
@@ -316,8 +314,8 @@ fn page_result<T>(value: &Value, items: Vec<T>, offset: usize) -> Page<T> {
         offset,
     }
 }
-fn invalid(detail: impl Into<String>) -> Error {
-    Error::new(ErrorCode::Invalid, detail)
+fn invalid(key: &str) -> Error {
+    Error::key(ErrorCode::Invalid, key)
 }
 
 #[cfg(test)]

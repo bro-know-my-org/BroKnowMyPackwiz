@@ -53,7 +53,7 @@ fn overlaps(a: &Side, b: &Side) -> bool {
     )
 }
 fn conflict(reason: &str, project: u64) -> Error {
-    Error::new(ErrorCode::Conflict, format!("{reason}: {project}"))
+    Error::key(ErrorCode::Conflict, reason).context(project.to_string())
 }
 
 /// Entries are dependency-first, deterministic and deduplicated. Installed files
@@ -248,7 +248,7 @@ mod tests {
             &Control::default(),
         )
         .unwrap_err();
-        assert!(error.detail.contains("incompatible_dependency"));
+        assert!(error.to_string().contains("incompatible_dependency"));
     }
 
     struct Fake {
@@ -322,7 +322,7 @@ mod tests {
         assert!(
             run(&fake(vec![file(2, &[(1, 3)])]), file(1, &[(2, 3)]), &[])
                 .unwrap_err()
-                .detail
+                .to_string()
                 .contains("cycle")
         );
         let installed = [Installed {
@@ -333,7 +333,7 @@ mod tests {
         assert!(
             run(&fake(vec![]), file(1, &[]), &installed)
                 .unwrap_err()
-                .detail
+                .to_string()
                 .contains("incompatible")
         );
     }
@@ -352,7 +352,7 @@ mod tests {
         assert!(
             run(&source, file(1, &[(2, 3)]), &[installed.clone()])
                 .unwrap_err()
-                .detail
+                .to_string()
                 .contains("pinned")
         );
         installed.pinned = false;
@@ -372,13 +372,13 @@ mod tests {
         assert!(
             run(&fake(vec![]), file(1, &[(2, 3)]), &[installed.clone()])
                 .unwrap_err()
-                .detail
+                .to_string()
                 .contains("side")
         );
         assert!(
             run(&fake(vec![]), file(1, &[]), &[installed.clone(), installed])
                 .unwrap_err()
-                .detail
+                .to_string()
                 .contains("duplicate")
         );
     }

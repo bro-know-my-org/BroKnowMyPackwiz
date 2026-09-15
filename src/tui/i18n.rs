@@ -66,6 +66,116 @@ impl Language {
 
 const MESSAGES: &[(&str, &str, &str)] = &[
     (
+        "dependency_side_unknown",
+        "Dependency installation side is unknown",
+        "依赖的安装环境未知",
+    ),
+    (
+        "duplicate_selected_project",
+        "The same project was selected twice",
+        "重复选择了同一项目",
+    ),
+    (
+        "duplicate_installed_project",
+        "Installed metadata duplicates a project",
+        "已安装元数据包含重复项目",
+    ),
+    (
+        "incompatible_dependency",
+        "Projects declare an incompatibility",
+        "项目声明了不兼容关系",
+    ),
+    (
+        "dependency_cycle",
+        "Required dependencies form a cycle",
+        "必需依赖存在循环",
+    ),
+    (
+        "dependency_selection_conflict",
+        "Selected dependency versions conflict",
+        "选中的依赖版本冲突",
+    ),
+    (
+        "dependency_graph_too_large",
+        "Dependency graph exceeds the supported size",
+        "依赖关系规模超出支持范围",
+    ),
+    (
+        "dependency_version_mismatch",
+        "Dependency does not match Minecraft or loader",
+        "依赖不匹配 Minecraft 或加载器版本",
+    ),
+    (
+        "dependency_side_mismatch",
+        "Installed dependency does not cover the required side",
+        "已安装依赖不覆盖所需环境",
+    ),
+    (
+        "dependency_pinned",
+        "A pinned dependency blocks this update",
+        "锁定的依赖阻止了本次更新",
+    ),
+    (
+        "dependency_identity_mismatch",
+        "Dependency response belongs to another project",
+        "依赖响应属于其他项目",
+    ),
+    (
+        "file_collision",
+        "Destination already belongs to another file",
+        "目标路径已被其他文件占用",
+    ),
+    (
+        "unsupported_loader",
+        "Unsupported mod loader",
+        "不支持此模组加载器",
+    ),
+    (
+        "missing_project_data",
+        "Platform response has no project data",
+        "平台响应缺少项目数据",
+    ),
+    (
+        "project_identity_mismatch",
+        "Platform returned a different project",
+        "平台返回了其他项目",
+    ),
+    (
+        "missing_file_data",
+        "Platform response has no file data",
+        "平台响应缺少文件数据",
+    ),
+    (
+        "file_identity_mismatch",
+        "Platform returned a different file",
+        "平台返回了其他文件",
+    ),
+    (
+        "file_project_mismatch",
+        "Platform file belongs to another project",
+        "平台文件属于其他项目",
+    ),
+    (
+        "missing_sha1",
+        "Platform file has no SHA-1 checksum",
+        "平台文件缺少 SHA-1 摘要",
+    ),
+    (
+        "invalid_sha1",
+        "Platform file has an invalid SHA-1 checksum",
+        "平台文件的 SHA-1 摘要无效",
+    ),
+    (
+        "missing_platform_field",
+        "Platform response is missing a field",
+        "平台响应缺少字段",
+    ),
+    (
+        "no_compatible_file",
+        "No compatible file is available",
+        "没有可用的兼容文件",
+    ),
+    (
         "directory_conflict",
         "A directory created by this task contains external content or cannot be removed. Keep it, or move the external content yourself before retrying recovery.",
         "本任务创建的目录包含外部内容或无法移除。可以选择保留，或手动移走外部内容后重试恢复。",

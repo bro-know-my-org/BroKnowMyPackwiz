@@ -68,7 +68,7 @@ fn class_filter(filter: &Filter, class: u64) -> Result<Filter> {
     Ok(filter)
 }
 fn collision(path: &str) -> Error {
-    Error::new(ErrorCode::Conflict, format!("file_collision: {path}"))
+    Error::key(ErrorCode::Conflict, "file_collision").context(path)
 }
 
 /// No pack writes or latest-version resolution happens after this preview.
