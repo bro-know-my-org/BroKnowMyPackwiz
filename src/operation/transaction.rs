@@ -70,6 +70,21 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn prepare(state: &Path, changes: Vec<Change>, control: &Control) -> Result<Self> {
+        Self::prepare_tree(state, changes, Vec::new(), Vec::new(), control)
+    }
+
+    pub fn prepare_tree(
+        state: &Path,
+        changes: Vec<Change>,
+        directory_changes: Vec<super::directory::Change>,
+        created: Vec<(PathBuf, u32)>,
+        control: &Control,
+    ) -> Result<Self> {
+        let deleted = changes
+            .iter()
+            .filter(|change| change.expected.is_some() && change.source.is_none())
+            .map(|change| durable::absolute(&change.target))
+            .collect::<Result<Vec<_>>>()?;
         let directory = state.join("transactions").join(durable::unique_id());
         fs::create_dir_all(directory.join("before"))?;
         fs::create_dir(directory.join("after"))?;
@@ -87,18 +102,28 @@ impl Transaction {
             },
         };
         txn.save()?;
+        txn.change_directories(directory_changes)?;
         let mut targets = BTreeSet::new();
         control.emit(Event::Phase("preparing".into()));
         for change in changes {
             control.check()?;
-            let target = durable::absolute(&change.target)?;
+            let target = planned_path(&change.target, &deleted)?;
             if !targets.insert(target.clone()) {
                 return Err(Error::new(
                     ErrorCode::Invalid,
                     "duplicate transaction target",
                 ));
             }
-            let before = durable::fingerprint(&target)?;
+            let before = if change.expected.is_none()
+                && (txn.removes_directory(&target)
+                    || deleted
+                        .iter()
+                        .any(|parent| parent != &target && target.starts_with(parent)))
+            {
+                None
+            } else {
+                durable::fingerprint(&target)?
+            };
             if before != change.expected {
                 return Err(conflict(&target));
             }
@@ -138,6 +163,7 @@ impl Transaction {
         }
         durable::sync_dir(&txn.directory.join("before"))?;
         durable::sync_dir(&txn.directory.join("after"))?;
+        txn.create_directories_with_modes(created)?;
         txn.save()?;
         durable::sync_dir(txn.directory.parent().unwrap())?;
         Ok(txn)
@@ -190,9 +216,10 @@ impl Transaction {
             ));
         }
         let mut directories = BTreeSet::new();
+        let deleted = self.deleted_files();
         for path in paths {
-            let path = durable::absolute(&path)?;
-            if path.exists() {
+            let path = planned_path(&path, &deleted)?;
+            if path.exists() && !deleted.contains(&path) {
                 return Err(conflict(&path));
             }
             directories.insert(path);
@@ -204,9 +231,25 @@ impl Transaction {
         self.create_directories(paths.iter().map(|(path, _)| path.clone()).collect())?;
         self.journal.requested_modes = paths
             .into_iter()
-            .map(|(path, mode)| durable::absolute(&path).map(|path| (path, mode)))
+            .map(|(path, mode)| planned_path(&path, &self.deleted_files()).map(|path| (path, mode)))
             .collect::<Result<_>>()?;
         self.save()
+    }
+    fn deleted_files(&self) -> Vec<PathBuf> {
+        self.journal
+            .entries
+            .iter()
+            .filter(|entry| entry.before.is_some() && entry.after.is_none())
+            .map(|entry| entry.target.clone())
+            .collect()
+    }
+    pub(super) fn new_file_targets(&self) -> Vec<PathBuf> {
+        self.journal
+            .entries
+            .iter()
+            .filter(|entry| entry.before.is_none() && entry.after.is_some())
+            .map(|entry| entry.target.clone())
+            .collect()
     }
     pub fn conflicts(&self) -> &[PathBuf] {
         &self.journal.conflicts
@@ -269,6 +312,21 @@ impl Transaction {
             if keep_external {
                 self.journal.entries[i].step = Step::Restored;
                 self.save()?;
+                continue;
+            }
+            // A replacement file can temporarily hide an original directory's
+            // children. Resolve that parent's file entry first; these children
+            // have no current file to archive and are restored in rollback.
+            if self.journal.entries.iter().any(|parent| {
+                parent.before.is_none()
+                    && parent.after.is_some()
+                    && parent.target != target
+                    && target.starts_with(&parent.target)
+                    && self.removes_directory(&parent.target)
+                    && fs::symlink_metadata(&parent.target).is_ok_and(|metadata| {
+                        metadata.is_file() && !metadata.file_type().is_symlink()
+                    })
+            }) {
                 continue;
             }
             durable::absolute(&target)?;
@@ -538,6 +596,32 @@ impl Transaction {
 
 fn conflict(path: &Path) -> Error {
     Error::new(ErrorCode::Conflict, path.display().to_string())
+}
+
+/// A future descendant of a file can only be planned if that exact file is
+/// included in this transaction's verified deletion set. No symlink exception.
+fn planned_path(path: &Path, deleted: &[PathBuf]) -> Result<PathBuf> {
+    match durable::absolute(path) {
+        Ok(path) => Ok(path),
+        Err(error) => {
+            if !path.is_absolute()
+                || path
+                    .components()
+                    .any(|part| matches!(part, std::path::Component::ParentDir))
+            {
+                return Err(error);
+            }
+            for parent in deleted {
+                if parent != path && path.starts_with(parent) {
+                    durable::absolute(parent)?;
+                    if durable::fingerprint(parent)?.is_some() {
+                        return Ok(parent.join(path.strip_prefix(parent).unwrap()));
+                    }
+                }
+            }
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]

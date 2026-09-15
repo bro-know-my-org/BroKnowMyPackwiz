@@ -117,9 +117,8 @@ fn execute_with(
             });
         }
     }
-    let mut transaction = Transaction::prepare(task, changes, control)?;
-    transaction.create_directories_with_modes(directories)?;
-    transaction.change_directories(directory_changes)?;
+    let mut transaction =
+        Transaction::prepare_tree(task, changes, directory_changes, directories, control)?;
     transaction.commit(control)
 }
 
@@ -156,6 +155,35 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn external_output_can_change_files_into_directories_and_back() {
+        let fixture = Fixture::new();
+        let output = fixture.0.join("output");
+        fs::create_dir_all(output.join("was-directory")).unwrap();
+        fs::write(output.join("was-directory/old"), "old").unwrap();
+        fs::write(output.join("was-file"), "old file").unwrap();
+        let mut request = Request::new(Kind::PrepareServer);
+        request.output = Some(output.clone());
+        fixture
+            .run(&request, |_, target| {
+                let target = target.unwrap();
+                fs::remove_dir_all(target)?;
+                fs::create_dir_all(target.join("was-file"))?;
+                fs::write(target.join("was-directory"), "now a file")?;
+                fs::write(target.join("was-file/new"), "new child")?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(output.join("was-directory")).unwrap(),
+            "now a file"
+        );
+        assert_eq!(
+            fs::read_to_string(output.join("was-file/new")).unwrap(),
+            "new child"
+        );
     }
 
     #[test]

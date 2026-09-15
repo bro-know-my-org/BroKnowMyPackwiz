@@ -98,6 +98,8 @@ pub enum Event {
 pub struct Control {
     cancelled: Arc<AtomicBool>,
     pub events: Option<Sender<Event>>,
+    #[cfg(test)]
+    pub checkpoint: Option<Arc<dyn Fn(&Event) + Send + Sync>>,
 }
 
 impl Control {
@@ -118,6 +120,10 @@ impl Control {
         }
     }
     pub fn emit(&self, event: Event) {
+        #[cfg(test)]
+        if let Some(checkpoint) = &self.checkpoint {
+            checkpoint(&event);
+        }
         if let Some(tx) = &self.events {
             let _ = tx.send(event);
         }

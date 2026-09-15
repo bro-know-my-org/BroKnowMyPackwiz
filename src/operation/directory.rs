@@ -94,6 +94,12 @@ fn conflict(path: &Path) -> Error {
 }
 
 impl super::transaction::Transaction {
+    pub(super) fn removes_directory(&self, path: &Path) -> bool {
+        self.journal
+            .directory_changes
+            .iter()
+            .any(|entry| entry.target == path && entry.after.is_none())
+    }
     pub(super) fn prepare_created_modes(&mut self) -> Result<()> {
         for (target, after) in &self.journal.requested_modes {
             let before = mode(target)?.ok_or_else(|| conflict(target))?;
@@ -223,11 +229,22 @@ impl super::transaction::Transaction {
     }
 
     pub(super) fn resolve_directory_conflicts(&mut self, keep: bool) -> Result<()> {
+        let new_files = self.new_file_targets();
         for (index, entry) in self.journal.directory_changes.iter_mut().enumerate() {
             if self.journal.conflicts.contains(&entry.target) {
                 if keep {
                     entry.step = Step::Restored;
                 } else {
+                    // File conflict resolution below will archive and remove
+                    // the replacement file before this directory is restored.
+                    if entry.after.is_none()
+                        && new_files.contains(&entry.target)
+                        && fs::symlink_metadata(&entry.target).is_ok_and(|metadata| {
+                            metadata.is_file() && !metadata.file_type().is_symlink()
+                        })
+                    {
+                        continue;
+                    }
                     let current = mode(&entry.target)?;
                     durable::write(
                         &self.directory.join(format!(

@@ -134,11 +134,127 @@ impl Fixture {
     fn prepare(&self, changes: Vec<Change>) -> Transaction {
         Transaction::prepare(&self.root.join("state"), changes, &Control::default()).unwrap()
     }
+    fn topology(&self) -> Transaction {
+        self.file("a/old", b"old child");
+        self.file("b", b"old file");
+        self.file("z", b"old last");
+        self.file("source", b"new");
+        let directory = self.root.join("a");
+        let mode = super::super::directory::mode(&directory).unwrap().unwrap();
+        Transaction::prepare_tree(
+            &self.root.join("state"),
+            vec![
+                self.change("a/old", None),
+                Change {
+                    target: directory.clone(),
+                    expected: None,
+                    source: Some(self.root.join("source")),
+                },
+                self.change("b", None),
+                Change {
+                    target: self.root.join("b/new"),
+                    expected: None,
+                    source: Some(self.root.join("source")),
+                },
+                self.change("z", Some("source")),
+            ],
+            vec![super::super::directory::Change {
+                target: directory,
+                before: mode,
+                after: None,
+            }],
+            vec![(self.root.join("b"), mode)],
+            &Control::default(),
+        )
+        .unwrap()
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn later_write_failure_restores_both_type_conversions() {
+    let f = Fixture::new();
+    let mut tx = f.topology();
+    fs::remove_file(tx.staged(4)).unwrap();
+    assert!(tx.commit(&Control::default()).is_err());
+    assert_eq!(tx.state(), State::RolledBack);
+    assert_eq!(fs::read(f.root.join("a/old")).unwrap(), b"old child");
+    assert_eq!(fs::read(f.root.join("b")).unwrap(), b"old file");
+    assert_eq!(fs::read(f.root.join("z")).unwrap(), b"old last");
+}
+
+#[test]
+fn cancellation_after_type_conversion_restores_the_entire_batch() {
+    let f = Fixture::new();
+    let mut tx = f.topology();
+    let mut control = Control::default();
+    let cancel = control.clone();
+    let checkpoint = f.root.join("b/new").display().to_string();
+    control.checkpoint = Some(std::sync::Arc::new(move |event| {
+        if matches!(event, Event::Progress { label, .. } if label == &checkpoint) {
+            cancel.cancel();
+        }
+    }));
+    assert_eq!(tx.commit(&control).unwrap_err().code, ErrorCode::Cancelled);
+    assert_eq!(tx.state(), State::RolledBack);
+    assert_eq!(fs::read(f.root.join("a/old")).unwrap(), b"old child");
+    assert_eq!(fs::read(f.root.join("b")).unwrap(), b"old file");
+    assert_eq!(fs::read(f.root.join("z")).unwrap(), b"old last");
+}
+
+#[test]
+fn future_descendants_require_an_explicit_file_deletion() {
+    let f = Fixture::new();
+    f.file("file", b"original");
+    let source = f.file("source", b"new");
+    assert!(
+        Transaction::prepare(
+            &f.root.join("state"),
+            vec![Change {
+                target: f.root.join("file/child"),
+                expected: None,
+                source: Some(source)
+            }],
+            &Control::default()
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(f.root.join("file")).unwrap(), b"original");
+}
+
+#[test]
+fn restart_before_commit_marker_restores_types_and_archives_external_replacement() {
+    let f = Fixture::new();
+    let mut tx = f.topology();
+    tx.commit(&Control::default()).unwrap();
+    // Reproduce a crash after all file/directory steps but before the final
+    // committed marker was persisted; the individual applied entries remain.
+    tx.journal.state = State::Committing;
+    tx.save().unwrap();
+    fs::write(f.root.join("a"), b"external replacement").unwrap();
+    let mut tx = Transaction::open(&tx.directory).unwrap();
+    assert_eq!(tx.rollback().unwrap_err().code, ErrorCode::Conflict);
+    assert_eq!(fs::read(f.root.join("a")).unwrap(), b"external replacement");
+    tx.resolve_all(false).unwrap();
+    assert_eq!(fs::read(f.root.join("a/old")).unwrap(), b"old child");
+    assert_eq!(fs::read(f.root.join("b")).unwrap(), b"old file");
+    assert!(
+        fs::read_dir(&tx.directory)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(
+                |entry| entry.file_name().to_string_lossy().starts_with("external-")
+                    && fs::read(entry.path()).is_ok_and(|bytes| bytes == b"external replacement")
+            )
+    );
+    Transaction::open(&tx.directory)
+        .unwrap()
+        .rollback()
+        .unwrap();
 }
 
 #[test]
