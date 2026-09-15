@@ -50,7 +50,7 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 - 文件搜索、多选、焦点、中文粘贴、窄窗口、鼠标入口与滚轮有 ratatui TestBackend 测试；帮助/错误关闭、退出选择、恢复重试的双语鼠标测试已通过，Linux PTY 已实测鼠标打开/关闭帮助和退出；Linux release PTY 有启动、语言切换、重启队列和终端恢复证据。
 - 消息资源有唯一性/完整性测试；操作错误使用稳定消息键和上下文，CLI 字符串接口保留旧文案；第三方原始错误和 CLI 日志保留原文。剩余跨模块 helper 透传路径仍在最终核查。
 - 配置/元数据表单及外部编辑器通过暂存与确认提交；TOML 无关字段、注释和外部冲突有测试。Linux release PTY 已用真实编辑器子进程验证保存、取消、失败、无效 TOML 和外部修改五种往返场景，见 `tests/tui_editor_smoke.py`；Windows/macOS 尚未实测。
-- `.github/workflows/ci.yml` 定义 Windows/Linux/macOS 的格式、测试、release 构建及 CLI 烟测；尚无本次代码的远程执行结果。TUI PTY 自动烟测当前只在 Linux 运行。
+- `.github/workflows/ci.yml` 定义 Windows/Linux/macOS 的格式、测试、release 构建及 CLI 烟测；尚无本次代码的远程执行结果。TUI PTY 自动烟测当前只在 Linux 运行。用户已于 2026-09-15 明确挂起 Windows/macOS 测试；保留实现与 CI 配置，状态仍为未验证。
 - 当前本地证据不能替代三平台中文输入、键鼠、resize、外部编辑器、正常退出和错误退出的真实终端验收。
 
 ## 外部编辑器真实终端往返
@@ -91,7 +91,7 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 
 1. 剩余应用自身诊断与消息键调用的收尾核查。文件搜索/过滤/排序/详情、搜索焦点下页签切换、平台分页/右键文件选择、表单双向选项、设置页滚轮与可见行点击已有双语测试；错误弹窗已验证中文长文本滚动、缩放限位、替换重置及搜索焦点隔离；文件与 CurseForge 详情已验证独立滚动、底部内容可见和条目切换重置；任务日志与表单预览已有键鼠滚动入口，其余组合仍需最终核对。
 2. 真实 CurseForge 鉴权搜索 → 文件/依赖选择 → 元数据添加及可选下载；CurseForge 真实添加结果验证；GitHub 两种添加模式已通过下述独立联网烟测。
-3. 本次代码在 Windows、macOS、Linux 的 CI 结果，及 Windows/macOS 真实终端验收。
+3. Linux CI 结果仍待取得；Windows/macOS 的构建和真实终端验收按用户要求挂起，不作为当前继续工作的阻塞项，也不标记通过。
 4. 将计划中其余队列持久化、秘密不入任务参数、模板/多输出行为逐项归档到最终验收证据。目录切换的加载/未处理门禁和完成后真实终端往返已归档。已有测试不自动推导为所有组合已覆盖。
 
 最新测试数量和构建记录见 [实施记录](tui-progress.md)。
