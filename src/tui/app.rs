@@ -28,6 +28,7 @@ pub struct App {
     pub tabs: Vec<Rect>,
     pub detail: bool,
     pub help: bool,
+    pub help_scroll: u16,
     pub error: Option<String>,
     pub jobs: super::jobs::Jobs,
     pub dialog: Option<super::dialog::Dialog>,
@@ -62,6 +63,7 @@ impl App {
             tabs: Vec::new(),
             detail: false,
             help: false,
+            help_scroll: 0,
             error: None,
             jobs: super::jobs::Jobs::default(),
             dialog: None,
@@ -253,6 +255,20 @@ impl App {
             self.dialog_event(event);
             return false;
         }
+        if self.help {
+            if let Event::Mouse(mouse) = &event {
+                match mouse.kind {
+                    MouseEventKind::ScrollDown => {
+                        self.help_scroll = self.help_scroll.saturating_add(3)
+                    }
+                    MouseEventKind::ScrollUp => {
+                        self.help_scroll = self.help_scroll.saturating_sub(3)
+                    }
+                    _ => {}
+                }
+                return false;
+            }
+        }
         if self.page == 1 && self.catalog.editing && !self.help && !self.jobs.quit_prompt {
             self.catalog.event(event, &self.root);
             return false;
@@ -306,7 +322,18 @@ impl App {
                     return false;
                 }
                 if self.help {
-                    self.help = false;
+                    match key.code {
+                        KeyCode::Down => self.help_scroll = self.help_scroll.saturating_add(1),
+                        KeyCode::Up => self.help_scroll = self.help_scroll.saturating_sub(1),
+                        KeyCode::PageDown => self.help_scroll = self.help_scroll.saturating_add(8),
+                        KeyCode::PageUp => self.help_scroll = self.help_scroll.saturating_sub(8),
+                        KeyCode::Home => self.help_scroll = 0,
+                        KeyCode::End => self.help_scroll = u16::MAX,
+                        KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?' | 'q') => {
+                            self.help = false
+                        }
+                        _ => {}
+                    }
                     return false;
                 }
                 match key.code {
@@ -325,7 +352,10 @@ impl App {
                             }
                         }
                     }
-                    KeyCode::Char('?') => self.help = true,
+                    KeyCode::Char('?') => {
+                        self.help = true;
+                        self.help_scroll = 0;
+                    }
                     KeyCode::Down if self.page == 2 => {
                         let index = self.pack_selection.selected().unwrap_or(0);
                         self.pack_selection

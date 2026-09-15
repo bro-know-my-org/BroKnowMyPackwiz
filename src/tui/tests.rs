@@ -54,6 +54,41 @@ fn failed_queue_save_does_not_leak_a_new_form_draft() {
 }
 
 #[test]
+fn narrow_help_scrolls_to_the_end_and_keeps_shortcuts_modal() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+    for language in [Language::En, Language::ZhCn] {
+        app.language = language;
+        key(&mut app, KeyCode::Char('?'));
+        assert!(app.help);
+        assert_eq!(app.help_scroll, 0);
+        key(&mut app, KeyCode::End);
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        let end = app.help_scroll;
+        assert!(end > 8 && end < u16::MAX);
+        key(&mut app, KeyCode::PageDown);
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        assert_eq!(app.help_scroll, end);
+        key(&mut app, KeyCode::Home);
+        assert_eq!(app.help_scroll, 0);
+        app.event(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 20,
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(app.help_scroll, 3);
+        assert_eq!(app.table.selected(), Some(0));
+        assert!(!key(&mut app, KeyCode::Char('q')));
+        assert!(!app.help);
+        key(&mut app, KeyCode::Char('?'));
+        assert_eq!(app.help_scroll, 0);
+        key(&mut app, KeyCode::Esc);
+        assert!(!app.help);
+    }
+}
+
+#[test]
 fn narrow_toolbar_keeps_all_file_actions_clickable() {
     let mut app = app();
     let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();

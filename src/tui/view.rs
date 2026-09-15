@@ -93,7 +93,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     } else if app.jobs.quit_prompt {
         popup(frame, lang.text("tasks"), lang.text("quit_task"));
     } else if app.help {
-        popup(frame, lang.text("help"), lang.text("help_text"));
+        help(frame, lang, &mut app.help_scroll);
     } else if let Some(error) = &app.error {
         popup(frame, lang.text("error"), error);
     }
@@ -314,6 +314,46 @@ pub fn popup(frame: &mut Frame, title: &str, text: &str) {
         Paragraph::new(text)
             .wrap(Wrap { trim: false })
             .block(Block::bordered().title(title)),
+        rect,
+    );
+}
+
+fn help(frame: &mut Frame, lang: Language, scroll: &mut u16) {
+    let area = frame.area();
+    let rect = Rect::new(
+        area.x + area.width / 10,
+        area.y + area.height / 10,
+        area.width * 8 / 10,
+        area.height * 8 / 10,
+    );
+    let block = Block::bordered().title(lang.text("help"));
+    let inner = block.inner(rect);
+    let mut lines = Vec::new();
+    for line in lang.text("help_text").lines() {
+        let mut current = String::new();
+        let mut width = 0;
+        for character in line.chars() {
+            let size = unicode_width::UnicodeWidthChar::width(character).unwrap_or(0) as u16;
+            if width > 0 && width + size > inner.width {
+                lines.push(std::mem::take(&mut current));
+                width = 0;
+            }
+            current.push(character);
+            width += size;
+        }
+        lines.push(current);
+    }
+    *scroll = (*scroll).min(
+        lines
+            .len()
+            .saturating_sub(inner.height as usize)
+            .min(u16::MAX as usize) as u16,
+    );
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Paragraph::new(lines.join("\n"))
+            .scroll((*scroll, 0))
+            .block(block),
         rect,
     );
 }
