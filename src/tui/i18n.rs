@@ -43,6 +43,23 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("querying_updates", "Querying updates", "正在查询更新"),
+    ("update_preview", "Preview updates", "预览更新"),
+    ("update_direct", "Update directly", "直接更新"),
+    ("update_files", "Update files", "更新文件"),
+    ("select_all", "Select visible", "全选当前列表"),
+    ("update_pinned", "Skipped: pinned", "已跳过：锁定更新"),
+    (
+        "update_no_provider",
+        "Skipped: no update source",
+        "已跳过：没有更新来源",
+    ),
+    ("update_unchanged", "Already up to date", "已是当前版本"),
+    (
+        "update_no_candidates",
+        "No update candidates",
+        "没有待更新项目",
+    ),
     ("downloading", "Downloading", "正在下载"),
     ("retrying", "Waiting to retry", "等待重试"),
     ("transfer_bytes", "Transferred bytes", "已传输字节"),
