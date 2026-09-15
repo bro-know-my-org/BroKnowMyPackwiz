@@ -113,10 +113,10 @@ recovery requires an available filesystem and intact journals/backups. External
 editors work on private copies that are saved after confirmation. Exit the TUI
 before upgrading the tool with `bkmpw self-update`.
 
-Version one is still undergoing acceptance testing. Actual Linux terminal and
-offline task smoke tests have passed; Windows/macOS terminal tests, remote
-three-platform CI and an authenticated CurseForge file-add smoke test remain
-unverified. See the [plan](docs/tui-plan.md) and [progress](docs/tui-progress.md)
+Linux release terminal, offline tasks, external editor, and real GitHub/CurseForge
+add-and-download smoke tests have passed. Windows/macOS build and terminal testing
+is suspended at the user’s request. Three-platform CI is configured but has not
+run remotely. See the [plan](docs/tui-plan.md) and [progress](docs/tui-progress.md)
 (Chinese) for scope and evidence.
 
 ## Commands
