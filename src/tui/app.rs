@@ -30,6 +30,8 @@ pub struct App {
     pub help: bool,
     pub help_scroll: u16,
     pub error: Option<String>,
+    pub popup_scroll: u16,
+    pub popup_text: String,
     pub jobs: super::jobs::Jobs,
     pub dialog: Option<super::dialog::Dialog>,
     pub preferences: super::preferences::Preferences,
@@ -66,6 +68,8 @@ impl App {
             help: false,
             help_scroll: 0,
             error: None,
+            popup_scroll: 0,
+            popup_text: String::new(),
             jobs: super::jobs::Jobs::default(),
             dialog: None,
             preferences: super::preferences::Preferences::default(),
@@ -286,9 +290,42 @@ impl App {
                     )));
                 }
             }
-            if self.jobs.quit_prompt || (self.error.is_some() && !self.help) {
-                return false;
+        }
+        // Modal events must not reach a focused search field or page shortcuts.
+        if self.jobs.quit_prompt || (self.error.is_some() && !self.help) {
+            match &event {
+                Event::Mouse(mouse) => match mouse.kind {
+                    MouseEventKind::ScrollDown => {
+                        self.popup_scroll = self.popup_scroll.saturating_add(3)
+                    }
+                    MouseEventKind::ScrollUp => {
+                        self.popup_scroll = self.popup_scroll.saturating_sub(3)
+                    }
+                    _ => {}
+                },
+                Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
+                    KeyCode::Down => self.popup_scroll = self.popup_scroll.saturating_add(1),
+                    KeyCode::Up => self.popup_scroll = self.popup_scroll.saturating_sub(1),
+                    KeyCode::PageDown => self.popup_scroll = self.popup_scroll.saturating_add(8),
+                    KeyCode::PageUp => self.popup_scroll = self.popup_scroll.saturating_sub(8),
+                    KeyCode::Home => self.popup_scroll = 0,
+                    KeyCode::End => self.popup_scroll = u16::MAX,
+                    _ if self.jobs.quit_prompt => {
+                        if let Err(error) = self.jobs.quit_key(key.code) {
+                            self.jobs.quit_prompt = false;
+                            self.error = Some(self.language.error(&error));
+                        }
+                    }
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => {
+                        self.error = None;
+                        self.popup_scroll = 0;
+                        self.popup_text.clear();
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
+            return false;
         }
         if self.help {
             if let Event::Mouse(mouse) = &event {
@@ -314,13 +351,6 @@ impl App {
                 self.reset_cursor();
             }
             Event::Key(key) if key.kind != KeyEventKind::Release => {
-                if self.jobs.quit_prompt {
-                    if let Err(error) = self.jobs.quit_key(key.code) {
-                        self.jobs.quit_prompt = false;
-                        self.error = Some(self.language.error(&error));
-                    }
-                    return false;
-                }
                 if self.editing {
                     match key.code {
                         KeyCode::Esc | KeyCode::Enter => self.editing = false,

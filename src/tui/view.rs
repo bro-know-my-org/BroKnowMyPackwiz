@@ -110,6 +110,15 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         );
     }
     toolbar(frame, app, bands[3]);
+    let popup_text = if app.jobs.quit_prompt {
+        lang.text("quit_task")
+    } else {
+        app.error.as_deref().unwrap_or_default()
+    };
+    if app.popup_text != popup_text {
+        app.popup_scroll = 0;
+        app.popup_text = popup_text.to_owned();
+    }
     if let Some(dialog) = &mut app.dialog {
         dialog.form.draw(frame, lang);
     } else if app.jobs.quit_prompt {
@@ -120,6 +129,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             lang.text("tasks"),
             lang.text("quit_task"),
             QUIT,
+            &mut app.popup_scroll,
             &mut app.buttons,
         );
     } else if app.help {
@@ -133,6 +143,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             lang.text("error"),
             error,
             CLOSE,
+            &mut app.popup_scroll,
             &mut app.buttons,
         );
     }
@@ -380,6 +391,7 @@ fn popup(
     title: &str,
     text: &str,
     actions: &[Action],
+    scroll: &mut u16,
     buttons: &mut Vec<(KeyCode, Rect)>,
 ) {
     let area = frame.area();
@@ -390,19 +402,19 @@ fn popup(
         area.height * 8 / 10,
     );
     frame.render_widget(Clear, rect);
-    let block = Block::bordered().title(title);
+    let block = Block::bordered()
+        .title(title)
+        .title_bottom(lang.text("popup_scroll"));
     let inner = block.inner(rect);
     let rows = button_rows(actions, lang, inner.width).min(inner.height);
     frame.render_widget(block, rect);
-    frame.render_widget(
-        Paragraph::new(text).wrap(Wrap { trim: false }),
-        Rect::new(
-            inner.x,
-            inner.y,
-            inner.width,
-            inner.height.saturating_sub(rows),
-        ),
+    let body = Rect::new(
+        inner.x,
+        inner.y,
+        inner.width,
+        inner.height.saturating_sub(rows),
     );
+    scroll_text(frame, text, body, scroll);
     draw_buttons(
         frame,
         lang,
@@ -433,13 +445,26 @@ fn help(frame: &mut Frame, lang: Language, scroll: &mut u16, buttons: &mut Vec<(
         inner.width,
         inner.height.saturating_sub(1),
     );
+    frame.render_widget(Clear, rect);
+    frame.render_widget(block, rect);
+    scroll_text(frame, lang.text("help_text"), body, scroll);
+    draw_buttons(
+        frame,
+        lang,
+        CLOSE,
+        Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
+        buttons,
+    );
+}
+
+fn scroll_text(frame: &mut Frame, text: &str, body: Rect, scroll: &mut u16) {
     let mut lines = Vec::new();
-    for line in lang.text("help_text").lines() {
+    for line in text.lines() {
         let mut current = String::new();
         let mut width = 0;
         for character in line.chars() {
             let size = unicode_width::UnicodeWidthChar::width(character).unwrap_or(0) as u16;
-            if width > 0 && width + size > inner.width {
+            if width > 0 && width + size > body.width {
                 lines.push(std::mem::take(&mut current));
                 width = 0;
             }
@@ -454,14 +479,5 @@ fn help(frame: &mut Frame, lang: Language, scroll: &mut u16, buttons: &mut Vec<(
             .saturating_sub(body.height as usize)
             .min(u16::MAX as usize) as u16,
     );
-    frame.render_widget(Clear, rect);
-    frame.render_widget(block, rect);
     frame.render_widget(Paragraph::new(lines.join("\n")).scroll((*scroll, 0)), body);
-    draw_buttons(
-        frame,
-        lang,
-        CLOSE,
-        Rect::new(inner.x, inner.bottom().saturating_sub(1), inner.width, 1),
-        buttons,
-    );
 }
