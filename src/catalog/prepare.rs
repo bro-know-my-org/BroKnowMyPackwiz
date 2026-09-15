@@ -59,7 +59,7 @@ fn class_filter(filter: &Filter, class: u64) -> Result<Filter> {
         6 => {}
         12 | 6552 => filter.loader = None,
         _ => {
-            return Err(Error::new(
+            return Err(Error::key(
                 ErrorCode::Invalid,
                 "unsupported_curseforge_class",
             ));
@@ -302,7 +302,7 @@ pub fn curseforge_many<T: Transport>(
                 preserve: old.is_some_and(|old| old.metadata.preserve),
             });
         } else {
-            return Err(Error::new(ErrorCode::Invalid, "missing_download_target"));
+            return Err(Error::key(ErrorCode::Invalid, "missing_download_target"));
         }
         rows.push(Row {
             name,
@@ -324,7 +324,7 @@ pub fn curseforge_many<T: Transport>(
 fn integer(value: u64) -> Result<Value> {
     i64::try_from(value)
         .map(Value::from)
-        .map_err(|_| Error::new(ErrorCode::Invalid, "identifier_overflow"))
+        .map_err(|_| Error::key(ErrorCode::Invalid, "identifier_overflow"))
 }
 
 #[cfg(test)]

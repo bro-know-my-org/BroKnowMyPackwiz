@@ -85,7 +85,7 @@ impl Editor {
             },
             Input::Local(_) => {
                 if form.value("path").trim().is_empty() {
-                    return Err(Error::new(ErrorCode::Invalid, "source_path_required"));
+                    return Err(Error::key(ErrorCode::Invalid, "source_path_required"));
                 }
                 Input::Local(form.value("path").into())
             }
@@ -117,7 +117,7 @@ impl Editor {
             download: form.value("download") == "true",
         };
         if options.name.trim().is_empty() {
-            return Err(Error::new(ErrorCode::Invalid, "name_required"));
+            return Err(Error::key(ErrorCode::Invalid, "name_required"));
         }
         crate::pathutil::safe_filename(&options.filename).map_err(Error::from)?;
         Ok((input, options))

@@ -55,10 +55,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     screen.clear().map_err(|e| e.to_string())?;
                     match result {
                         Ok(dialog) => app.dialog = Some(dialog),
-                        Err(error) => app.error = Some(error.to_string()),
+                        Err(error) => app.error = Some(app.language.error(&error)),
                     }
                 }
-                Err(error) => app.error = Some(error.to_string()),
+                Err(error) => app.error = Some(app.language.error(&error)),
             }
         }
         app.poll();

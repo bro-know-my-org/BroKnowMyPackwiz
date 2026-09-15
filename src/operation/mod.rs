@@ -34,6 +34,8 @@ pub enum ErrorCode {
 pub struct Error {
     pub code: ErrorCode,
     pub detail: String,
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 impl Error {
@@ -41,7 +43,19 @@ impl Error {
         Self {
             code,
             detail: detail.into(),
+            message: None,
         }
+    }
+    pub fn key(code: ErrorCode, key: &str) -> Self {
+        Self {
+            code,
+            detail: key.into(),
+            message: Some(key.into()),
+        }
+    }
+    pub fn context(mut self, detail: impl Into<String>) -> Self {
+        self.detail = detail.into();
+        self
     }
 }
 impl From<std::io::Error> for Error {
@@ -56,6 +70,11 @@ impl From<String> for Error {
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(key) = &self.message {
+            if key != &self.detail {
+                return write!(f, "{:?}: {key}: {}", self.code, self.detail);
+            }
+        }
         write!(f, "{:?}: {}", self.code, self.detail)
     }
 }

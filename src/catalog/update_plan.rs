@@ -166,7 +166,7 @@ pub fn prepare(
     paths.clear();
     for download in &downloads {
         if !paths.insert(download.relative.to_lowercase()) {
-            return Err(Error::new(ErrorCode::Conflict, "duplicate_download_target"));
+            return Err(Error::key(ErrorCode::Conflict, "duplicate_download_target"));
         }
     }
     guard.validate(root, control)?;
@@ -186,7 +186,7 @@ pub fn prepare(
     })
 }
 fn invalid(key: &str) -> Error {
-    Error::new(ErrorCode::Invalid, key)
+    Error::key(ErrorCode::Invalid, key)
 }
 
 #[cfg(test)]

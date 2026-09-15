@@ -135,7 +135,7 @@ pub fn execute_files(
     {
         crate::pathutil::safe_slash_path(path).map_err(Error::from)?;
         if !targets.insert(path.to_lowercase()) {
-            return Err(Error::new(ErrorCode::Conflict, "duplicate_batch_target"));
+            return Err(Error::key(ErrorCode::Conflict, "duplicate_batch_target"));
         }
     }
     let workspace = Workspace::create(root, &task.join("workspace"), control)?;

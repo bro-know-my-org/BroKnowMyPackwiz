@@ -56,12 +56,12 @@ pub fn run(mut command: Command, cwd: &Path, logs: &Path, control: &Control) -> 
     };
     let output_result = output
         .join()
-        .map_err(|_| Error::new(ErrorCode::Failed, "stdout_capture_failed"))?;
+        .map_err(|_| Error::key(ErrorCode::Failed, "stdout_capture_failed"))?;
     let error_result = errors
         .join()
-        .map_err(|_| Error::new(ErrorCode::Failed, "stderr_capture_failed"))?;
+        .map_err(|_| Error::key(ErrorCode::Failed, "stderr_capture_failed"))?;
     if cancelled {
-        return Err(Error::new(ErrorCode::Cancelled, "cancelled"));
+        return Err(Error::key(ErrorCode::Cancelled, "cancelled"));
     }
     output_result?;
     error_result?;

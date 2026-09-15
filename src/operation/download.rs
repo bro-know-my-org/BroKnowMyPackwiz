@@ -81,7 +81,7 @@ pub fn execute(
                         Err(e) => error = Some(e),
                     }
                 }
-                Err(error.unwrap_or_else(|| Error::new(ErrorCode::Failed, "download_url_missing")))
+                Err(error.unwrap_or_else(|| Error::key(ErrorCode::Failed, "download_url_missing")))
             });
             match result {
                 Ok(value) => {
@@ -101,7 +101,7 @@ pub fn execute(
             }
         }
         let hashes = hashes.ok_or_else(|| {
-            last.unwrap_or_else(|| Error::new(ErrorCode::Failed, "download_failed"))
+            last.unwrap_or_else(|| Error::key(ErrorCode::Failed, "download_failed"))
         })?;
         files.push(Attachment {
             relative: download.relative.clone(),

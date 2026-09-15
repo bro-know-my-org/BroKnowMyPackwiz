@@ -130,8 +130,9 @@ impl App {
                     }
                     Err(error) => {
                         self.error = Some(format!(
-                            "{}\n{error}",
-                            self.language.text("cf_preview_failed")
+                            "{}\n{}",
+                            self.language.text("cf_preview_failed"),
+                            self.language.error(&error)
                         ))
                     }
                 }
@@ -141,7 +142,7 @@ impl App {
         }
         match self.jobs.poll() {
             Ok(true) => self.reload(),
-            Err(error) => self.error = Some(error.to_string()),
+            Err(error) => self.error = Some(self.language.error(&error)),
             _ => {}
         }
         let Some(rx) = &self.pending else {
@@ -272,7 +273,7 @@ impl App {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
                 if self.jobs.quit_prompt {
                     if let Err(error) = self.jobs.quit_key(key.code) {
-                        self.error = Some(error.to_string());
+                        self.error = Some(self.language.error(&error));
                     }
                     return false;
                 }
@@ -310,7 +311,7 @@ impl App {
                         self.preferences.language = Some(self.language);
                         if self.persist_preferences {
                             if let Err(error) = self.preferences.save() {
-                                self.error = Some(error.to_string());
+                                self.error = Some(self.language.error(&error));
                             }
                         }
                     }
@@ -352,7 +353,7 @@ impl App {
                                     self.adding.update(&self.root, &state, paths, code == 'd')
                                 });
                             if let Err(error) = result {
-                                self.error = Some(error.to_string());
+                                self.error = Some(self.language.error(&error));
                             }
                         }
                     }
@@ -382,7 +383,7 @@ impl App {
                         if !names.is_empty() {
                             match super::dialog::Dialog::remove(&self.root, names, self.language) {
                                 Ok(dialog) => self.dialog = Some(dialog),
-                                Err(error) => self.error = Some(error.to_string()),
+                                Err(error) => self.error = Some(self.language.error(&error)),
                             }
                         }
                     }
@@ -423,14 +424,14 @@ impl App {
                                 .collect()
                         };
                         if let Err(error) = self.jobs.pin(&self.root, &selected) {
-                            self.error = Some(error.to_string());
+                            self.error = Some(self.language.error(&error));
                         }
                     }
                     KeyCode::Char('e') if self.page == 0 => {
                         if let Some(entry) = self.current() {
                             match super::dialog::Dialog::metadata(&self.root, &entry.path) {
                                 Ok(dialog) => self.dialog = Some(dialog),
-                                Err(error) => self.error = Some(error.to_string()),
+                                Err(error) => self.error = Some(self.language.error(&error)),
                             }
                         }
                     }
@@ -461,7 +462,7 @@ impl App {
                             &self.preferences,
                         ) {
                             Ok(dialog) => self.dialog = Some(dialog),
-                            Err(error) => self.error = Some(error.to_string()),
+                            Err(error) => self.error = Some(self.language.error(&error)),
                         }
                     }
                     KeyCode::Char(code @ ('k' | 'o')) if self.page == 3 => {
@@ -473,13 +474,13 @@ impl App {
                                 self.language,
                             ) {
                                 Ok(dialog) => self.dialog = Some(dialog),
-                                Err(error) => self.error = Some(error.to_string()),
+                                Err(error) => self.error = Some(self.language.error(&error)),
                             }
                         }
                     }
                     code if self.page == 3 && code != KeyCode::Esc => {
                         if let Err(error) = self.jobs.key(code) {
-                            self.error = Some(error.to_string());
+                            self.error = Some(self.language.error(&error));
                         }
                     }
                     KeyCode::Char('/') if self.page == 0 => self.editing = true,
@@ -579,7 +580,7 @@ impl App {
         match self.jobs.quit() {
             Ok(exit) => exit,
             Err(error) => {
-                self.error = Some(error.to_string());
+                self.error = Some(self.language.error(&error));
                 false
             }
         }
@@ -667,7 +668,7 @@ impl App {
             Ok(())
         })();
         if let Err(error) = result {
-            dialog.form.error = Some(error.to_string());
+            dialog.form.error = Some(self.language.error(&error));
             self.dialog = Some(dialog);
         }
     }

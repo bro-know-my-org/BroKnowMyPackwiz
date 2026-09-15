@@ -17,7 +17,7 @@ impl Transport for Http {
             None => crate::http::http_get_to_string(&url),
         }
         .map_err(Error::from)?;
-        serde_json::from_str(&response).map_err(|e| invalid(e.to_string()))
+        serde_json::from_str(&response).map_err(|e| Error::new(ErrorCode::Invalid, e.to_string()))
     }
 }
 pub struct Client<T = Http> {
@@ -137,7 +137,7 @@ fn asset(value: &Value) -> Result<Asset> {
     let url = string(value, "browser_download_url");
     let parsed = url
         .parse::<ureq::http::Uri>()
-        .map_err(|e| invalid(e.to_string()))?;
+        .map_err(|e| Error::new(ErrorCode::Invalid, e.to_string()))?;
     if parsed.scheme_str() != Some("https") || parsed.authority().is_none() {
         return Err(invalid("invalid_asset_url"));
     }
@@ -162,8 +162,8 @@ fn asset(value: &Value) -> Result<Asset> {
         sha256,
     })
 }
-fn invalid(detail: impl Into<String>) -> Error {
-    Error::new(ErrorCode::Invalid, detail)
+fn invalid(key: &str) -> Error {
+    Error::key(ErrorCode::Invalid, key)
 }
 
 #[cfg(test)]

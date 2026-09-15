@@ -87,7 +87,7 @@ fn execute_with(
             Some(
                 directory.join(
                     path.file_name()
-                        .ok_or_else(|| Error::new(ErrorCode::Invalid, "output_required"))?,
+                        .ok_or_else(|| Error::key(ErrorCode::Invalid, "output_required"))?,
                 ),
             )
         }
@@ -103,7 +103,7 @@ fn execute_with(
     if let (Some(target), Some(mapped)) = (&target, &mapped_target) {
         if request.kind.output() == Output::File && !target.starts_with(original) {
             if durable::fingerprint(mapped)?.is_none() {
-                return Err(Error::new(ErrorCode::Failed, "output_missing"));
+                return Err(Error::key(ErrorCode::Failed, "output_missing"));
             }
             if let Some(permissions) = file_permissions {
                 fs::set_permissions(mapped, permissions)?;
@@ -199,7 +199,7 @@ mod tests {
         let result = fixture.run(&request, |root, target| {
             fs::write(root.join("metadata"), "new")?;
             fs::write(target.unwrap(), "partial")?;
-            Err(Error::new(ErrorCode::Failed, "injected"))
+            Err(Error::key(ErrorCode::Failed, "injected"))
         });
         assert!(result.is_err());
         assert_eq!(fs::read_to_string(output).unwrap(), "previous");

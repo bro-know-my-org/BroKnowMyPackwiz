@@ -117,14 +117,14 @@ pub fn submit(kind: Kind, form: &Form) -> Result<Request> {
     }
     if kind == Kind::Hash {
         if form.value("input").trim().is_empty() {
-            return Err(Error::new(ErrorCode::Invalid, "hash_input_required"));
+            return Err(Error::key(ErrorCode::Invalid, "hash_input_required"));
         }
         request.input = Some(form.value("input").into());
         request.algorithm = form.value("algorithm").into();
     }
     request.validate()?;
     if kind == Kind::InstallLocal && request.output.is_none() {
-        return Err(Error::new(ErrorCode::Invalid, "output_required"));
+        return Err(Error::key(ErrorCode::Invalid, "output_required"));
     }
     Ok(request)
 }
