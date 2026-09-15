@@ -117,10 +117,12 @@ pub fn prepare(
             .get(&target.to_lowercase())
             .is_some_and(|owner| owner != &candidate.relative)
         {
-            return Err(Error::new(
+            return Err(Error::named(
                 ErrorCode::Conflict,
+                "file_collision",
                 format!("file_collision: {target}"),
-            ));
+            )
+            .context(target));
         }
         crate::update::reject_manual_target_collision(
             root,

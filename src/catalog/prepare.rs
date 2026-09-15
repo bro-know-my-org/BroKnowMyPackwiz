@@ -156,10 +156,12 @@ pub fn curseforge_many<T: Transport>(
                 return Err(collision(&item.path));
             }
             let file_id = metadata.curseforge_file_id.ok_or_else(|| {
-                Error::new(
+                Error::named(
                     ErrorCode::Invalid,
+                    "missing_curseforge_file_id",
                     format!("missing_curseforge_file_id: {}", item.path),
                 )
+                .context(&item.path)
             })?;
             let file = client.file(id, file_id)?;
             installed.push(Installed {

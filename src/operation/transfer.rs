@@ -59,10 +59,12 @@ pub fn download(
         .map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
     control.check()?;
     if !response.status().is_success() {
-        return Err(Error::new(
+        return Err(Error::named(
             ErrorCode::Failed,
+            "http_status_failed",
             format!("HTTP {}", response.status()),
-        ));
+        )
+        .context(response.status().to_string()));
     }
     let length = response
         .headers()

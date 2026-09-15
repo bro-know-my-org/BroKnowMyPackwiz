@@ -114,7 +114,13 @@ impl WriteLocks {
                 .ok()
                 .filter(|bytes| bytes.len() < 65536)
                 .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-                .ok_or_else(|| Error::new(ErrorCode::Busy, "active lock metadata unavailable"))?;
+                .ok_or_else(|| {
+                    Error::named(
+                        ErrorCode::Busy,
+                        "active_lock_metadata_unavailable",
+                        "active lock metadata unavailable",
+                    )
+                })?;
             if paths.iter().any(|requested| overlaps(requested, &held)) {
                 return Err(Error::new(ErrorCode::Busy, format!("{}", held.display())));
             }

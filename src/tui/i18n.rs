@@ -67,6 +67,21 @@ impl Language {
 
 const MESSAGES: &[(&str, &str, &str)] = &[
     (
+        "http_status_failed",
+        "HTTP request returned an unsuccessful status",
+        "HTTP 请求返回失败状态",
+    ),
+    (
+        "missing_curseforge_file_id",
+        "CurseForge metadata is missing its file ID",
+        "CurseForge 元数据缺少文件 ID",
+    ),
+    (
+        "active_lock_metadata_unavailable",
+        "Active lock metadata is unavailable",
+        "无法读取活动写锁的元数据",
+    ),
+    (
         "nonnegative_integer_required",
         "Enter a nonnegative integer within range",
         "请输入范围内的非负整数",
