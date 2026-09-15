@@ -86,7 +86,7 @@ pub fn prepare(
             });
         }
     }
-    let config = ProjectConfig::load(root).map_err(Error::from)?;
+    let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
     let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
     let mut existing_targets = BTreeMap::new();

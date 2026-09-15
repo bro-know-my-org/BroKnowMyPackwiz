@@ -71,7 +71,7 @@ pub fn query(
     control: &Control,
 ) -> Result<Preview> {
     let mut guard = Guard::capture(root, control)?;
-    let config = ProjectConfig::load(root).map_err(Error::from)?;
+    let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
     let filter = Filter::for_pack(root)?;
     let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;

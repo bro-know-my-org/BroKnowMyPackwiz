@@ -40,7 +40,7 @@ pub fn execute(
     control: &Control,
 ) -> Result<()> {
     guard.validate(root, control)?;
-    let config = ProjectConfig::load(root).map_err(Error::from)?;
+    let config = ProjectConfig::load_operation(root)?;
     let incoming = task.join("incoming");
     fs::create_dir_all(&incoming)?;
     let mut files = Vec::new();

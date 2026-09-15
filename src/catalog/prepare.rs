@@ -100,7 +100,7 @@ pub fn curseforge_many<T: Transport>(
     control: &Control,
 ) -> Result<Preview> {
     let mut guard = Guard::capture(root, control)?;
-    let config = ProjectConfig::load(root).map_err(Error::from)?;
+    let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
     let filter = if relaxed {
         Filter::default()

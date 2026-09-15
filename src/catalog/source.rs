@@ -78,7 +78,7 @@ fn prepare_inner(
 ) -> Result<Prepared> {
     control.check()?;
     let mut guard = Guard::capture(root, control)?;
-    let config = ProjectConfig::load(root).map_err(Error::from)?;
+    let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
     if options.name.trim().is_empty() {
         return Err(invalid("name_required"));

@@ -66,6 +66,46 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    (
+        "file_loader_disconnected",
+        "File list loader disconnected",
+        "文件列表加载线程已断开",
+    ),
+    (
+        "catalog_worker_disconnected",
+        "Catalog worker disconnected",
+        "平台查询线程已断开",
+    ),
+    (
+        "config_read_failed",
+        "Could not read configuration",
+        "无法读取配置文件",
+    ),
+    (
+        "config_invalid_line",
+        "Invalid configuration line",
+        "配置行格式无效",
+    ),
+    (
+        "config_path_required",
+        "Configuration requires at least one path",
+        "配置中至少需要一个路径",
+    ),
+    (
+        "config_expected_boolean",
+        "Expected true or false",
+        "应填写 true 或 false",
+    ),
+    (
+        "config_expected_string",
+        "Expected a double-quoted string",
+        "应填写双引号包围的字符串",
+    ),
+    (
+        "config_expected_integer",
+        "Expected a nonnegative integer within range",
+        "应填写范围内的非负整数",
+    ),
     ("unsafe_filename", "Unsafe filename", "文件名不安全"),
     (
         "unsafe_relative_path",
@@ -1030,6 +1070,71 @@ const MESSAGES: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_errors_keep_cli_text_and_show_localized_field_locations() {
+        use crate::{config::ProjectConfig, operation::durable};
+        let root = std::env::temp_dir().join(durable::unique_id());
+        std::fs::create_dir_all(root.join(".pw")).unwrap();
+        let source = root.join(".pw/config.toml");
+        for (input, key, legacy, zh) in [
+            (
+                "[scan]\nuse-gitignore = maybe",
+                "config_expected_boolean",
+                "expected boolean, got maybe",
+                "应填写 true 或 false",
+            ),
+            (
+                "[curseforge]\napi-key = PRIVATE",
+                "config_expected_string",
+                "expected quoted string, got PRIVATE",
+                "应填写双引号包围的字符串",
+            ),
+            (
+                "[layout]\nmetadata-roots = \"\"",
+                "config_path_required",
+                "expected at least one path",
+                "配置中至少需要一个路径",
+            ),
+            (
+                "[layout]\njar-root = \"../outside\"",
+                "unsafe_relative_path",
+                "unsafe relative path: ../outside",
+                "相对路径不安全",
+            ),
+        ] {
+            std::fs::write(&source, input).unwrap();
+            assert_eq!(ProjectConfig::load(&root).unwrap_err(), legacy);
+            let error = ProjectConfig::load_operation(&root).unwrap_err();
+            assert_eq!(error.message.as_deref(), Some(key));
+            let displayed = Language::ZhCn.error(&error);
+            assert!(displayed.starts_with(zh), "{displayed}");
+            assert!(displayed.contains(&format!("{}:2", source.display())));
+            assert!(!displayed.contains("PRIVATE"));
+            assert_ne!(Language::En.error(&error), displayed);
+        }
+        std::fs::write(&source, "[install]\njobs = -1").unwrap();
+        assert_eq!(
+            ProjectConfig::load_operation(&root)
+                .unwrap_err()
+                .message
+                .as_deref(),
+            Some("config_expected_integer")
+        );
+        std::fs::write(&source, "bad line").unwrap();
+        assert_eq!(
+            ProjectConfig::load(&root).unwrap_err(),
+            format!("invalid config line in {}: bad line", source.display())
+        );
+        assert_eq!(
+            ProjectConfig::load_operation(&root)
+                .unwrap_err()
+                .message
+                .as_deref(),
+            Some("config_invalid_line")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn adapters_preserve_validation_and_cli_text_while_localizing_errors() {

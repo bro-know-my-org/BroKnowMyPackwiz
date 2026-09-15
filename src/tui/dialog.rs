@@ -454,7 +454,7 @@ impl Dialog {
         schema: Vec<(&str, &str, Kind)>,
     ) -> Result<Self> {
         let (document, expected) = edit::document(root, relative)?;
-        let config = crate::config::ProjectConfig::load(root).map_err(Error::from)?;
+        let config = crate::config::ProjectConfig::load_operation(root)?;
         let fields = schema
             .into_iter()
             .map(|(key, label, kind)| {

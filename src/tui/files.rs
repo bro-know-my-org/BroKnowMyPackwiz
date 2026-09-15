@@ -1,3 +1,4 @@
+use crate::operation::{Error, Result};
 use crate::{config::ProjectConfig, layout::PackLayout, metadata::ModMetadata, scan::ScanReport};
 use std::path::Path;
 
@@ -11,18 +12,18 @@ pub struct Entry {
     pub metadata: ModMetadata,
 }
 
-pub fn load(root: &Path) -> Result<Vec<Entry>, String> {
+pub fn load(root: &Path) -> Result<Vec<Entry>> {
     if !root.exists() {
         return Ok(Vec::new());
     }
-    let config = ProjectConfig::load(root)?;
+    let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
-    let report = ScanReport::build(root, &config, &layout)?;
+    let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
     report
         .metadata
         .into_iter()
         .map(|file| {
-            let metadata = ModMetadata::load(&root.join(&file.path))?;
+            let metadata = ModMetadata::load(&root.join(&file.path)).map_err(Error::from)?;
             let present = metadata
                 .filename
                 .as_ref()
@@ -30,7 +31,8 @@ pub fn load(root: &Path) -> Result<Vec<Entry>, String> {
                     crate::install::resolve_pack_file_path(&file.path, name, &layout)
                         .map(|path| root.join(path).is_file())
                 })
-                .transpose()?
+                .transpose()
+                .map_err(Error::from)?
                 .unwrap_or(false);
             let source = if metadata.curseforge_project_id.is_some() {
                 "CurseForge"
