@@ -66,6 +66,8 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("sort", "Sort", "排序"),
+    ("reload_files", "Reload list", "重载列表"),
     ("close", "Close", "关闭"),
     ("quit", "Quit", "退出"),
     ("back", "Back", "返回"),
