@@ -67,6 +67,21 @@ impl Language {
 
 const MESSAGES: &[(&str, &str, &str)] = &[
     (
+        "managed_root_escape",
+        "Metadata filename resolves outside managed roots",
+        "元数据文件名指向托管目录之外",
+    ),
+    (
+        "unsupported_update_hash",
+        "Unsupported update hash format",
+        "不支持此更新摘要格式",
+    ),
+    (
+        "manual_file_collision",
+        "Update target conflicts with an existing manual file",
+        "更新目标与现有手动文件冲突",
+    ),
+    (
         "http_status_failed",
         "HTTP request returned an unsuccessful status",
         "HTTP 请求返回失败状态",
@@ -1143,6 +1158,85 @@ const MESSAGES: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_paths_and_manual_update_conflicts_keep_cli_compatibility() {
+        use crate::{
+            config::ProjectConfig, install, layout::PackLayout, metadata::ModMetadata,
+            operation::durable, update,
+        };
+        let root = std::env::temp_dir().join(durable::unique_id());
+        std::fs::create_dir_all(root.join("mods")).unwrap();
+        let config = ProjectConfig::load(&root).unwrap();
+        let layout = PackLayout::from_config(&config);
+        for (metadata, filename, target) in [
+            ("mods/client/a.pw.toml", "a.jar", "mods/a.jar"),
+            (
+                "resourcepacks/a.pw.toml",
+                "中文.zip",
+                "resourcepacks/中文.zip",
+            ),
+        ] {
+            assert_eq!(
+                install::resolve_pack_file_path_operation(metadata, filename, &layout).unwrap(),
+                target
+            );
+            assert_eq!(
+                install::resolve_pack_file_path(metadata, filename, &layout).unwrap(),
+                target
+            );
+        }
+        let error = install::resolve_pack_file_path_operation(
+            "mods/a.pw.toml",
+            "outside/file.jar",
+            &layout,
+        )
+        .unwrap_err();
+        assert_eq!(
+            install::resolve_pack_file_path("mods/a.pw.toml", "outside/file.jar", &layout)
+                .unwrap_err(),
+            error.detail
+        );
+        assert_eq!(
+            Language::ZhCn.error(&error),
+            "元数据文件名指向托管目录之外: outside/file.jar"
+        );
+        std::fs::write(root.join("mods/manual.jar"), "manual").unwrap();
+        let metadata = ModMetadata::parse("filename = \"old.jar\"\n");
+        let path = root.join("mods/a.pw.toml");
+        let error = update::reject_manual_target_collision_operation(
+            &root,
+            &layout,
+            &path,
+            &metadata,
+            "manual.jar",
+            "new-hash",
+            "sha256",
+        )
+        .unwrap_err();
+        assert_eq!(
+            update::reject_manual_target_collision(
+                &root,
+                &layout,
+                &path,
+                &metadata,
+                "manual.jar",
+                "new-hash",
+                "sha256"
+            )
+            .unwrap_err(),
+            error.detail
+        );
+        assert_eq!(
+            Language::ZhCn.error(&error),
+            "更新目标与现有手动文件冲突: mods/a.pw.toml: mods/manual.jar"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("mods/manual.jar")).unwrap(),
+            "manual"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn refresh_hash_and_write_errors_localize_without_changing_cli_results() {

@@ -202,13 +202,35 @@ pub(crate) fn reject_manual_target_collision(
     new_hash: &str,
     hash_format: &str,
 ) -> Result<(), String> {
+    reject_manual_target_collision_operation(
+        root,
+        layout,
+        metadata_path,
+        metadata,
+        new_filename,
+        new_hash,
+        hash_format,
+    )
+    .map_err(|error| error.detail)
+}
+
+pub(crate) fn reject_manual_target_collision_operation(
+    root: &Path,
+    layout: &PackLayout,
+    metadata_path: &Path,
+    metadata: &ModMetadata,
+    new_filename: &str,
+    new_hash: &str,
+    hash_format: &str,
+) -> crate::operation::Result<()> {
+    use crate::operation::{Error, ErrorCode};
     let rel = display_path(root, metadata_path);
     let old_target = metadata
         .filename
         .as_deref()
-        .map(|filename| install::resolve_pack_file_path(&rel, filename, layout))
+        .map(|filename| install::resolve_pack_file_path_operation(&rel, filename, layout))
         .transpose()?;
-    let new_target = install::resolve_pack_file_path(&rel, new_filename, layout)?;
+    let new_target = install::resolve_pack_file_path_operation(&rel, new_filename, layout)?;
     if old_target.as_deref() == Some(new_target.as_str()) {
         return Ok(());
     }
@@ -220,13 +242,23 @@ pub(crate) fn reject_manual_target_collision(
         "sha1" => crate::sha1::sha1_file_hex(&target),
         "sha256" => crate::sha256::sha256_file_hex(&target),
         "sha512" => crate::sha512::sha512_file_hex(&target),
-        other => return Err(format!("{rel}: unsupported update hash format: {other}")),
+        other => {
+            return Err(Error::named(
+                ErrorCode::Failed,
+                "unsupported_update_hash",
+                format!("{rel}: unsupported update hash format: {other}"),
+            )
+            .context(format!("{rel}: {other}")));
+        }
     };
     match matches {
         Ok(actual) if actual.eq_ignore_ascii_case(new_hash) => Ok(()),
-        _ => Err(format!(
-            "{rel}: update target collides with existing manual file: {new_target}"
-        )),
+        _ => Err(Error::named(
+            ErrorCode::Failed,
+            "manual_file_collision",
+            format!("{rel}: update target collides with existing manual file: {new_target}"),
+        )
+        .context(format!("{rel}: {new_target}"))),
     }
 }
 

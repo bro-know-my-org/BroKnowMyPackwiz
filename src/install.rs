@@ -188,12 +188,20 @@ pub(crate) fn resolve_pack_file_path(
     filename: &str,
     layout: &PackLayout,
 ) -> Result<String, String> {
+    resolve_pack_file_path_operation(metadata_path, filename, layout).map_err(|error| error.detail)
+}
+
+pub(crate) fn resolve_pack_file_path_operation(
+    metadata_path: &str,
+    filename: &str,
+    layout: &PackLayout,
+) -> crate::operation::Result<String> {
     let target = if filename.contains('/') {
-        crate::pathutil::safe_slash_path(filename)?
+        crate::operation::paths::relative(filename)?
     } else {
-        let filename = crate::pathutil::safe_filename(filename)?;
+        let filename = crate::operation::paths::filename(filename)?;
         if is_side_metadata_path(metadata_path, layout) {
-            crate::pathutil::safe_slash_path(&format!(
+            crate::operation::paths::relative(&format!(
                 "{}/{}",
                 layout.jar_root.to_string_lossy(),
                 filename
@@ -205,7 +213,7 @@ pub(crate) fn resolve_pack_file_path(
             if parent.is_empty() {
                 filename
             } else {
-                crate::pathutil::safe_slash_path(&format!("{parent}/{filename}"))?
+                crate::operation::paths::relative(&format!("{parent}/{filename}"))?
             }
         }
     };
@@ -213,9 +221,12 @@ pub(crate) fn resolve_pack_file_path(
     if is_managed_pack_file_path(&target, layout) {
         Ok(target)
     } else {
-        Err(format!(
-            "metadata filename resolves outside managed roots: {filename}"
-        ))
+        Err(crate::operation::Error::named(
+            crate::operation::ErrorCode::Failed,
+            "managed_root_escape",
+            format!("metadata filename resolves outside managed roots: {filename}"),
+        )
+        .context(filename))
     }
 }
 

@@ -134,9 +134,8 @@ pub fn curseforge_many<T: Transport>(
         let target = metadata
             .filename
             .as_ref()
-            .map(|name| crate::install::resolve_pack_file_path(&item.path, name, &layout))
-            .transpose()
-            .map_err(Error::from)?;
+            .map(|name| crate::install::resolve_pack_file_path_operation(&item.path, name, &layout))
+            .transpose()?;
         if metadata_paths
             .insert(item.path.to_lowercase(), item.path.clone())
             .is_some()
@@ -254,9 +253,11 @@ pub fn curseforge_many<T: Transport>(
                 (path, DocumentMut::new(), None)
             };
             crate::operation::paths::filename(&entry.file.filename)?;
-            let target =
-                crate::install::resolve_pack_file_path(&path, &entry.file.filename, &layout)
-                    .map_err(Error::from)?;
+            let target = crate::install::resolve_pack_file_path_operation(
+                &path,
+                &entry.file.filename,
+                &layout,
+            )?;
             if targets
                 .get(&target.to_lowercase())
                 .is_some_and(|owner| owner != &path)
