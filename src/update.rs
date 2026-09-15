@@ -193,7 +193,7 @@ fn update_github(
     Ok(())
 }
 
-fn reject_manual_target_collision(
+pub(crate) fn reject_manual_target_collision(
     root: &Path,
     layout: &PackLayout,
     metadata_path: &Path,
