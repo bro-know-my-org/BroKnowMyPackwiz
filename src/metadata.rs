@@ -64,8 +64,18 @@ pub struct ModMetadata {
 
 impl ModMetadata {
     pub fn load(path: &Path) -> Result<Self, String> {
-        let text = fs::read_to_string(path)
-            .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+        Self::load_operation(path).map_err(|error| error.detail)
+    }
+
+    pub fn load_operation(path: &Path) -> crate::operation::Result<Self> {
+        let text = fs::read_to_string(path).map_err(|err| {
+            crate::operation::Error::named(
+                crate::operation::ErrorCode::Failed,
+                "read_file_failed",
+                format!("failed to read {}: {err}", path.display()),
+            )
+            .context(format!("{}: {err}", path.display()))
+        })?;
         Ok(Self::parse(&text))
     }
 

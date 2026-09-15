@@ -29,7 +29,7 @@ impl Guard {
     pub fn capture(root: &Path, control: &Control) -> Result<Self> {
         let config = ProjectConfig::load_operation(root)?;
         let layout = PackLayout::from_config(&config);
-        let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
+        let report = ScanReport::build_operation(root, &config, &layout)?;
         let mut guard = Self {
             metadata: report.metadata.into_iter().map(|m| m.path).collect(),
             fingerprints: BTreeMap::new(),

@@ -4,7 +4,8 @@ use std::path::Path;
 use crate::config::ProjectConfig;
 use crate::ignore::IgnoreSet;
 use crate::layout::PackLayout;
-use crate::pathutil::{join_slash, relative_slash};
+use crate::operation::{Error, ErrorCode, paths::relativize};
+use crate::pathutil::join_slash;
 
 #[derive(Debug, Clone)]
 pub struct ScanReport {
@@ -62,12 +63,20 @@ impl SideHint {
 
 impl ScanReport {
     pub fn build(root: &Path, config: &ProjectConfig, layout: &PackLayout) -> Result<Self, String> {
+        Self::build_operation(root, config, layout).map_err(|error| error.detail)
+    }
+
+    pub fn build_operation(
+        root: &Path,
+        config: &ProjectConfig,
+        layout: &PackLayout,
+    ) -> Result<Self, Error> {
         let gitignore = if config.scan.use_gitignore {
             GitignoreSet::load_root(root)?
         } else {
             GitignoreSet::empty()
         };
-        let packwizignore = IgnoreSet::load_result(&join_slash(
+        let packwizignore = IgnoreSet::load_operation(&join_slash(
             root,
             &config.scan.packwizignore.to_string_lossy(),
         ))?;
@@ -95,18 +104,36 @@ fn walk(
     packwizignore: &IgnoreSet,
     layout: &PackLayout,
     report: &mut ScanReport,
-) -> Result<(), String> {
-    let entries = fs::read_dir(current)
-        .map_err(|err| format!("failed to read {}: {err}", current.display()))?;
+) -> Result<(), Error> {
+    let entries = fs::read_dir(current).map_err(|err| {
+        Error::named(
+            ErrorCode::Failed,
+            "read_directory_failed",
+            format!("failed to read {}: {err}", current.display()),
+        )
+        .context(format!("{}: {err}", current.display()))
+    })?;
 
     for entry in entries {
-        let entry = entry.map_err(|err| format!("failed to read directory entry: {err}"))?;
+        let entry = entry.map_err(|err| {
+            Error::named(
+                ErrorCode::Failed,
+                "read_directory_entry_failed",
+                format!("failed to read directory entry: {err}"),
+            )
+            .context(format!("{}: {err}", current.display()))
+        })?;
         let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|err| format!("failed to read file type for {}: {err}", path.display()))?;
+        let file_type = entry.file_type().map_err(|err| {
+            Error::named(
+                ErrorCode::Failed,
+                "read_file_type_failed",
+                format!("failed to read file type for {}: {err}", path.display()),
+            )
+            .context(format!("{}: {err}", path.display()))
+        })?;
         let is_dir = file_type.is_dir();
-        let rel = relative_slash(root, &path)?;
+        let rel = relativize(root, &path)?;
 
         if rel == ".git" || rel == "target" {
             continue;
@@ -130,7 +157,12 @@ fn walk(
         }
 
         if file_type.is_symlink() {
-            return Err(format!("refusing to scan symlink: {}", path.display()));
+            return Err(Error::named(
+                ErrorCode::Failed,
+                "scan_symlink_rejected",
+                format!("refusing to scan symlink: {}", path.display()),
+            )
+            .context(path.display().to_string()));
         }
 
         if is_dir {
@@ -169,8 +201,8 @@ impl GitignoreSet {
         Self { scopes: Vec::new() }
     }
 
-    fn load_root(root: &Path) -> Result<Self, String> {
-        let rules = IgnoreSet::load_result(&root.join(".gitignore"))?;
+    fn load_root(root: &Path) -> Result<Self, Error> {
+        let rules = IgnoreSet::load_operation(&root.join(".gitignore"))?;
         if rules.is_empty() {
             Ok(Self::empty())
         } else {
@@ -183,15 +215,15 @@ impl GitignoreSet {
         }
     }
 
-    fn with_directory(&self, root: &Path, dir: &Path) -> Result<Self, String> {
-        let rules = IgnoreSet::load_result(&dir.join(".gitignore"))?;
+    fn with_directory(&self, root: &Path, dir: &Path) -> Result<Self, Error> {
+        let rules = IgnoreSet::load_operation(&dir.join(".gitignore"))?;
         if rules.is_empty() {
             return Ok(self.clone());
         }
 
         let mut scopes = self.scopes.clone();
         scopes.push(GitignoreScope {
-            base: relative_slash(root, dir)?,
+            base: relativize(root, dir)?,
             rules,
         });
         Ok(Self { scopes })

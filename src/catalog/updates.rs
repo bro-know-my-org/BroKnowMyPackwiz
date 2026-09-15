@@ -74,7 +74,7 @@ pub fn query(
     let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
     let filter = Filter::for_pack(root)?;
-    let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
+    let report = ScanReport::build_operation(root, &config, &layout)?;
     let requested: BTreeSet<_> = paths.iter().cloned().collect();
     for path in &requested {
         if !report.metadata.iter().any(|entry| &entry.path == path) {
@@ -88,7 +88,7 @@ pub fn query(
             continue;
         }
         control.check()?;
-        let metadata = ModMetadata::load(&root.join(&entry.path)).map_err(Error::from)?;
+        let metadata = ModMetadata::load_operation(&root.join(&entry.path))?;
         if metadata.pin {
             skipped.push((entry.path, "update_pinned"));
             continue;

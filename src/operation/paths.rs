@@ -11,3 +11,13 @@ pub fn relative(value: &str) -> Result<String> {
         Error::named(ErrorCode::Failed, "unsafe_relative_path", legacy).context(value)
     })
 }
+
+pub fn relativize(root: &std::path::Path, path: &std::path::Path) -> Result<String> {
+    crate::pathutil::relative_slash(root, path).map_err(|legacy| {
+        Error::named(ErrorCode::Failed, "path_outside_root", legacy).context(format!(
+            "{}; {}",
+            path.display(),
+            root.display()
+        ))
+    })
+}
