@@ -95,7 +95,8 @@ TUI 提供文件、添加、整合包、任务、设置五个页面，支持中�
 高级编辑器编辑暂存副本，确认后才保存。工具自身升级请退出 TUI 后使用 `bkmpw self-update`。
 
 Linux release 真实终端、离线任务、外部编辑器，以及真实 GitHub/CurseForge 添加与下载已验证。
-Windows/macOS 构建与真实终端测试按用户要求挂起；三平台 CI 已配置，尚无远程执行结果。
+Windows/Linux/macOS 的远程 CI 测试、release 构建与 CLI 烟测已通过；
+Windows/macOS 的真实终端交互验收仍按用户要求挂起。
 详细范围与证据见 [实施计划](docs/tui-plan.md) 和 [进展记录](docs/tui-progress.md)。
 
 ## 命令
