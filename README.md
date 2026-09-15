@@ -11,6 +11,7 @@
 - [这是什么](#这是什么)
 - [和上游 packwiz 的差异](#和上游-packwiz-的差异)
 - [命令](#命令)
+- [交互式终端界面](#交互式终端界面)
 - [配置](#配置)
 - [机器接口](#机器接口)
 - [体积策略](#体积策略)
@@ -69,10 +70,39 @@
 - 安装支持 retry、重试等待时间和 force 覆盖，方便吸收原 devtool 的批量下载习惯。
 - 安装结果会写入一个小型 `packwiz.json` manifest。
 
+## 交互式终端界面
+
+在交互式终端运行 `bkmpw tui [pack-root]`，省略目录时打开当前目录。
+从源码构建后可运行 `./target/release/bkmpw tui /path/to/pack`；Windows 使用
+`.\target\release\bkmpw.exe tui C:\path\to\pack`。新目录会进入初始化入口。
+
+TUI 提供文件、添加、整合包、任务、设置五个页面，支持中文/英文、键盘与鼠标。
+按 `Tab` / `Shift+Tab` 切换页面，`L` 切换语言，`?` 查看可滚动帮助，`Q` 退出。
+输入框内的字母会作为输入，不触发全局快捷键。
+
+- 文件页：`/` 搜索，空格标记，`U` 预览更新，`D` 直接更新，`E` 编辑常用字段，
+  `Shift+E` 调用外部编辑器，`Delete` 确认批量移除元数据。
+- 添加页：CurseForge 搜索、文件和依赖选择；`G` 选择 GitHub Release 附件，
+  `U` 添加直链，`A` 添加本地文件。CurseForge 使用 `CURSEFORGE_API_KEY`
+  或 `[curseforge].api-key`。默认只保存元数据，可勾选同时下载。
+- 整合包页：方向键或滚轮选择检查、安装、同步、模板准备及导出操作，回车打开表单。
+- 任务页：空格暂停/继续，`C` 取消任务，`R` 重试恢复，`K` 保留外部内容，
+  `O` 恢复原内容；处理冲突前先查看目标路径和保留的备份。
+
+修改操作按队列顺序执行，每个任务独立回滚。失败或取消会暂停后续任务；重启后
+需要手动继续等待队列，中断任务先恢复再标为待检查。正常取消须等待停止和回滚完成。
+检测到外部修改时保留内容并等待解决；恢复依赖文件系统可用且日志、备份完整。
+高级编辑器编辑暂存副本，确认后才保存。工具自身升级请退出 TUI 后使用 `bkmpw self-update`。
+
+第一版仍在验收中：Linux release 真实终端及离线任务流程已验证，Windows/macOS
+真实终端、三平台远程 CI 和真实 CurseForge 文件添加尚未完成验收。
+详细范围与证据见 [实施计划](docs/tui-plan.md) 和 [进展记录](docs/tui-progress.md)。
+
 ## 命令
 
 ```text
 bkmpw init [pack-root]
+bkmpw tui [pack-root]
 bkmpw inspect [pack-root]
 bkmpw scan [pack-root]
 bkmpw refresh [pack-root]
