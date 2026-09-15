@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Clear, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Clear, Paragraph, Row, Table},
 };
 
 pub(super) type Action = (KeyCode, &'static str, &'static str);
@@ -22,6 +22,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
     let lang = app.language;
     app.table_area = Rect::default();
+    app.detail_view.area = Rect::default();
     app.tabs.clear();
     app.buttons.clear();
     app.menu_area = Rect::default();
@@ -346,7 +347,7 @@ fn files(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn details(frame: &mut Frame, app: &App, area: Rect) {
+fn details(frame: &mut Frame, app: &mut App, area: Rect) {
     let lang = app.language;
     let text = app
         .current()
@@ -368,12 +369,7 @@ fn details(frame: &mut Frame, app: &App, area: Rect) {
                 .join("\n\n")
         })
         .unwrap_or_else(|| lang.text("empty").to_string());
-    frame.render_widget(
-        Paragraph::new(text)
-            .wrap(Wrap { trim: false })
-            .block(Block::bordered().title(lang.text("details"))),
-        area,
-    );
+    app.detail_view.draw(frame, lang, &text, area);
 }
 
 fn boolean(lang: Language, value: bool) -> String {
@@ -480,4 +476,53 @@ fn scroll_text(frame: &mut Frame, text: &str, body: Rect, scroll: &mut u16) {
             .min(u16::MAX as usize) as u16,
     );
     frame.render_widget(Paragraph::new(lines.join("\n")).scroll((*scroll, 0)), body);
+}
+
+#[derive(Default)]
+pub(super) struct DetailView {
+    pub area: Rect,
+    pub scroll: u16,
+    text: String,
+}
+
+impl DetailView {
+    pub fn key(&mut self, code: KeyCode) -> bool {
+        if self.area.is_empty() {
+            return false;
+        }
+        match code {
+            KeyCode::PageDown => self.scroll = self.scroll.saturating_add(8),
+            KeyCode::PageUp => self.scroll = self.scroll.saturating_sub(8),
+            KeyCode::Home => self.scroll = 0,
+            KeyCode::End => self.scroll = u16::MAX,
+            _ => return false,
+        }
+        true
+    }
+
+    pub fn mouse(&mut self, mouse: &crossterm::event::MouseEvent) -> bool {
+        use crossterm::event::MouseEventKind;
+        if !self.area.contains((mouse.column, mouse.row).into()) {
+            return false;
+        }
+        match mouse.kind {
+            MouseEventKind::ScrollDown => self.scroll = self.scroll.saturating_add(3),
+            MouseEventKind::ScrollUp => self.scroll = self.scroll.saturating_sub(3),
+            _ => return false,
+        }
+        true
+    }
+
+    pub fn draw(&mut self, frame: &mut Frame, lang: Language, text: &str, area: Rect) {
+        if self.text != text {
+            self.scroll = 0;
+            self.text = text.to_owned();
+        }
+        let block = Block::bordered()
+            .title(lang.text("details"))
+            .title_bottom(lang.text("detail_scroll"));
+        self.area = block.inner(area);
+        frame.render_widget(block, area);
+        scroll_text(frame, text, self.area, &mut self.scroll);
+    }
 }

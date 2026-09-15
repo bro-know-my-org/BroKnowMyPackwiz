@@ -1138,6 +1138,7 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "Tab: page  ↑↓: select  Space: mark  /: search  R: reload  L: language  Q: quit",
         "Tab: 页面  ↑↓: 选择  空格: 多选  /: 搜索  R: 刷新  L: 语言  Q: 退出",
     ),
+    ("detail_scroll", "PgUp/PgDn: scroll", "PgUp/PgDn：滚动"),
     ("popup_scroll", "↑↓ PgUp/PgDn: scroll", "↑↓ PgUp/PgDn：滚动"),
     (
         "help_text",

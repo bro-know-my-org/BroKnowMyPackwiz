@@ -27,6 +27,7 @@ pub struct App {
     pub table_area: Rect,
     pub tabs: Vec<Rect>,
     pub detail: bool,
+    pub detail_view: super::view::DetailView,
     pub help: bool,
     pub help_scroll: u16,
     pub error: Option<String>,
@@ -65,6 +66,7 @@ impl App {
             table_area: Rect::default(),
             tabs: Vec::new(),
             detail: false,
+            detail_view: super::view::DetailView::default(),
             help: false,
             help_scroll: 0,
             error: None,
@@ -384,6 +386,9 @@ impl App {
                     }
                     return false;
                 }
+                if self.page == 0 && self.detail_view.key(key.code) {
+                    return false;
+                }
                 match key.code {
                     KeyCode::Char('q') => return self.quit(),
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -596,6 +601,9 @@ impl App {
             }
             Event::Mouse(mouse) if !self.help && !self.editing => {
                 let point = ratatui::layout::Position::new(mouse.column, mouse.row);
+                if self.page == 0 && self.detail_view.mouse(&mouse) {
+                    return false;
+                }
                 if self.page == 0 && self.table_area.contains(point) {
                     match mouse.kind {
                         MouseEventKind::ScrollDown => self.move_cursor(1),
