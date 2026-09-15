@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use crate::config::ProjectConfig;
 use crate::layout::PackLayout;
 use crate::metadata::ModMetadata;
+use crate::operation::{Error, ErrorCode};
 use crate::pathutil::join_slash;
 use crate::scan::{ScanReport, is_metadata_file};
-use crate::sha256::sha256_file_hex;
+use crate::sha256::sha256_file_hex_operation;
 
 #[derive(Debug, Clone)]
 pub struct RefreshResult {
@@ -21,7 +22,15 @@ pub fn refresh(
     config: &ProjectConfig,
     layout: &PackLayout,
 ) -> Result<RefreshResult, String> {
-    let report = ScanReport::build(root, config, layout)?;
+    refresh_operation(root, config, layout).map_err(|error| error.detail)
+}
+
+pub fn refresh_operation(
+    root: &Path,
+    config: &ProjectConfig,
+    layout: &PackLayout,
+) -> Result<RefreshResult, Error> {
+    let report = ScanReport::build_operation(root, config, layout)?;
     let mut entries = Vec::new();
     let mut metadata_written = 0;
     let mut jar_written = 0;
@@ -32,13 +41,18 @@ pub fn refresh(
         }
 
         let file_path = join_slash(root, &rel);
-        let hash = sha256_file_hex(&file_path)?;
+        let hash = sha256_file_hex_operation(&file_path)?;
         let metafile = is_metadata_file(&rel, layout);
         if metafile {
             metadata_written += 1;
-            let metadata = ModMetadata::load(&file_path)?;
+            let metadata = ModMetadata::load_operation(&file_path)?;
             if let Some(crate::metadata::Side::Unknown(side)) = metadata.side {
-                return Err(format!("metadata has unsupported side: {rel}: {side}"));
+                return Err(Error::named(
+                    ErrorCode::Failed,
+                    "metadata_unknown_side",
+                    format!("metadata has unsupported side: {rel}: {side}"),
+                )
+                .context(format!("{rel}: {side}")));
             }
         } else if rel.to_ascii_lowercase().ends_with(".jar")
             && crate::pathutil::is_under_slash(&rel, &layout.jar_root.to_string_lossy())
@@ -56,7 +70,7 @@ pub fn refresh(
     entries.sort_by(|a, b| a.path.cmp(&b.path));
 
     let index_path = root.join("index.toml");
-    crate::pathutil::write_atomic(&index_path, write_index(&entries))?;
+    crate::pathutil::write_atomic_operation(&index_path, write_index(&entries))?;
     update_pack_index_hash(root, &index_path)?;
 
     Ok(RefreshResult {
@@ -115,17 +129,23 @@ fn escape_toml_string(value: &str) -> String {
     out
 }
 
-fn update_pack_index_hash(root: &Path, index_path: &Path) -> Result<(), String> {
+fn update_pack_index_hash(root: &Path, index_path: &Path) -> Result<(), Error> {
     let pack_path = root.join("pack.toml");
     if !pack_path.exists() {
         return Ok(());
     }
 
-    let index_hash = sha256_file_hex(index_path)?;
-    let text = fs::read_to_string(&pack_path)
-        .map_err(|err| format!("failed to read {}: {err}", pack_path.display()))?;
+    let index_hash = sha256_file_hex_operation(index_path)?;
+    let text = fs::read_to_string(&pack_path).map_err(|err| {
+        Error::named(
+            ErrorCode::Failed,
+            "read_file_failed",
+            format!("failed to read {}: {err}", pack_path.display()),
+        )
+        .context(format!("{}: {err}", pack_path.display()))
+    })?;
     let updated = set_index_hash(&text, &index_hash);
-    crate::pathutil::write_atomic(&pack_path, updated)?;
+    crate::pathutil::write_atomic_operation(&pack_path, updated)?;
     Ok(())
 }
 
