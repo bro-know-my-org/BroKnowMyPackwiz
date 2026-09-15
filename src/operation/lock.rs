@@ -7,7 +7,16 @@ use std::{
 };
 
 pub struct WriteLocks {
-    _files: Vec<File>,
+    _files: Vec<Held>,
+}
+
+struct Held(File);
+impl Drop for Held {
+    fn drop(&mut self) {
+        // A concurrent process spawn may briefly inherit the open file
+        // description before exec closes it. Release ownership explicitly.
+        let _ = FileExt::unlock(&self.0);
+    }
 }
 
 pub fn for_command(command: &str, args: &[String]) -> Result<Option<WriteLocks>> {
@@ -84,6 +93,7 @@ impl WriteLocks {
             .write(true)
             .open(durable::absolute(&dir.join("registry"))?)?;
         registry.lock_exclusive()?;
+        let _registry = Held(registry);
         for entry in fs::read_dir(&dir)? {
             let entry = entry?;
             if entry
@@ -96,6 +106,7 @@ impl WriteLocks {
             let path = durable::absolute(&entry.path())?;
             let file = OpenOptions::new().read(true).write(true).open(&path)?;
             if file.try_lock_exclusive().is_ok() {
+                FileExt::unlock(&file)?;
                 continue;
             }
             let sidecar = durable::absolute(&path.with_extension("json"))?;
@@ -125,6 +136,7 @@ impl WriteLocks {
                 .open(&lock_path)?;
             file.try_lock_exclusive()
                 .map_err(|err| Error::new(ErrorCode::Busy, format!("{}: {err}", path.display())))?;
+            let file = Held(file);
             let sidecar = durable::absolute(&lock_path.with_extension("json"))?;
             durable::write(
                 &sidecar,
@@ -155,6 +167,31 @@ fn overlaps(a: &Path, b: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn releasing_owner_unlocks_even_while_a_duplicate_handle_exists() {
+        let path = std::env::temp_dir().join(durable::unique_id());
+        let file = OpenOptions::new()
+            .create_new(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        file.lock_exclusive().unwrap();
+        let held = Held(file);
+        let duplicate = held.0.try_clone().unwrap();
+        drop(held);
+        let next = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        next.try_lock_exclusive().unwrap();
+        FileExt::unlock(&next).unwrap();
+        drop(duplicate);
+        drop(next);
+        fs::remove_file(path).unwrap();
+    }
     #[test]
     fn ancestor_and_descendant_writers_conflict_but_siblings_can_run() {
         let base = std::env::temp_dir().join(durable::unique_id());
