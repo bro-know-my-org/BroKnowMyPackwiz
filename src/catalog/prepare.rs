@@ -81,6 +81,24 @@ pub fn curseforge<T: Transport>(
     relaxed: bool,
     control: &Control,
 ) -> Result<Preview> {
+    curseforge_many(
+        root,
+        state,
+        client,
+        vec![(selected, side)],
+        relaxed,
+        control,
+    )
+}
+
+pub fn curseforge_many<T: Transport>(
+    root: &Path,
+    state: &Path,
+    client: &Client<T>,
+    selections: Vec<(File, Side)>,
+    relaxed: bool,
+    control: &Control,
+) -> Result<Preview> {
     let mut guard = Guard::capture(root, control)?;
     let config = ProjectConfig::load(root).map_err(Error::from)?;
     let layout = PackLayout::from_config(&config);
@@ -89,13 +107,21 @@ pub fn curseforge<T: Transport>(
     } else {
         Filter::for_pack(root)?
     };
-    let selected_project = client.project(selected.project_id)?;
-    let root_filter = class_filter(&filter, selected_project.class_id)?;
-    let side = if selected_project.class_id == 6 {
-        side
-    } else {
-        Side::Client
-    };
+    let selections = selections
+        .into_iter()
+        .map(|(file, side)| {
+            let project = client.project(file.project_id)?;
+            class_filter(&filter, project.class_id)?;
+            Ok((
+                file,
+                if project.class_id == 6 {
+                    side
+                } else {
+                    Side::Client
+                },
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
     let report = ScanReport::build(root, &config, &layout).map_err(Error::from)?;
     let mut existing = BTreeMap::new();
     let mut installed = Vec::new();
@@ -157,7 +183,7 @@ pub fn curseforge<T: Transport>(
         client,
         pack_filter: &filter,
     };
-    let entries = dependencies::plan(&source, selected, side, &root_filter, &installed, control)?;
+    let entries = dependencies::plan_many(&source, selections, &filter, &installed, control)?;
     let mut rows = Vec::new();
     let mut drafts = Vec::new();
     let mut downloads = Vec::new();
