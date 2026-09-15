@@ -94,6 +94,31 @@ fn conflict(path: &Path) -> Error {
 }
 
 impl super::transaction::Transaction {
+    pub(super) fn prepare_created_modes(&mut self) -> Result<()> {
+        for (target, after) in &self.journal.requested_modes {
+            let before = mode(target)?.ok_or_else(|| conflict(target))?;
+            self.journal.directory_changes.push(Entry::prepare(Change {
+                target: target.clone(),
+                before,
+                after: Some(*after),
+            })?);
+        }
+        self.journal
+            .directory_changes
+            .sort_by(|a, b| b.target.cmp(&a.target));
+        self.save()
+    }
+
+    pub(super) fn created_mode_matches(&self, path: &Path) -> bool {
+        self.journal
+            .directory_changes
+            .iter()
+            .find(|entry| entry.target == path)
+            .is_none_or(|entry| {
+                mode(path).is_ok_and(|mode| mode.is_none() || mode == Some(entry.before))
+            })
+    }
+
     pub fn change_directories(&mut self, changes: Vec<Change>) -> Result<()> {
         if self.journal.state != super::transaction::State::Prepared {
             return Err(Error::key(ErrorCode::Invalid, "transaction_not_prepared"));

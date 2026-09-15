@@ -1,5 +1,34 @@
 use super::*;
 
+#[cfg(unix)]
+#[test]
+fn new_directory_permissions_roll_back_and_keep_external_ancestors_on_resolution() {
+    let f = Fixture::new();
+    let target = f.root.join("new/inner");
+    let mut tx = f.prepare(Vec::new());
+    tx.create_directories_with_modes(vec![(target.clone(), 0o700)])
+        .unwrap();
+    tx.journal.state = State::Committing;
+    tx.ensure_parents(&target.join("unused")).unwrap();
+    tx.prepare_created_modes().unwrap();
+    tx.apply_directories(&Control::default()).unwrap();
+    tx.rollback().unwrap();
+    assert!(!f.root.join("new").exists());
+
+    let mut tx = f.prepare(Vec::new());
+    tx.create_directories_with_modes(vec![(target.clone(), 0o700)])
+        .unwrap();
+    tx.journal.state = State::Committing;
+    tx.ensure_parents(&target.join("unused")).unwrap();
+    tx.prepare_created_modes().unwrap();
+    tx.apply_directories(&Control::default()).unwrap();
+    super::super::directory::set_mode(&target, 0o711).unwrap();
+    assert_eq!(tx.rollback().unwrap_err().code, ErrorCode::Conflict);
+    tx.resolve_all(true).unwrap();
+    assert_eq!(tx.state(), State::RolledBack);
+    assert_eq!(super::super::directory::mode(&target).unwrap(), Some(0o711));
+}
+
 #[test]
 fn recovery_restores_directory_tree_before_deleted_file_contents() {
     let f = Fixture::new();

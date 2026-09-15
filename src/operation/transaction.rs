@@ -56,6 +56,8 @@ pub(super) struct Journal {
     directories: Vec<PathBuf>,
     #[serde(default)]
     requested_directories: Vec<PathBuf>,
+    #[serde(default)]
+    pub(super) requested_modes: Vec<(PathBuf, u32)>,
     pub(super) conflicts: Vec<PathBuf>,
     #[serde(default)]
     pub(super) directory_changes: Vec<super::directory::Entry>,
@@ -79,6 +81,7 @@ impl Transaction {
                 entries: Vec::new(),
                 directories: Vec::new(),
                 requested_directories: Vec::new(),
+                requested_modes: Vec::new(),
                 conflicts: Vec::new(),
                 directory_changes: Vec::new(),
             },
@@ -162,6 +165,7 @@ impl Transaction {
             .iter()
             .chain(&journal.requested_directories)
             .chain(journal.directory_changes.iter().map(|entry| &entry.target))
+            .chain(journal.requested_modes.iter().map(|(path, _)| path))
             .any(|path| !path.is_absolute())
         {
             return Err(Error::new(
@@ -194,6 +198,14 @@ impl Transaction {
             directories.insert(path);
         }
         self.journal.requested_directories = directories.into_iter().collect();
+        self.save()
+    }
+    pub fn create_directories_with_modes(&mut self, paths: Vec<(PathBuf, u32)>) -> Result<()> {
+        self.create_directories(paths.iter().map(|(path, _)| path.clone()).collect())?;
+        self.journal.requested_modes = paths
+            .into_iter()
+            .map(|(path, mode)| durable::absolute(&path).map(|path| (path, mode)))
+            .collect::<Result<_>>()?;
         self.save()
     }
     pub fn conflicts(&self) -> &[PathBuf] {
@@ -240,9 +252,13 @@ impl Transaction {
         self.resolve_directory_conflicts(keep_external)?;
         self.save()?;
         if keep_external {
-            self.journal
-                .directories
-                .retain(|path| !self.journal.conflicts.contains(path));
+            self.journal.directories.retain(|path| {
+                !self
+                    .journal
+                    .conflicts
+                    .iter()
+                    .any(|conflict| conflict.starts_with(path))
+            });
             self.save()?;
         }
         for i in 0..self.journal.entries.len() {
@@ -334,6 +350,7 @@ impl Transaction {
             // ensure_parents only examines the parent; no marker is written.
             self.ensure_parents(&path.join("unused"))?;
         }
+        self.prepare_created_modes()?;
         for i in 0..self.journal.entries.len() {
             control.check()?;
             let entry = &self.journal.entries[i];
@@ -456,6 +473,10 @@ impl Transaction {
             ));
         }
         for path in self.journal.directories.iter().rev() {
+            if !self.created_mode_matches(path) {
+                self.journal.conflicts.push(path.clone());
+                continue;
+            }
             if durable::absolute(path).is_err() {
                 self.journal.conflicts.push(path.clone());
                 continue;

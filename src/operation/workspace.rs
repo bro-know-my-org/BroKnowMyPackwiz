@@ -117,12 +117,12 @@ impl Workspace {
             .collect())
     }
 
-    pub fn new_directories(&self, control: &Control) -> Result<Vec<PathBuf>> {
+    pub fn new_directories(&self, control: &Control) -> Result<Vec<(PathBuf, u32)>> {
         let (_, updated) = inventory(&self.staged, control)?;
         Ok(updated
-            .keys()
-            .filter(|path| !self.directories.contains_key(*path))
-            .map(|relative| self.original.join(relative))
+            .iter()
+            .filter(|(path, _)| !self.directories.contains_key(*path))
+            .map(|(relative, mode)| (self.original.join(relative), *mode))
             .collect())
     }
 }
