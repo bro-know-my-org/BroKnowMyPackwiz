@@ -38,6 +38,9 @@ pub struct Error {
     pub detail: String,
     #[serde(default)]
     pub message: Option<String>,
+    /// Separate localized context for named errors; keep `detail` for legacy Display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_context: Option<String>,
 }
 
 impl Error {
@@ -46,6 +49,7 @@ impl Error {
             code,
             detail: detail.into(),
             message: None,
+            message_context: None,
         }
     }
     pub fn key(code: ErrorCode, key: &str) -> Self {
@@ -53,10 +57,23 @@ impl Error {
             code,
             detail: key.into(),
             message: Some(key.into()),
+            message_context: None,
+        }
+    }
+    pub fn named(code: ErrorCode, key: &str, legacy: impl Into<String>) -> Self {
+        Self {
+            code,
+            detail: legacy.into(),
+            message: Some(key.into()),
+            message_context: Some(String::new()),
         }
     }
     pub fn context(mut self, detail: impl Into<String>) -> Self {
-        self.detail = detail.into();
+        if self.message_context.is_some() {
+            self.message_context = Some(detail.into());
+        } else {
+            self.detail = detail.into();
+        }
         self
     }
 }
@@ -72,6 +89,9 @@ impl From<String> for Error {
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.message_context.is_some() {
+            return write!(f, "{:?}: {}", self.code, self.detail);
+        }
         if let Some(key) = &self.message {
             if key != &self.detail {
                 return write!(f, "{:?}: {key}: {}", self.code, self.detail);

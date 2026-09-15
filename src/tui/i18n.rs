@@ -21,10 +21,11 @@ impl Language {
         };
         if let Some(key) = &error.message {
             let message = self.text(key);
-            if error.detail == *key {
+            let context = error.message_context.as_deref().unwrap_or(&error.detail);
+            if context.is_empty() || (error.message_context.is_none() && context == key) {
                 message.into()
             } else {
-                format!("{message}: {}", error.detail)
+                format!("{message}: {context}")
             }
         } else {
             format!("{}: {}", self.text(category), error.detail)
@@ -65,6 +66,65 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    (
+        "queue_identity_mismatch",
+        "Saved queue version or pack directory does not match",
+        "保存的队列版本或整合包目录不匹配",
+    ),
+    ("invalid_task_id", "Invalid task ID", "任务标识无效"),
+    ("duplicate_task_id", "Duplicate task ID", "任务标识重复"),
+    (
+        "recovery_before_changes",
+        "Finish recovery before adding changes",
+        "请先完成恢复，再提交修改",
+    ),
+    (
+        "recovery_unresolved",
+        "Recovery is unresolved",
+        "恢复尚未完成",
+    ),
+    ("unknown_task", "Task not found", "找不到任务"),
+    (
+        "recovery_before_exit",
+        "Wait for recovery before exiting",
+        "请等待恢复完成后退出",
+    ),
+    (
+        "task_not_cancellable",
+        "This task cannot be cancelled in its current state",
+        "当前状态的任务无法取消",
+    ),
+    (
+        "no_running_task",
+        "No task is running",
+        "当前没有运行中的任务",
+    ),
+    (
+        "task_running",
+        "A task is still running",
+        "仍有任务正在运行",
+    ),
+    (
+        "no_recovery_conflict",
+        "This task has no recovery conflict",
+        "此任务没有待处理的恢复冲突",
+    ),
+    (
+        "task_worker_disconnected",
+        "Task worker disconnected",
+        "任务执行线程已断开",
+    ),
+    (
+        "no_task_conflict",
+        "This task has no conflict to resolve",
+        "此任务没有待解决的冲突",
+    ),
+    (
+        "queue_loader_disconnected",
+        "Queue loader disconnected",
+        "队列加载线程已断开",
+    ),
+    ("queue_unavailable", "Queue is unavailable", "队列暂不可用"),
     (
         "directory_changed",
         "Directory or permissions changed outside this task",
@@ -828,6 +888,25 @@ const MESSAGES: &[(&str, &str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_errors_preserve_cli_text_and_persist_localized_context() {
+        use crate::operation::{Error, ErrorCode};
+        let error = Error::named(ErrorCode::Invalid, "unknown_task", "unknown task");
+        assert_eq!(error.to_string(), "Invalid: unknown task");
+        assert_eq!(Language::ZhCn.error(&error), "找不到任务");
+        let error = error.context("123-456");
+        let saved = serde_json::to_string(&error).unwrap();
+        let restored: Error = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.to_string(), "Invalid: unknown task");
+        assert_eq!(Language::ZhCn.error(&restored), "找不到任务: 123-456");
+        assert_eq!(Language::En.error(&restored), "Task not found: 123-456");
+        let legacy: Error = serde_json::from_str(
+            r#"{"code":"Invalid","detail":"123-456","message":"unknown_task"}"#,
+        )
+        .unwrap();
+        assert_eq!(Language::ZhCn.error(&legacy), "找不到任务: 123-456");
+    }
 
     #[test]
     fn stable_error_messages_translate_without_parsing_raw_diagnostics() {

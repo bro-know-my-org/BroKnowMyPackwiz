@@ -46,8 +46,9 @@ impl Jobs {
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.pending = None;
-                    return Err(Error::new(
+                    return Err(Error::named(
                         ErrorCode::Interrupted,
+                        "queue_loader_disconnected",
                         "queue loader disconnected",
                     ));
                 }
@@ -62,10 +63,9 @@ impl Jobs {
     }
 
     pub fn pin(&mut self, root: &Path, entries: &[Entry]) -> Result<()> {
-        let queue = self
-            .queue
-            .as_mut()
-            .ok_or_else(|| Error::new(ErrorCode::Busy, "queue unavailable"))?;
+        let queue = self.queue.as_mut().ok_or_else(|| {
+            Error::named(ErrorCode::Busy, "queue_unavailable", "queue unavailable")
+        })?;
         if entries.is_empty() {
             return Ok(());
         }
