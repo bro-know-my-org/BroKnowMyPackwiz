@@ -5,6 +5,7 @@ pub mod edit;
 pub mod lock;
 pub mod manifest;
 pub mod preview;
+pub mod process;
 pub mod queue;
 pub mod transaction;
 pub mod transfer;
