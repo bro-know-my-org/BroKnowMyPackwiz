@@ -1,6 +1,6 @@
 # TUI 第一版验收对照
 
-对应 [实施计划](tui-plan.md)，本表记录功能交付与 Linux 验收证据；Windows/macOS 验收按用户要求挂起，不能视为全部平台通过。
+对应 [实施计划](tui-plan.md)，本表记录功能交付与 Linux 验收证据；Windows/macOS 真实终端验收按用户要求挂起，不能视为全部平台通过。
 入口存在、单测通过、真实终端通过是不同层级的证据。
 
 ## 命令入口
@@ -53,7 +53,7 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 - 文件搜索、多选、焦点、中文粘贴、窄窗口、鼠标入口与滚轮有 ratatui TestBackend 测试；帮助/错误关闭、退出选择、恢复重试的双语鼠标测试已通过，Linux PTY 已实测鼠标打开/关闭帮助和退出；Linux release PTY 有启动、语言切换、重启队列和终端恢复证据。
 - 消息资源有唯一性/完整性测试；操作错误使用稳定消息键和上下文，CLI 字符串接口保留旧文案；第三方原始错误和 CLI 日志保留原文。GitHub 仓库/名称校验、更新附件选择与临时目录诊断已接入消息键，并核对 CLI 原字符串不变；最终核查覆盖 TUI、operation、catalog 的表单、来源、编辑器、恢复与诊断适配，未发现新的可达应用诊断缺口；未做纯 CLI 私有 helper 的全量调用拓扑证明。
 - 配置/元数据表单及外部编辑器通过暂存与确认提交；TOML 无关字段、注释和外部冲突有测试。Linux release PTY 已用真实编辑器子进程验证保存、取消、失败、无效 TOML 和外部修改五种往返场景，见 `tests/tui_editor_smoke.py`；Windows/macOS 尚未实测。
-- `.github/workflows/ci.yml` 定义 Windows/Linux/macOS 的格式、测试、release 构建及 CLI 烟测；尚无本次代码的远程执行结果。TUI PTY 自动烟测当前只在 Linux 运行。用户已于 2026-09-15 明确挂起 Windows/macOS 测试；保留实现与 CI 配置，状态仍为未验证。
+- `.github/workflows/ci.yml` 定义 Windows/Linux/macOS 的格式、测试、release 构建及 CLI 烟测；远程测试、release 构建及 CLI 烟测已通过（见文末链接）。TUI PTY 自动烟测当前只在 Linux 运行。用户要求发布后已完成三平台 CI，Windows/macOS 真实终端交互测试仍挂起。
 - 当前本地证据不能替代三平台中文输入、键鼠、resize、外部编辑器、正常退出和错误退出的真实终端验收。
 
 ## 外部编辑器真实终端往返
@@ -69,7 +69,7 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 - 编辑器以状态 7 退出、返回无效 TOML：双语资源中的英文错误正确呈现，原文件不变、无写任务，保留草稿供修复。
 - 预览后外部修改原文件：确认提交后任务失败/冲突，外部内容保留。
 
-脚本已加入 Linux CI 步骤，但尚无远程 CI 结果。这验证本程序的编辑器交接流程，
+脚本已加入 Linux CI 步骤且远程运行通过。这验证本程序的编辑器交接流程，
 不代表所有具体编辑器、终端模拟器和 Windows/macOS 均已验收。
 
 ## GitHub 真实联网添加
@@ -115,7 +115,9 @@ JSON/protocol-version 仍作为 CLI 集成接口。Modrinth 项目搜索、GitHu
 - 队列持久化与重启证据见事务表；API 配置通过私有草稿提交，队列保存草稿引用；非法配置和真实 CurseForge 烟测均检查队列历史无对应 token。私有配置草稿和恢复备份含恢复所需内容，不承诺任意用户输入与第三方日志的通用秘密清洗。
 - `tests/tui_smoke.py` 的模板 fixture 和 17 类队列任务核对整合包/服务端模板、modlist 和四类导出产物；runner 跨盘部分提交失败测试补充多输出回滚证据。未声称覆盖任意任务排列或所有文件系统。
 - GitHub 与 CurseForge 的代表性真实添加流程已通过独立联网烟测；真实响应会变化，不能代表所有项目和版本组合。
-- 本地 Linux 构建、测试和真实 PTY 验收已完成。三平台 CI 配置保留，尚无远程运行结果；Windows/macOS 构建和真实终端验收按用户要求挂起，状态为未验证。
+- 本地 Linux 构建、测试和真实 PTY 验收已完成。三平台 CI 测试、构建和 CLI 烟测已通过；Windows/macOS 真实终端验收仍按用户要求挂起，状态为未验证。
 - 真实断电、真实磁盘满载未实测；相关异常保证由确定性故障注入支撑，恢复仍要求文件系统、日志和备份可用。
 
 最新测试数量和构建记录见 [实施记录](tui-progress.md)。
+
+三平台 CI 证据：[34934924882](https://github.com/bro-know-my-org/BroKnowMyPackwiz/actions/runs/34934924882)，对应代码提交 `18d32de`；其后发布验收文档更新不改变代码。

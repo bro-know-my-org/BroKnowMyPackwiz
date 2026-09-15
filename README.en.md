@@ -114,9 +114,9 @@ editors work on private copies that are saved after confirmation. Exit the TUI
 before upgrading the tool with `bkmpw self-update`.
 
 Linux release terminal, offline tasks, external editor, and real GitHub/CurseForge
-add-and-download smoke tests have passed. Windows/macOS build and terminal testing
-is suspended at the user’s request. Three-platform CI is configured but has not
-run remotely. See the [plan](docs/tui-plan.md) and [progress](docs/tui-progress.md)
+add-and-download smoke tests have passed. Windows/Linux/macOS CI tests, release builds and CLI smoke tests
+have passed. Windows/macOS interactive terminal acceptance remains suspended at
+the user’s request. See the [plan](docs/tui-plan.md) and [progress](docs/tui-progress.md)
 (Chinese) for scope and evidence.
 
 ## Commands
