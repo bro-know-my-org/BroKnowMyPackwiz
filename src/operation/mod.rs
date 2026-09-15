@@ -4,6 +4,7 @@ pub mod lock;
 pub mod preview;
 pub mod queue;
 pub mod transaction;
+pub mod transfer;
 pub mod workspace;
 
 use serde::{Deserialize, Serialize};
