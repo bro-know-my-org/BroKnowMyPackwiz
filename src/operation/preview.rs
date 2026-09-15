@@ -20,9 +20,15 @@ impl Guard {
         };
         let mut paths = guard.metadata.clone();
         paths.extend(
-            ["pack.toml", "index.toml", ".pw/config.toml", ".gitignore"]
-                .into_iter()
-                .map(str::to_string),
+            [
+                "pack.toml",
+                "index.toml",
+                "packwiz.json",
+                ".pw/config.toml",
+                ".gitignore",
+            ]
+            .into_iter()
+            .map(str::to_string),
         );
         paths.push(
             config

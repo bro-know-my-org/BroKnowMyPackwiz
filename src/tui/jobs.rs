@@ -223,7 +223,8 @@ pub fn draw(frame: &mut Frame, jobs: &mut Jobs, lang: Language, area: Rect) {
                 current,
                 total,
             } => format!(
-                "{label}: {current}/{}",
+                "{}: {current}/{}",
+                lang.text(label),
                 total.map(|v| v.to_string()).unwrap_or_else(|| "?".into())
             ),
             Event::Log(text) => text.clone(),
