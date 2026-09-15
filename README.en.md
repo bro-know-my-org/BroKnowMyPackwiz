@@ -11,6 +11,7 @@
 - [What This Is](#what-this-is)
 - [Differences From Upstream packwiz](#differences-from-upstream-packwiz)
 - [Commands](#commands)
+- [Interactive Terminal](#interactive-terminal)
 - [Config](#config)
 - [Machine Interface](#machine-interface)
 - [Size Policy](#size-policy)
@@ -78,10 +79,51 @@ Binary name: `bkmpw`.
   pack's devtool-style batch download workflow.
 - Installed files are recorded in a small `packwiz.json` manifest.
 
+## Interactive Terminal
+
+Run `bkmpw tui [pack-root]` in an interactive terminal; omit the directory to open
+the current directory. After building from source, use
+`./target/release/bkmpw tui /path/to/pack`, or
+`.\target\release\bkmpw.exe tui C:\path\to\pack` on Windows. New directories open
+at the initialization action.
+
+The Files, Add, Pack, Tasks and Settings pages support English/Chinese, keyboard
+and mouse input. Use `Tab` / `Shift+Tab` to switch pages, `L` to change language,
+`?` for scrollable help and `Q` to quit. Letters typed into an input field stay
+in that field instead of triggering global shortcuts.
+
+- Files: `/` searches, Space marks files, `U` previews updates, `D` updates
+  directly, `E` edits common fields, `Shift+E` opens an external editor and
+  `Delete` confirms bulk metadata removal.
+- Add: search CurseForge and select files/dependencies; `G` selects GitHub
+  release assets, `U` adds a direct URL and `A` adds a local file. CurseForge
+  uses `CURSEFORGE_API_KEY` or `[curseforge].api-key`. Metadata alone is saved
+  by default; downloading can be included in the same task.
+- Pack: use arrows or the wheel to select checks, installation, synchronization,
+  template preparation and exports; Enter opens the task form.
+- Tasks: Space pauses/resumes, `C` cancels, `R` retries recovery, `K` keeps
+  external content and `O` restores original content. Inspect conflict paths
+  and retained backups before resolving them.
+
+Mutations run in a serial queue with rollback per task. Failure or cancellation
+pauses later tasks. Restart requires manually resuming waiting tasks; interrupted
+tasks recover first and are marked for inspection. Normal cancellation waits for
+stopping and rollback. External changes are preserved for conflict resolution;
+recovery requires an available filesystem and intact journals/backups. External
+editors work on private copies that are saved after confirmation. Exit the TUI
+before upgrading the tool with `bkmpw self-update`.
+
+Version one is still undergoing acceptance testing. Actual Linux terminal and
+offline task smoke tests have passed; Windows/macOS terminal tests, remote
+three-platform CI and an authenticated CurseForge file-add smoke test remain
+unverified. See the [plan](docs/tui-plan.md) and [progress](docs/tui-progress.md)
+(Chinese) for scope and evidence.
+
 ## Commands
 
 ```text
 bkmpw init [pack-root]
+bkmpw tui [pack-root]
 bkmpw inspect [pack-root]
 bkmpw scan [pack-root]
 bkmpw refresh [pack-root]
