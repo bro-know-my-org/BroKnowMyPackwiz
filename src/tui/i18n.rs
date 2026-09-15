@@ -66,6 +66,16 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    (
+        "nonnegative_integer_required",
+        "Enter a nonnegative integer within range",
+        "请输入范围内的非负整数",
+    ),
+    (
+        "positive_integer_required",
+        "Enter a positive integer within range",
+        "请输入范围内的大于零的整数",
+    ),
     ("open_file_failed", "Could not open file", "无法打开文件"),
     (
         "create_directory_failed",

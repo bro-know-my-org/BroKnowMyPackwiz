@@ -137,7 +137,7 @@ fn number<T: std::str::FromStr>(form: &Form, key: &str) -> Result<Option<T>> {
     value
         .parse()
         .map(Some)
-        .map_err(|_| Error::new(ErrorCode::Invalid, key))
+        .map_err(|_| Error::key(ErrorCode::Invalid, "nonnegative_integer_required").context(key))
 }
 
 #[cfg(test)]
@@ -161,5 +161,29 @@ mod tests {
             .unwrap()
             .value = "0".into();
         assert!(submit(Kind::InstallLocal, &form).is_err());
+        form.fields
+            .iter_mut()
+            .find(|f| f.key == "jobs")
+            .unwrap()
+            .value
+            .clear();
+        for value in ["-1", "text", "184467440737095516160"] {
+            form.fields
+                .iter_mut()
+                .find(|f| f.key == "retries")
+                .unwrap()
+                .value = value.into();
+            let error = submit(Kind::InstallLocal, &form).unwrap_err();
+            assert_eq!(
+                super::super::i18n::Language::ZhCn.error(&error),
+                "请输入范围内的非负整数: retries"
+            );
+        }
+        form.fields
+            .iter_mut()
+            .find(|f| f.key == "retries")
+            .unwrap()
+            .value = "0".into();
+        assert_eq!(submit(Kind::InstallLocal, &form).unwrap().retries, Some(0));
     }
 }
