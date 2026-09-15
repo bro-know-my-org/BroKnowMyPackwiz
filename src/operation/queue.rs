@@ -18,6 +18,11 @@ pub enum Request {
         drafts: Vec<Draft>,
         guard: super::preview::Guard,
     },
+    PreparedFiles {
+        drafts: Vec<Draft>,
+        files: Vec<edit::Attachment>,
+        guard: super::preview::Guard,
+    },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
@@ -326,6 +331,19 @@ impl Queue {
                 }
             } else {
                 match task.request {
+                    Request::PreparedFiles {
+                        drafts,
+                        files,
+                        guard,
+                    } => edit::execute_files(
+                        &root,
+                        &state,
+                        &directory,
+                        &drafts,
+                        &files,
+                        Some(&guard),
+                        &worker_control,
+                    ),
                     Request::Edit(drafts) => {
                         edit::execute(&root, &state, &directory, &drafts, None, &worker_control)
                     }
