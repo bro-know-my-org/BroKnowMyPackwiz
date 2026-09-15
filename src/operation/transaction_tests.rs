@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn recovery_restores_directory_tree_before_deleted_file_contents() {
+    let f = Fixture::new();
+    let target = f.file("tree/nested/file", b"original");
+    let mut tx = f.prepare(vec![f.change("tree/nested/file", None)]);
+    tx.change_directories(
+        ["tree", "tree/nested"]
+            .iter()
+            .map(|relative| {
+                let target = f.root.join(relative);
+                super::super::directory::Change {
+                    before: super::super::directory::mode(&target).unwrap().unwrap(),
+                    target,
+                    after: None,
+                }
+            })
+            .collect(),
+    )
+    .unwrap();
+    tx.journal.state = State::Committing;
+    tx.journal.entries[0].step = Step::Applying;
+    tx.save().unwrap();
+    fs::remove_file(&target).unwrap();
+    tx.journal.entries[0].step = Step::Applied;
+    tx.save().unwrap();
+    tx.apply_directories(&Control::default()).unwrap();
+    assert!(!f.root.join("tree").exists());
+    Transaction::open(&tx.directory)
+        .unwrap()
+        .rollback()
+        .unwrap();
+    assert_eq!(fs::read(target).unwrap(), b"original");
+}
+
+#[test]
 fn empty_directories_commit_and_failure_rolls_them_back() {
     let f = Fixture::new();
     let mut tx = f.prepare(Vec::new());

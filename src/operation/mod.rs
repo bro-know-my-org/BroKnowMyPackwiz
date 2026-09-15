@@ -1,4 +1,5 @@
 pub mod command;
+pub mod directory;
 pub mod download;
 pub mod durable;
 pub mod edit;
