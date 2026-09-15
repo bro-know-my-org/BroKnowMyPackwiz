@@ -1081,6 +1081,11 @@ const MESSAGES: &[(&str, &str, &str)] = &[
     ("save", "Save / continue", "保存 / 继续"),
     ("cancel", "Cancel", "取消"),
     (
+        "preview_keys",
+        "PgUp/PgDn, wheel: scroll  Esc: back",
+        "PgUp/PgDn、滚轮: 滚动  Esc: 返回",
+    ),
+    (
         "form_keys",
         "Tab: next  ←→ / left/right click: choose  Enter: continue  Esc: cancel",
         "Tab: 下一项  ←→ / 左右键点击: 选择  Enter: 继续  Esc: 取消",
