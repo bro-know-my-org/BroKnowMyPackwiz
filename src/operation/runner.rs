@@ -158,6 +158,110 @@ mod tests {
     }
 
     #[test]
+    fn partial_commit_failure_restores_pack_and_external_outputs() {
+        use crate::operation::faults::{Point, Scope};
+        use crate::operation::transaction::State;
+        use std::{
+            cell::{Cell, RefCell},
+            collections::BTreeSet,
+            rc::Rc,
+        };
+
+        for kind in [Kind::ExportClient, Kind::Sync] {
+            let fixture = Fixture::new();
+            let external_base = std::env::var_os("BKMPW_TEST_OUTPUT_BASE").map(PathBuf::from);
+            let external = Fixture(
+                external_base
+                    .as_deref()
+                    .unwrap_or(&fixture.0)
+                    .join(durable::unique_id()),
+            );
+            fs::create_dir_all(&external.0).unwrap();
+            #[cfg(unix)]
+            if external_base.is_some() {
+                use std::os::unix::fs::MetadataExt;
+                assert_ne!(
+                    fs::metadata(&fixture.0).unwrap().dev(),
+                    fs::metadata(&external.0).unwrap().dev(),
+                    "explicit cross-filesystem test needs different devices"
+                );
+            }
+            let output = external.0.join(if kind == Kind::ExportClient {
+                "export.zip"
+            } else {
+                "installed"
+            });
+            let payload = if kind == Kind::ExportClient {
+                output.clone()
+            } else {
+                fs::create_dir(&output).unwrap();
+                fs::write(output.join("manual.jar"), "manual").unwrap();
+                output.join("managed.jar")
+            };
+            fs::write(&payload, "old output").unwrap();
+            let metadata = fixture.0.join("pack/metadata");
+            let targets: BTreeSet<_> = [metadata.clone(), payload.clone()].into_iter().collect();
+            let seen = Rc::new(RefCell::new(BTreeSet::new()));
+            let fired = Rc::new(Cell::new(false));
+            let scope = Scope::new({
+                let seen = seen.clone();
+                let fired = fired.clone();
+                move |point, path| {
+                    if point == Point::ReplacePublished && targets.contains(path) && !fired.get() {
+                        seen.borrow_mut().insert(path.to_owned());
+                        if seen.borrow().len() == targets.len() {
+                            // Both real target trees have changed, but the task
+                            // has not published its committed journal marker.
+                            for target in &targets {
+                                assert_eq!(fs::read(target).unwrap(), b"new");
+                            }
+                            fired.set(true);
+                            return Err(std::io::Error::from(std::io::ErrorKind::StorageFull));
+                        }
+                    }
+                    Ok(())
+                }
+            });
+            let mut request = Request::new(kind);
+            request.output = Some(output.clone());
+            let result = fixture.run(&request, |root, target| {
+                fs::write(root.join("metadata"), "new")?;
+                let target = target.unwrap();
+                fs::write(
+                    if kind == Kind::ExportClient {
+                        target.to_owned()
+                    } else {
+                        target.join("managed.jar")
+                    },
+                    "new",
+                )?;
+                Ok(())
+            });
+            drop(scope);
+            assert!(
+                fired.get(),
+                "must reach real publication in both target trees"
+            );
+            assert!(result.is_err());
+            assert_eq!(fs::read(&metadata).unwrap(), b"old");
+            assert_eq!(fs::read(&payload).unwrap(), b"old output");
+            if kind == Kind::Sync {
+                assert_eq!(fs::read(output.join("manual.jar")).unwrap(), b"manual");
+            }
+            let journals: Vec<_> = fs::read_dir(fixture.0.join("task/transactions"))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect();
+            assert_eq!(journals.len(), 1);
+            let mut transaction = Transaction::open(&journals[0]).unwrap();
+            assert_eq!(transaction.state(), State::RolledBack);
+            transaction.rollback().unwrap();
+            assert_eq!(fs::read(metadata).unwrap(), b"old");
+            assert_eq!(fs::read(payload).unwrap(), b"old output");
+        }
+    }
+
+    #[test]
     fn external_output_can_change_files_into_directories_and_back() {
         let fixture = Fixture::new();
         let output = fixture.0.join("output");
