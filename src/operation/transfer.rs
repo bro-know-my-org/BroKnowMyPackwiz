@@ -83,8 +83,10 @@ fn staged(target: &Path, work: impl FnOnce(&mut fs::File) -> Result<Hashes>) -> 
         .write(true)
         .create_new(true)
         .open(target)?;
+    let permissions = file.metadata()?.permissions();
     let result = work(&mut file).and_then(|hashes| {
         file.sync_all()?;
+        super::artifacts::record_payload(target, &hashes.sha256, &permissions);
         Ok(hashes)
     });
     drop(file);

@@ -40,6 +40,7 @@ pub struct App {
     pub menu_area: Rect,
     pub catalog: super::catalog::Browser,
     pub adding: super::add::Workflow,
+    preparation_artifacts: Option<crate::operation::artifacts::Lease>,
     pending: Option<Receiver<Result<Vec<Entry>, String>>>,
 }
 
@@ -79,6 +80,7 @@ impl App {
             menu_area: Rect::default(),
             catalog: super::catalog::Browser::default(),
             adding: super::add::Workflow::default(),
+            preparation_artifacts: None,
             pending: None,
         };
         app.reload();
@@ -101,7 +103,8 @@ impl App {
     pub fn poll(&mut self) {
         self.catalog.poll();
         if self.dialog.is_none() && !self.jobs.quit_prompt && !self.help {
-            if let Some(result) = self.adding.poll() {
+            if let Some(super::add::Prepared { result, artifacts }) = self.adding.poll() {
+                self.preparation_artifacts = result.is_ok().then_some(artifacts);
                 match result {
                     Ok(super::add::Output::UpdatePreview(preview)) => {
                         self.dialog = Some(super::dialog::Dialog::update(preview, self.language))
@@ -598,6 +601,7 @@ impl App {
         let mut dialog = self.dialog.take().unwrap();
         match dialog.form.event(event) {
             Action::Cancel => {
+                self.preparation_artifacts.take();
                 if let Some(queue) = &self.jobs.queue {
                     dialog.discard(queue);
                 }
@@ -610,6 +614,7 @@ impl App {
             }
             Action::Submit => {}
         }
+        let scope = crate::operation::artifacts::Scope::new();
         let result = (|| -> crate::operation::Result<()> {
             let state = self
                 .jobs
@@ -643,6 +648,9 @@ impl App {
                         )
                     })?;
                     queue.enqueue(&label, request)?;
+                    if let Some(artifacts) = &mut self.preparation_artifacts {
+                        artifacts.release();
+                    }
                 }
                 Submission::Resolve { index, keep } => {
                     let queue = self.jobs.queue.as_mut().ok_or_else(|| {
@@ -674,6 +682,11 @@ impl App {
             }
             Ok(())
         })();
+        let mut submitted_artifacts = scope.finish();
+        if result.is_ok() {
+            submitted_artifacts.release();
+            self.preparation_artifacts.take();
+        }
         if let Err(error) = result {
             dialog.form.error = Some(self.language.error(&error));
             self.dialog = Some(dialog);
