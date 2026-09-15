@@ -43,6 +43,7 @@ impl Language {
 }
 
 const MESSAGES: &[(&str, &str, &str)] = &[
+    ("raw_logs", "Original command logs", "命令原始日志"),
     ("inspect", "Pack overview", "整合包概览"),
     ("list", "List metadata", "列出元数据"),
     ("scan", "Scan files", "扫描文件"),
