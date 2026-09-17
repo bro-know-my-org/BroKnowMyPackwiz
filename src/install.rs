@@ -301,12 +301,13 @@ fn run_copy_tasks(
     tasks: VecDeque<CopyTask>,
     options: InstallOptions,
 ) -> (Vec<InstalledFile>, Vec<String>) {
+    let total = tasks.len();
     let tasks = Arc::new(Mutex::new(tasks));
     let errors = Arc::new(Mutex::new(Vec::new()));
     let installed = Arc::new(Mutex::new(Vec::new()));
     let log = Arc::new(Mutex::new(()));
     let jobs = options.jobs.max(1);
-    let progress = ProgressRenderer::start(jobs);
+    let progress = ProgressRenderer::start(jobs, total);
 
     thread::scope(|scope| {
         for worker_idx in 0..jobs {
