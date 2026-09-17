@@ -139,7 +139,7 @@ impl ProjectConfig {
                 metadata_extension: String::from("pw.toml"),
             },
             install: InstallConfig {
-                jobs: 8,
+                jobs: 16,
                 retries: 1,
                 retry_delay_seconds: 5,
                 force: false,
@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(cfg.layout.common_meta, PathBuf::from("mods/common"));
         assert_eq!(cfg.layout.root_overlays, PathBuf::from("roots"));
         assert_eq!(cfg.layout.metadata_extension, "pw.toml");
-        assert_eq!(cfg.install.jobs, 8);
+        assert_eq!(cfg.install.jobs, 16);
         assert_eq!(cfg.install.retries, 1);
         assert_eq!(cfg.install.retry_delay_seconds, 5);
         assert!(!cfg.install.force);
