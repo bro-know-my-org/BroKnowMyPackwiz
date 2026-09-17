@@ -158,7 +158,7 @@ root-overlays = "roots"
 metadata-extension = "pw.toml"
 
 [install]
-jobs = 8
+jobs = 16
 retries = 1
 retry-delay-seconds = 5
 force = false
