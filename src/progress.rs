@@ -15,10 +15,51 @@ pub struct ProgressRenderer {
 }
 
 struct ProgressInner {
-    slots: Mutex<Vec<ProgressSlot>>,
+    state: Mutex<ProgressState>,
     output: Mutex<()>,
     stop: AtomicBool,
     rendered_lines: AtomicUsize,
+}
+
+#[derive(Clone)]
+struct ProgressState {
+    slots: Vec<ProgressSlot>,
+    total: usize,
+    succeeded: usize,
+    failed: usize,
+}
+
+impl ProgressState {
+    fn new(slots: usize, total: usize) -> Self {
+        Self {
+            slots: vec![ProgressSlot::idle(); slots],
+            total,
+            succeeded: 0,
+            failed: 0,
+        }
+    }
+
+    fn format_total(&self) -> String {
+        let completed = self.succeeded + self.failed;
+        let fraction = if self.total == 0 {
+            1.0
+        } else {
+            completed as f64 / self.total as f64
+        };
+        let filled = (fraction * BAR_WIDTH as f64).round() as usize;
+        let bar = format!(
+            "{}{}",
+            "#".repeat(filled.min(BAR_WIDTH)),
+            " ".repeat(BAR_WIDTH.saturating_sub(filled))
+        );
+        format!(
+            "[{bar}] {:>5.1}% total {completed}/{} | ok {} | failed {}",
+            fraction * 100.0,
+            self.total,
+            self.succeeded,
+            self.failed
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -44,12 +85,12 @@ pub struct SlotProgress {
 }
 
 impl ProgressRenderer {
-    pub fn start(slots: usize) -> Option<Self> {
-        if slots == 0 || !std::io::stderr().is_terminal() {
+    pub fn start(slots: usize, total: usize) -> Option<Self> {
+        if slots == 0 || total == 0 || !std::io::stderr().is_terminal() {
             return None;
         }
         let inner = Arc::new(ProgressInner {
-            slots: Mutex::new(vec![ProgressSlot::idle(); slots]),
+            state: Mutex::new(ProgressState::new(slots, total)),
             output: Mutex::new(()),
             stop: AtomicBool::new(false),
             rendered_lines: AtomicUsize::new(0),
@@ -70,13 +111,16 @@ impl ProgressRenderer {
 
     pub fn slot_progress(&self, index: usize, label: &str) -> Arc<dyn DownloadProgress> {
         {
-            let mut slots = self
+            let mut state = self
                 .inner
-                .slots
+                .state
                 .lock()
                 .unwrap_or_else(|err| err.into_inner());
-            debug_assert!(index < slots.len(), "progress slot index out of bounds");
-            if let Some(slot) = slots.get_mut(index) {
+            debug_assert!(
+                index < state.slots.len(),
+                "progress slot index out of bounds"
+            );
+            if let Some(slot) = state.slots.get_mut(index) {
                 *slot = ProgressSlot {
                     label: shorten_middle(label, 42),
                     current: 0,
@@ -93,27 +137,35 @@ impl ProgressRenderer {
     }
 
     pub fn finish_slot(&self, index: usize, failed: bool) {
-        let mut slots = self
+        let mut state = self
             .inner
-            .slots
+            .state
             .lock()
             .unwrap_or_else(|err| err.into_inner());
-        if let Some(slot) = slots.get_mut(index) {
+        if let Some(slot) = state.slots.get_mut(index) {
+            if slot.status != SlotStatus::Active {
+                return;
+            }
             slot.status = if failed {
                 SlotStatus::Failed
             } else {
                 SlotStatus::Done
             };
+            if failed {
+                state.failed += 1;
+            } else {
+                state.succeeded += 1;
+            }
         }
     }
 
     pub fn clear_slot(&self, index: usize) {
-        let mut slots = self
+        let mut state = self
             .inner
-            .slots
+            .state
             .lock()
             .unwrap_or_else(|err| err.into_inner());
-        if let Some(slot) = slots.get_mut(index) {
+        if let Some(slot) = state.slots.get_mut(index) {
             *slot = ProgressSlot::idle();
         }
     }
@@ -141,8 +193,8 @@ impl Drop for ProgressRenderer {
 
 impl ProgressInner {
     fn render(&self) {
-        let slots = self
-            .slots
+        let state = self
+            .state
             .lock()
             .unwrap_or_else(|err| err.into_inner())
             .clone();
@@ -152,11 +204,13 @@ impl ProgressInner {
         if previous_lines > 0 {
             let _ = write!(stderr, "\x1b[{previous_lines}A");
         }
-        for slot in &slots {
+        let _ = write!(stderr, "\r\x1b[2K{}\n", state.format_total());
+        for slot in &state.slots {
             let _ = write!(stderr, "\r\x1b[2K{}\n", self.format_slot(slot));
         }
         let _ = stderr.flush();
-        self.rendered_lines.store(slots.len(), Ordering::Relaxed);
+        self.rendered_lines
+            .store(state.slots.len() + 1, Ordering::Relaxed);
     }
 
     fn format_slot(&self, slot: &ProgressSlot) -> String {
@@ -224,12 +278,12 @@ impl ProgressSlot {
 
 impl DownloadProgress for SlotProgress {
     fn reset(&self) {
-        let mut slots = self
+        let mut state = self
             .inner
-            .slots
+            .state
             .lock()
             .unwrap_or_else(|err| err.into_inner());
-        if let Some(slot) = slots.get_mut(self.index) {
+        if let Some(slot) = state.slots.get_mut(self.index) {
             slot.current = 0;
             slot.total = None;
             slot.status = SlotStatus::Active;
@@ -238,23 +292,23 @@ impl DownloadProgress for SlotProgress {
     }
 
     fn set_total(&self, total: u64) {
-        let mut slots = self
+        let mut state = self
             .inner
-            .slots
+            .state
             .lock()
             .unwrap_or_else(|err| err.into_inner());
-        if let Some(slot) = slots.get_mut(self.index) {
+        if let Some(slot) = state.slots.get_mut(self.index) {
             slot.total = Some(total);
         }
     }
 
     fn add_bytes(&self, bytes: u64) {
-        let mut slots = self
+        let mut state = self
             .inner
-            .slots
+            .state
             .lock()
             .unwrap_or_else(|err| err.into_inner());
-        if let Some(slot) = slots.get_mut(self.index) {
+        if let Some(slot) = state.slots.get_mut(self.index) {
             slot.current = slot.current.saturating_add(bytes);
         }
     }
@@ -305,4 +359,43 @@ fn shorten_middle(value: &str, max_chars: usize) -> String {
         .rev()
         .collect::<String>();
     format!("{prefix}...{suffix}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn total_counts_files_across_retries_failures_and_slot_reuse() {
+        let renderer = ProgressRenderer {
+            inner: Arc::new(ProgressInner {
+                state: Mutex::new(ProgressState::new(2, 3)),
+                output: Mutex::new(()),
+                stop: AtomicBool::new(false),
+                rendered_lines: AtomicUsize::new(0),
+            }),
+            handle: None,
+        };
+        let summary = || renderer.inner.state.lock().unwrap().format_total();
+        assert!(summary().contains("0.0% total 0/3 | ok 0 | failed 0"));
+        let first = renderer.slot_progress(0, "first.jar");
+        renderer.slot_progress(1, "second.jar");
+        first.set_total(100);
+        first.add_bytes(50);
+        first.reset();
+        first.add_bytes(100);
+        assert!(summary().contains("total 0/3"));
+        renderer.finish_slot(0, false);
+        renderer.finish_slot(0, false);
+        assert!(summary().contains("33.3% total 1/3 | ok 1 | failed 0"));
+        renderer.finish_slot(1, true);
+        renderer.clear_slot(1);
+        assert!(summary().contains("66.7% total 2/3 | ok 1 | failed 1"));
+        renderer.slot_progress(0, "third.jar");
+        renderer.finish_slot(0, false);
+        assert_eq!(
+            summary(),
+            "[######################] 100.0% total 3/3 | ok 2 | failed 1"
+        );
+    }
 }
