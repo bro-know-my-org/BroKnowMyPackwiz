@@ -178,7 +178,7 @@ root-overlays = "roots"
 metadata-extension = "pw.toml"
 
 [install]
-jobs = 16
+jobs = 32
 retries = 1
 retry-delay-seconds = 5
 force = false
@@ -277,8 +277,9 @@ bkmpw update <pack-root> --all
 bkmpw update <pack-root> <name> [<name>...]
 ```
 
-CLI and TUI update previews query up to 16 items concurrently by default. Lower
-`[install].jobs` in `.pw/config.toml` to reduce concurrency (preview range: 1–16).
+CLI and TUI update previews query up to 32 items concurrently by default. Set
+`[install].jobs` in `.pw/config.toml` to adjust concurrency (preview range: 1–64).
+Existing configurations retain their specified value.
 The TUI displays the completed query count.
 
 `check-updates` lists available updates without modifying the pack. It accepts multiple

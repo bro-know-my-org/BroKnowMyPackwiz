@@ -161,7 +161,7 @@ root-overlays = "roots"
 metadata-extension = "pw.toml"
 
 [install]
-jobs = 16
+jobs = 32
 retries = 1
 retry-delay-seconds = 5
 force = false
@@ -256,7 +256,7 @@ bkmpw update <pack-root> <name> [<name>...]
 
 `check-updates` 只查询并列出可更新项（名称、元数据路径、旧版本 → 新版本），不修改整合包。
 可指定多个名称或元数据路径缩小范围，也支持 `--mc-version` / `--loader`。
-CLI 与 TUI 的更新预览共用并发查询，默认同时检查 16 项；可用 `.pw/config.toml` 的 `[install].jobs` 调低（预览上限 16，最少 1）。TUI 会显示查询完成数量。
+CLI 与 TUI 的更新预览共用并发查询，默认同时检查 32 项；可用 `.pw/config.toml` 的 `[install].jobs` 调整（预览上限 64，最少 1；已有配置保留原值）。TUI 会显示查询完成数量。
 `update` 会修改元数据和索引；下载新文件需另运行 `download-files` 或 `sync`。
 
 - CurseForge metadata 会根据 `[update.curseforge]` 查询最新匹配文件并更新 `filename`、hash 和 `file-id`；需要 `CURSEFORGE_API_KEY` 或 `[curseforge].api-key`。
