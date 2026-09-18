@@ -23,7 +23,13 @@ pub enum Format {
 pub fn parse_format_args(args: Vec<String>) -> Result<(Vec<String>, Option<Format>), String> {
     let mut format = None;
     let mut filtered = Vec::with_capacity(args.len());
-    for arg in args {
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            filtered.push(arg);
+            filtered.extend(args);
+            break;
+        }
         let candidate = match arg.as_str() {
             "--json" => Some(Format::Json),
             "--json-lines" | "--jsonl" => Some(Format::JsonLines),
@@ -230,6 +236,7 @@ fn dispatch(
         "refresh" => refresh_command(args, emitter),
         "init" => init_command(args, emitter),
         "update" => update_command(args, emitter),
+        "check-updates" => check_updates_command(args, emitter),
         "download-files" => download_files(args, emitter),
         "install-files" | "install-files-headless" => install_files(args, emitter, 5, 10),
         "install-files-retry" => install_files(args, emitter, 5, 10),
@@ -443,48 +450,63 @@ fn init_command(args: &[String], emitter: &mut Emitter<'_>) -> Result<CommandRes
 }
 
 fn update_command(args: &[String], emitter: &mut Emitter<'_>) -> Result<CommandResult, String> {
-    if args.len() < 2 {
-        return Err(
-            "usage: bkmpw update <pack-root> (--all|<name>) [--mc-version v] [--loader name]"
-                .to_string(),
-        );
-    }
-    let root = PathBuf::from(&args[0]);
-    let target = &args[1];
-    let options = parse_update_options(&args[2..])?;
+    let (root, names, options) =
+        update::parse_args(args, false).map_err(|e| format!("usage: {e}"))?;
     emitter.progress("updating", "resolving metadata updates")?;
-    let result = if target == "--all" || target == "-a" {
+    let result = if names.is_empty() {
         update::update_all(&root, options)?
+    } else if names.len() == 1 {
+        update::update_one(&root, &names[0], options)?
     } else {
-        update::update_one(&root, target, options)?
+        update::update_many(&root, &names, options)?
+    };
+    let target = if names.is_empty() {
+        json!(
+            args.iter()
+                .find(|arg| matches!(arg.as_str(), "--all" | "-a"))
+                .unwrap()
+                .clone()
+        )
+    } else if names.len() == 1 {
+        json!(names[0])
+    } else {
+        Value::Null
     };
     Ok(CommandResult::success(json!({
         "packRoot": path(&root),
         "target": target,
+        "targets": names,
         "updated": result.updated,
         "unchanged": result.unchanged,
         "skipped": result.skipped,
     })))
 }
 
-fn parse_update_options(args: &[String]) -> Result<update::UpdateOptions, String> {
-    let mut options = update::UpdateOptions::default();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--mc-version" => {
-                index += 1;
-                options.minecraft_version = Some(required(args.get(index), "--mc-version")?);
-            }
-            "--loader" => {
-                index += 1;
-                options.loader = Some(required(args.get(index), "--loader")?);
-            }
-            other => return Err(format!("unknown update option: {other}")),
-        }
-        index += 1;
-    }
-    Ok(options)
+fn check_updates_command(
+    args: &[String],
+    emitter: &mut Emitter<'_>,
+) -> Result<CommandResult, String> {
+    let (root, names, options) =
+        update::parse_args(args, true).map_err(|e| format!("usage: {e}"))?;
+    emitter.progress("querying_updates", "checking available updates")?;
+    let preview = update::check_updates(&root, &names, options)?;
+    let available: Vec<_> = preview
+        .candidates
+        .iter()
+        .map(|c| {
+            json!({
+                "path": c.relative, "name": c.name, "before": c.before, "after": c.after,
+            })
+        })
+        .collect();
+    let skipped: Vec<_> = preview
+        .skipped
+        .iter()
+        .map(|(path, reason)| json!({"path": path, "reason": reason}))
+        .collect();
+    Ok(CommandResult::success(json!({
+        "packRoot": path(&root), "available": available, "skipped": skipped,
+    })))
 }
 
 fn download_files(args: &[String], emitter: &mut Emitter<'_>) -> Result<CommandResult, String> {
@@ -822,13 +844,6 @@ fn parse_side(value: &str) -> Result<Side, String> {
     }
 }
 
-fn required(value: Option<&String>, option: &str) -> Result<String, String> {
-    value
-        .filter(|value| !value.trim().is_empty() && !value.starts_with('-'))
-        .cloned()
-        .ok_or_else(|| format!("missing value for {option}"))
-}
-
 fn parse_usize(value: &str, name: &str) -> Result<usize, String> {
     value
         .parse::<usize>()
@@ -858,6 +873,8 @@ fn error_code(message: &str) -> &'static str {
         || message.contains("unknown")
         || message.contains("unexpected argument")
         || message.contains("missing ")
+        || message.contains("metadata not found:")
+        || message.contains("metadata name is ambiguous:")
     {
         "INVALID_ARGUMENT"
     } else {

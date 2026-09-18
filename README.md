@@ -125,7 +125,7 @@ bkmpw add-file <pack-root> <side> <name> <source-file> [filename]
 bkmpw pin <pack-root> <name>
 bkmpw unpin <pack-root> <name>
 bkmpw remove <pack-root> <name>
-bkmpw update <pack-root> (--all|<name>) [--mc-version v] [--loader neoforge]
+bkmpw update <pack-root> (--all|<name>...) [--mc-version v] [--loader neoforge]
 bkmpw download-files <pack-root> [jobs] [--force] [--retries n] [--retry-delay-seconds n]
 bkmpw sync <source-root> <target-root> [side] [jobs] [--force] [--retries n] [--retry-delay-seconds n]
 bkmpw install-files-headless <pack-root> [attempts] [delay-seconds]
@@ -245,9 +245,15 @@ latest = true
 更新：
 
 ```text
+bkmpw check-updates <pack-root>
+bkmpw check-updates <pack-root> --json
 bkmpw update <pack-root> --all
-bkmpw update <pack-root> <name>
+bkmpw update <pack-root> <name> [<name>...]
 ```
+
+`check-updates` 只查询并列出可更新项（名称、元数据路径、旧版本 → 新版本），不修改整合包。
+可指定多个名称或元数据路径缩小范围，也支持 `--mc-version` / `--loader`。
+`update` 会修改元数据和索引；下载新文件需另运行 `download-files` 或 `sync`。
 
 - CurseForge metadata 会根据 `[update.curseforge]` 查询最新匹配文件并更新 `filename`、hash 和 `file-id`；需要 `CURSEFORGE_API_KEY` 或 `[curseforge].api-key`。
 - GitHub metadata 会根据 `[update.github]` 查询 latest release 或指定 tag。只有通过新版 `add-github` 添加的 metadata 才会自动带这个更新信息。

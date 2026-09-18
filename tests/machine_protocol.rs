@@ -37,6 +37,90 @@ fn bkmpw() -> Command {
 }
 
 #[test]
+fn checking_updates_is_read_only_and_bulk_updates_validate_selection() {
+    let root = TemporaryRoot::new("check-updates");
+    fs::create_dir_all(root.path().join("mods")).unwrap();
+    let pack = "name = 'Test'\n";
+    fs::write(root.path().join("pack.toml"), pack).unwrap();
+    let metadata = "pin = true\nfilename = 'old.jar'\n[update.github]\nproject = 'owner/repo'\n";
+    for name in ["a", "b", "c"] {
+        fs::write(root.path().join(format!("mods/{name}.pw.toml")), metadata).unwrap();
+    }
+    let path = root.path().to_str().unwrap();
+    for format in ["--json", "--json-lines"] {
+        let output = bkmpw()
+            .args(["check-updates", path, format])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{:?}", output);
+        let text = String::from_utf8(output.stdout).unwrap();
+        let value: Value = serde_json::from_str(if format == "--json" {
+            &text
+        } else {
+            text.lines().last().unwrap()
+        })
+        .unwrap();
+        assert_eq!(value["data"]["available"], serde_json::json!([]));
+        assert_eq!(value["data"]["skipped"].as_array().unwrap().len(), 3);
+        assert_eq!(value["data"]["skipped"][0]["reason"], "update_pinned");
+    }
+    let output = bkmpw().args(["check-updates", path, "a"]).output().unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("mods/a.pw.toml") && !text.contains("mods/b.pw.toml"));
+    for args in [
+        vec!["update", path, "a", "missing"],
+        vec!["check-updates", path, "missing"],
+        vec!["update", path, "--all", "a"],
+        vec!["update", path],
+        vec!["check-updates", path, "--loader"],
+        vec!["check-updates", path, "--loader", ""],
+    ] {
+        let output = bkmpw().args(&args).arg("--json").output().unwrap();
+        assert!(!output.status.success());
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["error"]["code"], "INVALID_ARGUMENT");
+    }
+    assert!(!root.path().join("index.toml").exists());
+    assert_eq!(
+        fs::read_to_string(root.path().join("pack.toml")).unwrap(),
+        pack
+    );
+    let output = bkmpw()
+        .args(["update", path, "a", "mods/b.pw.toml", "a", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output);
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["data"]["skipped"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        value["data"]["targets"],
+        serde_json::json!(["a", "mods/b.pw.toml", "a"])
+    );
+    assert!(value["data"]["target"].is_null());
+    for name in ["-compat", "--json", "--json-lines", "--jsonl"] {
+        fs::write(root.path().join(format!("mods/{name}.pw.toml")), metadata).unwrap();
+        let output = bkmpw()
+            .args(["check-updates", path, "--json", "--", name])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["data"]["skipped"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            value["data"]["skipped"][0]["path"],
+            format!("mods/{name}.pw.toml")
+        );
+    }
+    for name in ["a", "b", "c"] {
+        assert_eq!(
+            fs::read_to_string(root.path().join(format!("mods/{name}.pw.toml"))).unwrap(),
+            metadata
+        );
+    }
+}
+
+#[test]
 #[cfg(windows)]
 fn repairs_a_quoted_pack_root_split_by_a_launcher() {
     let parent = TemporaryRoot::new("split-quoted-root");
