@@ -31,41 +31,49 @@ pub fn refresh_operation(
     layout: &PackLayout,
 ) -> Result<RefreshResult, Error> {
     let report = ScanReport::build_operation(root, config, layout)?;
-    let mut entries = Vec::new();
-    let mut metadata_written = 0;
-    let mut jar_written = 0;
-
-    for rel in report.included {
-        if should_skip_index_entry(&rel) {
-            continue;
-        }
-
-        let file_path = join_slash(root, &rel);
-        let hash = sha256_file_hex_operation(&file_path)?;
-        let metafile = is_metadata_file(&rel, layout);
-        if metafile {
-            metadata_written += 1;
-            let metadata = ModMetadata::load_operation(&file_path)?;
-            if let Some(crate::metadata::Side::Unknown(side)) = metadata.side {
-                return Err(Error::named(
-                    ErrorCode::Failed,
-                    "metadata_unknown_side",
-                    format!("metadata has unsupported side: {rel}: {side}"),
-                )
-                .context(format!("{rel}: {side}")));
+    let included: Vec<_> = report
+        .included
+        .into_iter()
+        .filter(|rel| !should_skip_index_entry(rel))
+        .collect();
+    // Hashing is disk/CPU work; avoid spawning dozens of readers on one drive.
+    let jobs = config.install.jobs.min(8);
+    let mut entries = crate::operation::parallel::map(
+        &included,
+        jobs,
+        &crate::operation::Control::default(),
+        "hashing",
+        |rel| {
+            let file_path = join_slash(root, &rel);
+            let hash = sha256_file_hex_operation(&file_path)?;
+            let metafile = is_metadata_file(&rel, layout);
+            if metafile {
+                let metadata = ModMetadata::load_operation(&file_path)?;
+                if let Some(crate::metadata::Side::Unknown(side)) = metadata.side {
+                    return Err(Error::named(
+                        ErrorCode::Failed,
+                        "metadata_unknown_side",
+                        format!("metadata has unsupported side: {rel}: {side}"),
+                    )
+                    .context(format!("{rel}: {side}")));
+                }
             }
-        } else if rel.to_ascii_lowercase().ends_with(".jar")
-            && crate::pathutil::is_under_slash(&rel, &layout.jar_root.to_string_lossy())
-        {
-            jar_written += 1;
-        }
-
-        entries.push(IndexEntry {
-            path: rel,
-            hash,
-            metafile,
-        });
-    }
+            Ok(IndexEntry {
+                path: rel.clone(),
+                hash,
+                metafile,
+            })
+        },
+    )?;
+    let metadata_written = entries.iter().filter(|entry| entry.metafile).count();
+    let jar_written = entries
+        .iter()
+        .filter(|entry| {
+            !entry.metafile
+                && entry.path.to_ascii_lowercase().ends_with(".jar")
+                && crate::pathutil::is_under_slash(&entry.path, &layout.jar_root.to_string_lossy())
+        })
+        .count();
 
     entries.sort_by(|a, b| a.path.cmp(&b.path));
 
@@ -247,6 +255,39 @@ fn section_name(line: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parallel_refresh_matches_serial_output_and_failures_do_not_publish() {
+        let root = std::env::temp_dir().join(crate::operation::durable::unique_id());
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::write(root.join("pack.toml"), "name = \"Test\"\n").unwrap();
+        for i in 0..32 {
+            fs::write(root.join(format!("mods/{i}.jar")), format!("jar {i}")).unwrap();
+            fs::write(
+                root.join(format!("mods/{i}.pw.toml")),
+                format!("name = \"Mod {i}\"\nfilename = \"{i}.jar\"\n"),
+            )
+            .unwrap();
+        }
+        let mut config = ProjectConfig::load_operation(&root).unwrap();
+        let layout = PackLayout::from_config(&config);
+        config.install.jobs = 1;
+        let serial = refresh_operation(&root, &config, &layout).unwrap();
+        let index = fs::read(root.join("index.toml")).unwrap();
+        let pack = fs::read(root.join("pack.toml")).unwrap();
+        config.install.jobs = 32;
+        let parallel = refresh_operation(&root, &config, &layout).unwrap();
+        assert_eq!(serial.files_written, parallel.files_written);
+        assert_eq!(parallel.metadata_written, 32);
+        assert_eq!(parallel.jar_written, 32);
+        assert_eq!(fs::read(root.join("index.toml")).unwrap(), index);
+        assert_eq!(fs::read(root.join("pack.toml")).unwrap(), pack);
+        fs::write(root.join("mods/invalid.pw.toml"), "side = \"invalid\"\n").unwrap();
+        assert!(refresh_operation(&root, &config, &layout).is_err());
+        assert_eq!(fs::read(root.join("index.toml")).unwrap(), index);
+        assert_eq!(fs::read(root.join("pack.toml")).unwrap(), pack);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn updates_pack_index_hash() {
