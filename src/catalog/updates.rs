@@ -104,10 +104,14 @@ pub fn query_with_filter(
     let mut candidates = Vec::new();
     let mut skipped = Vec::new();
     let mut pending = Vec::new();
-    for entry in report.metadata {
-        if !requested.is_empty() && !requested.contains(&entry.path) {
-            continue;
-        }
+    let entries: Vec<_> = report
+        .metadata
+        .into_iter()
+        .filter(|entry| requested.is_empty() || requested.contains(&entry.path))
+        .collect();
+    let total = entries.len();
+    for (index, entry) in entries.into_iter().enumerate() {
+        control.progress("preview_installed", index, Some(total));
         control.check()?;
         let metadata = ModMetadata::load_operation(&root.join(&entry.path))?;
         if metadata.pin {
@@ -128,6 +132,7 @@ pub fn query_with_filter(
         }
         pending.push((entry, metadata));
     }
+    control.progress("preview_installed", total, Some(total));
     control.emit(Event::Phase("querying_updates".into()));
     // Keep snapshot mutation on this thread; only independent provider I/O runs in parallel.
     let versions = parallel_query(
@@ -400,7 +405,8 @@ mod tests {
         let changed_root = root.clone();
         let mut control = Control::default();
         control.checkpoint = Some(std::sync::Arc::new(move |event| {
-            if matches!(event, Event::Progress { current: 1, .. }) {
+            if matches!(event, Event::Progress { label, current: 1, .. } if label == "querying_updates")
+            {
                 fs::write(changed_root.join("pack.toml"), "name = 'Changed'\n").unwrap();
             }
         }));

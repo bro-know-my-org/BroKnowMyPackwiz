@@ -90,7 +90,10 @@ pub fn prepare(
     let layout = PackLayout::from_config(&config);
     let report = ScanReport::build_operation(root, &config, &layout)?;
     let mut existing_targets = BTreeMap::new();
-    for item in report.metadata {
+    let total = report.metadata.len();
+    control.progress("preview_installed", 0, Some(total));
+    for (index, item) in report.metadata.into_iter().enumerate() {
+        control.check()?;
         let meta = ModMetadata::load_operation(&root.join(&item.path))?;
         if let Some(filename) = meta.filename {
             let target =
@@ -102,8 +105,15 @@ pub fn prepare(
                 return Err(invalid("duplicate_managed_target"));
             }
         }
+        control.progress("preview_installed", index + 1, Some(total));
     }
-    for candidate in candidates {
+    let github: Vec<_> = candidates
+        .into_iter()
+        .filter(|c| matches!(c.version, Version::GitHub(_)))
+        .collect();
+    let total = github.len();
+    control.progress("preview_drafts", 0, Some(total));
+    for (index, candidate) in github.into_iter().enumerate() {
         control.check()?;
         let Version::GitHub(file) = &candidate.version else {
             continue;
@@ -159,6 +169,7 @@ pub fn prepare(
             after: candidate.after.clone(),
             action: "cf_update",
         });
+        control.progress("preview_drafts", index + 1, Some(total));
     }
     let mut paths = BTreeSet::new();
     for draft in &drafts {

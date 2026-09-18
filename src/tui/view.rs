@@ -33,6 +33,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let bands = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(3),
+        Constraint::Length(u16::from(app.adding.progress.is_some())),
         Constraint::Min(1),
         Constraint::Length(toolbar_height(app, area.width)),
     ])
@@ -67,8 +68,21 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             *rect,
         );
     }
+    if let Some(progress) = &app.adding.progress {
+        let text = match &progress.count {
+            Some((current, Some(total))) => {
+                format!("{} · {current}/{total}", lang.text(&progress.phase))
+            }
+            Some((current, None)) => format!("{} · {current}", lang.text(&progress.phase)),
+            None => format!("{}…", lang.text(&progress.phase)),
+        };
+        frame.render_widget(
+            Paragraph::new(text).style(Style::default().fg(Color::Cyan)),
+            bands[2],
+        );
+    }
     if app.page == 4 {
-        app.menu_area = Block::bordered().inner(bands[2]);
+        app.menu_area = Block::bordered().inner(bands[3]);
         let items: Vec<_> = super::dialog::SETTINGS
             .iter()
             .map(|key| ratatui::widgets::ListItem::new(lang.text(key)))
@@ -80,18 +94,18 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             ratatui::widgets::List::new(items)
                 .highlight_symbol("› ")
                 .block(Block::bordered().title(lang.text("settings"))),
-            bands[2],
+            bands[3],
             &mut selection,
         );
         app.settings_offset = selection.offset();
     } else if app.page == 3 {
-        super::jobs::draw(frame, &mut app.jobs, lang, bands[2]);
+        super::jobs::draw(frame, &mut app.jobs, lang, bands[3]);
     } else if app.page == 0 {
-        files(frame, app, bands[2]);
+        files(frame, app, bands[3]);
     } else if app.page == 1 {
-        app.catalog.draw(frame, bands[2], lang);
+        app.catalog.draw(frame, bands[3], lang);
     } else {
-        app.menu_area = Block::bordered().inner(bands[2]);
+        app.menu_area = Block::bordered().inner(bands[3]);
         let items: Vec<_> = super::pack::ACTIONS
             .iter()
             .map(|kind| ratatui::widgets::ListItem::new(lang.text(kind.command())))
@@ -106,11 +120,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                         "no_pack"
                     },
                 ))),
-            bands[2],
+            bands[3],
             &mut app.pack_selection,
         );
     }
-    toolbar(frame, app, bands[3]);
+    toolbar(frame, app, bands[4]);
     let popup_text = if app.jobs.quit_prompt {
         lang.text("quit_task")
     } else {
@@ -302,9 +316,7 @@ fn files(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
     let indices = app.visible();
-    let title = if let Some((current, total)) = app.adding.update_progress {
-        format!("{} · {current}/{total}", lang.text("querying_updates"))
-    } else if app.loading() {
+    let title = if app.loading() {
         lang.text("loading").to_string()
     } else {
         format!(

@@ -936,6 +936,47 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "Runs in a private copy and publishes as one task. Cancel or failure rolls back this task. Blank numeric options use project defaults.",
         "在私有副本执行，作为一个任务提交。取消或失败会回滚本任务。数字选项留空使用项目默认值。",
     ),
+    (
+        "preview_cancelling",
+        "Cancelling preview; waiting for current work",
+        "正在取消预览，等待当前操作结束",
+    ),
+    ("preview_preparing", "Preparing preview", "正在准备预览"),
+    (
+        "preview_scanning",
+        "Scanning pack files",
+        "正在扫描整合包文件",
+    ),
+    (
+        "preview_snapshot",
+        "Reading file snapshot",
+        "正在读取文件快照",
+    ),
+    (
+        "preview_validating",
+        "Validating file snapshot",
+        "正在校验文件快照",
+    ),
+    (
+        "preview_installed",
+        "Reading installed metadata",
+        "正在读取已安装项信息",
+    ),
+    (
+        "preview_selected",
+        "Checking selected projects",
+        "正在检查所选项目",
+    ),
+    (
+        "preview_dependencies",
+        "Resolving dependencies",
+        "正在解析依赖",
+    ),
+    (
+        "preview_drafts",
+        "Preparing metadata changes",
+        "正在准备元数据变更",
+    ),
     ("dismiss_failed_task", "Clear failed task", "清除失败记录"),
     ("querying_updates", "Querying updates", "正在查询更新"),
     ("update_preview", "Preview updates", "预览更新"),
