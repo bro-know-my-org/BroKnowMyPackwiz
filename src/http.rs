@@ -319,32 +319,52 @@ pub fn http_get_to_string_with_header(
     header_name: &str,
     header_value: &str,
 ) -> Result<String, String> {
-    let mut response = agent()
-        .get(url)
-        .header("User-Agent", "bkmpw")
-        .header(header_name, header_value)
-        .call()
-        .map_err(|err| format!("HTTP GET failed for {url}: {err}"))?;
-    ensure_success(url, response.status())?;
-    let mut body = response.body_mut().as_reader();
-    let mut text = String::new();
-    body.read_to_string(&mut text)
-        .map_err(|err| format!("failed to read HTTP body for {url}: {err}"))?;
-    Ok(text)
+    read_text(url, Some((header_name, header_value)))
 }
 
 pub fn http_get_to_string(url: &str) -> Result<String, String> {
-    let mut response = agent()
-        .get(url)
-        .header("User-Agent", "bkmpw")
-        .call()
-        .map_err(|err| format!("HTTP GET failed for {url}: {err}"))?;
-    ensure_success(url, response.status())?;
-    let mut body = response.body_mut().as_reader();
-    let mut text = String::new();
-    body.read_to_string(&mut text)
-        .map_err(|err| format!("failed to read HTTP body for {url}: {err}"))?;
-    Ok(text)
+    read_text(url, None)
+}
+
+fn read_text(url: &str, header: Option<(&str, &str)>) -> Result<String, String> {
+    // Metadata GETs are idempotent. Retry transient transport/body errors, not bad credentials.
+    for attempt in 0..3 {
+        let result = (|| {
+            let mut request = agent().get(url).header("User-Agent", "bkmpw");
+            if let Some((name, value)) = header {
+                request = request.header(name, value);
+            }
+            let mut response = request.call().map_err(|error| {
+                let transient = matches!(
+                    error,
+                    ureq::Error::StatusCode(408 | 429 | 500..=599)
+                        | ureq::Error::Io(_)
+                        | ureq::Error::Timeout(_)
+                        | ureq::Error::HostNotFound
+                        | ureq::Error::ConnectionFailed
+                );
+                (format!("HTTP GET failed for {url}: {error}"), transient)
+            })?;
+            ensure_success(url, response.status()).map_err(|error| (error, false))?;
+            let mut text = String::new();
+            response
+                .body_mut()
+                .as_reader()
+                .read_to_string(&mut text)
+                .map_err(|error| (format!("failed to read HTTP body for {url}: {error}"), true))?;
+            Ok(text)
+        })();
+        match result {
+            Ok(text) => return Ok(text),
+            Err((error, transient)) => {
+                if !transient || attempt == 2 {
+                    return Err(error);
+                }
+                std::thread::sleep(Duration::from_millis(250 * (1 << attempt)));
+            }
+        }
+    }
+    unreachable!("last attempt returns its result")
 }
 
 fn ensure_success(url: &str, status: ureq::http::StatusCode) -> Result<(), String> {
@@ -370,6 +390,66 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
+
+    #[test]
+    fn metadata_get_retries_transient_failures_but_not_authentication_errors() {
+        for status in [503, 0, 401] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let deadline = std::time::Instant::now() + Duration::from_secs(3);
+                let expected = if status != 401 { 2 } else { 1 };
+                let mut count = 0;
+                while count < expected && std::time::Instant::now() < deadline {
+                    let (mut stream, _) = match listener.accept() {
+                        Ok(value) => value,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                            continue;
+                        }
+                        Err(error) => panic!("{error}"),
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let mut request = [0; 4096];
+                    let size = stream.read(&mut request).unwrap();
+                    assert!(
+                        String::from_utf8_lossy(&request[..size])
+                            .to_ascii_lowercase()
+                            .contains("x-test: fixture")
+                    );
+                    if status == 0 && count == 0 {
+                        // A truncated body reproduces the preview's unexpected EOF failure.
+                        write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nok"
+                        )
+                        .unwrap();
+                        count += 1;
+                        continue;
+                    }
+                    let response = if count == 0 { status } else { 200 };
+                    write!(stream, "HTTP/1.1 {response} Test\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").unwrap();
+                    count += 1;
+                }
+                count
+            });
+            let result = http_get_to_string_with_header(
+                &format!("http://{address}/metadata"),
+                "x-test",
+                "fixture",
+            );
+            if status != 401 {
+                assert_eq!(result.unwrap(), "ok");
+            } else {
+                assert!(result.unwrap_err().contains("401"));
+            }
+            assert_eq!(server.join().unwrap(), if status != 401 { 2 } else { 1 });
+        }
+    }
 
     #[test]
     fn byte_ranges_split_evenly_enough() {
