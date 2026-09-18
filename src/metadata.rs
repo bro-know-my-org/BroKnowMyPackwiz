@@ -63,6 +63,11 @@ pub struct ModMetadata {
 }
 
 impl ModMetadata {
+    pub fn updates_via_curseforge(&self) -> bool {
+        self.download_mode.as_deref() == Some("metadata:curseforge")
+            || (self.curseforge_project_id.is_some() && self.github_project.is_none())
+    }
+
     pub fn load(path: &Path) -> Result<Self, String> {
         Self::load_operation(path).map_err(|error| error.detail)
     }
