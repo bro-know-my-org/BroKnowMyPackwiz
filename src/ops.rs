@@ -476,33 +476,48 @@ pub(crate) fn find_metadata(
     layout: &PackLayout,
     name: &str,
 ) -> Result<PathBuf, String> {
-    let report = ScanReport::build(root, config, layout)?;
-    let mut matches = Vec::new();
+    Ok(find_metadata_many(root, config, layout, &[name.to_string()])?.remove(0))
+}
 
+pub(crate) fn find_metadata_many(
+    root: &Path,
+    config: &ProjectConfig,
+    layout: &PackLayout,
+    names: &[String],
+) -> Result<Vec<PathBuf>, String> {
+    use std::collections::{BTreeMap, BTreeSet};
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let report = ScanReport::build(root, config, layout)?;
+    let mut index: BTreeMap<String, BTreeSet<PathBuf>> = BTreeMap::new();
     for entry in report.metadata {
         let path = join_slash(root, &entry.path);
-        let stem_matches = entry
-            .path
-            .rsplit('/')
-            .next()
-            .and_then(metadata_stem)
-            .is_some_and(|stem| stem == name);
-        let path_matches = entry.path == name
-            || entry.path == format!("{name}.pw")
-            || entry.path == format!("{name}.pw.toml");
         let metadata = ModMetadata::load(&path)?;
-        let name_matches = metadata.name.as_deref() == Some(name);
-
-        if stem_matches || path_matches || name_matches {
-            matches.push(path);
+        let aliases = [
+            Some(entry.path.as_str()),
+            metadata_stem(&entry.path),
+            entry.path.rsplit('/').next().and_then(metadata_stem),
+            metadata.name.as_deref(),
+        ];
+        for alias in aliases.into_iter().flatten() {
+            index
+                .entry(alias.to_string())
+                .or_default()
+                .insert(path.clone());
         }
     }
-
-    match matches.len() {
-        0 => Err(format!("metadata not found: {name}")),
-        1 => Ok(matches.remove(0)),
-        _ => Err(format!("metadata name is ambiguous: {name}")),
+    let mut paths = BTreeSet::new();
+    for name in names {
+        match index.get(name) {
+            None => return Err(format!("metadata not found: {name}")),
+            Some(matches) if matches.len() != 1 => {
+                return Err(format!("metadata name is ambiguous: {name}"));
+            }
+            Some(matches) => paths.extend(matches.iter().cloned()),
+        }
     }
+    Ok(paths.into_iter().collect())
 }
 
 fn metadata_stem(file: &str) -> Option<&str> {
