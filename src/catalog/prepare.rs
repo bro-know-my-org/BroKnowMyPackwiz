@@ -72,7 +72,7 @@ fn collision(path: &str) -> Error {
 }
 
 /// No pack writes or latest-version resolution happens after this preview.
-pub fn curseforge<T: Transport>(
+pub fn curseforge<T: Transport + Sync>(
     root: &Path,
     state: &Path,
     client: &Client<T>,
@@ -91,7 +91,7 @@ pub fn curseforge<T: Transport>(
     )
 }
 
-pub fn curseforge_many<T: Transport>(
+pub fn curseforge_many<T: Transport + Sync>(
     root: &Path,
     state: &Path,
     client: &Client<T>,
@@ -107,42 +107,78 @@ pub fn curseforge_many<T: Transport>(
     } else {
         Filter::for_pack(root)?
     };
-    let total = selections.len();
-    control.progress("preview_selected", 0, Some(total));
-    let selections = selections
-        .into_iter()
-        .enumerate()
-        .map(|(index, (file, side))| {
-            control.check()?;
+    let selections = super::parallel::query(
+        &selections,
+        config.install.jobs,
+        control,
+        "preview_selected",
+        |(file, side)| {
             let project = client.project(file.project_id)?;
             class_filter(&filter, project.class_id)?;
-            control.progress("preview_selected", index + 1, Some(total));
             Ok((
-                file,
+                file.clone(),
                 if project.class_id == 6 {
-                    side
+                    side.clone()
                 } else {
                     Side::Client
                 },
             ))
-        })
-        .collect::<Result<Vec<_>>>()?;
+        },
+    )?;
     let report = ScanReport::build_operation(root, &config, &layout)?;
     let mut existing = BTreeMap::new();
     let mut installed = Vec::new();
     let mut targets = BTreeMap::new();
     let mut metadata_paths = BTreeMap::new();
-    let total = report.metadata.len();
-    control.progress("preview_installed", 0, Some(total));
-    for (index, item) in report.metadata.into_iter().enumerate() {
+    let loaded = super::parallel::query(
+        &report.metadata,
+        config.install.jobs,
+        control,
+        "preview_installed",
+        |item| {
+            let (document, expected) = edit::document(root, &item.path)?;
+            let metadata = ModMetadata::load_operation(&root.join(&item.path))?;
+            let target = metadata
+                .filename
+                .as_ref()
+                .map(|name| {
+                    crate::install::resolve_pack_file_path_operation(&item.path, name, &layout)
+                })
+                .transpose()?;
+            let file = if let Some(id) = metadata.curseforge_project_id {
+                let file_id = metadata.curseforge_file_id.ok_or_else(|| {
+                    Error::named(
+                        ErrorCode::Invalid,
+                        "missing_curseforge_file_id",
+                        format!("missing_curseforge_file_id: {}", item.path),
+                    )
+                    .context(&item.path)
+                })?;
+                Some(client.file(id, file_id)?)
+            } else {
+                None
+            };
+            Ok((
+                Existing {
+                    path: item.path.clone(),
+                    document,
+                    expected,
+                    metadata,
+                    target,
+                },
+                file,
+            ))
+        },
+    )?;
+    for (item, (loaded, file)) in report.metadata.into_iter().zip(loaded) {
         control.check()?;
-        let (document, expected) = edit::document(root, &item.path)?;
-        let metadata = ModMetadata::load_operation(&root.join(&item.path))?;
-        let target = metadata
-            .filename
-            .as_ref()
-            .map(|name| crate::install::resolve_pack_file_path_operation(&item.path, name, &layout))
-            .transpose()?;
+        let Existing {
+            path: _,
+            document,
+            expected,
+            metadata,
+            target,
+        } = loaded;
         if metadata_paths
             .insert(item.path.to_lowercase(), item.path.clone())
             .is_some()
@@ -161,15 +197,8 @@ pub fn curseforge_many<T: Transport>(
             if existing.contains_key(&id) {
                 return Err(collision(&item.path));
             }
-            let file_id = metadata.curseforge_file_id.ok_or_else(|| {
-                Error::named(
-                    ErrorCode::Invalid,
-                    "missing_curseforge_file_id",
-                    format!("missing_curseforge_file_id: {}", item.path),
-                )
-                .context(&item.path)
-            })?;
-            let file = client.file(id, file_id)?;
+            let file =
+                file.ok_or_else(|| Error::key(ErrorCode::Invalid, "missing_curseforge_file_id"))?;
             installed.push(Installed {
                 file,
                 side: crate::install::side_from_directory_or_metadata(item.side_hint, &metadata),
@@ -186,7 +215,6 @@ pub fn curseforge_many<T: Transport>(
                 },
             );
         }
-        control.progress("preview_installed", index + 1, Some(total));
     }
     let source = CatalogSource {
         client,
@@ -196,12 +224,18 @@ pub fn curseforge_many<T: Transport>(
     let mut rows = Vec::new();
     let mut drafts = Vec::new();
     let mut downloads = Vec::new();
+    let projects = super::parallel::query(
+        &entries,
+        config.install.jobs,
+        control,
+        "preview_projects",
+        |entry| client.project(entry.file.project_id),
+    )?;
     let total = entries.len();
     control.progress("preview_drafts", 0, Some(total));
-    for (index, mut entry) in entries.into_iter().enumerate() {
+    for (index, (mut entry, project)) in entries.into_iter().zip(projects).enumerate() {
         control.check()?;
         let id = entry.file.project_id;
-        let project = client.project(id)?;
         if !entry
             .file
             .compatible(&class_filter(&filter, project.class_id)?)
@@ -351,6 +385,88 @@ mod tests {
     use crate::operation::durable;
     use serde_json::json;
     use std::fs;
+    #[test]
+    fn installed_file_queries_overlap_and_preview_keeps_pack_unchanged() {
+        use std::sync::{Condvar, Mutex, mpsc};
+        use std::time::Duration;
+        let base = std::env::temp_dir().join(durable::unique_id());
+        let root = base.join("pack");
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::create_dir_all(root.join(".pw")).unwrap();
+        fs::write(
+            root.join("pack.toml"),
+            "name = \"Test\"\n[versions]\nminecraft = \"1.21.1\"\nneoforge = \"21.1.242\"\n",
+        )
+        .unwrap();
+        fs::write(root.join(".pw/config.toml"), "[install]\njobs = 4\n").unwrap();
+        for id in 1..=4 {
+            fs::write(root.join(format!("mods/{id}.pw.toml")), format!(
+                "name = \"Mod {id}\"\nfilename = \"{id}.jar\"\n[download]\nmode = \"metadata:curseforge\"\nhash-format = \"sha1\"\nhash = \"{}\"\n[update.curseforge]\nproject-id = {id}\nfile-id = 10\n", "a".repeat(40))).unwrap();
+        }
+        let before = fs::read(root.join("mods/1.pw.toml")).unwrap();
+        let gate = (Mutex::new(0), Condvar::new());
+        let client = Client {
+            transport: |path: &str| {
+                let parts: Vec<_> = path.split('/').collect();
+                let id: u64 = parts[1].parse().unwrap();
+                if parts.len() == 2 {
+                    return Ok(json!({"data":{"id":id,"classId":6,"name":format!("Mod {id}")}}));
+                }
+                assert_eq!(parts[2..], ["files", "10"]);
+                let mut entered = gate.0.lock().unwrap();
+                *entered += 1;
+                gate.1.notify_all();
+                let (entered, timeout) = gate
+                    .1
+                    .wait_timeout_while(entered, Duration::from_secs(5), |n| *n < 4)
+                    .unwrap();
+                assert!(!timeout.timed_out() && *entered == 4);
+                Ok(
+                    json!({"data":{"id":10,"modId":id,"fileName":format!("{id}.jar"),"gameVersions":["1.21.1","NeoForge"],"hashes":[{"algo":1,"value":"a".repeat(40)}]}}),
+                )
+            },
+        };
+        let selected = File {
+            project_id: 1,
+            id: 11,
+            name: "New".into(),
+            filename: "new.jar".into(),
+            versions: vec!["1.21.1".into(), "NeoForge".into()],
+            date: String::new(),
+            release_type: 1,
+            size: 1,
+            sha1: "b".repeat(40),
+            dependencies: vec![],
+        };
+        let (events, receiver) = mpsc::channel();
+        let preview = curseforge(
+            &root,
+            &base.join("state"),
+            &client,
+            selected,
+            Side::Both,
+            false,
+            &Control::with_events(events),
+        )
+        .unwrap();
+        assert_eq!(preview.rows.len(), 1);
+        assert_eq!(*gate.0.lock().unwrap(), 4);
+        assert_eq!(fs::read(root.join("mods/1.pw.toml")).unwrap(), before);
+        let counts: Vec<_> = receiver
+            .try_iter()
+            .filter_map(|event| match event {
+                crate::operation::Event::Progress {
+                    label,
+                    current,
+                    total,
+                } if label == "preview_installed" => Some((current, total)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(counts, (0..=4).map(|n| (n, Some(4))).collect::<Vec<_>>());
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn client_mod_can_require_a_resource_pack_without_a_loader_tag() {
         let client = Client {

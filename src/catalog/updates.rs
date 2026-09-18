@@ -1,4 +1,5 @@
 use super::curseforge::{Client, File, Filter};
+use super::parallel::query as parallel_query;
 use crate::{
     config::ProjectConfig,
     github::GitHubFileInfo,
@@ -7,14 +8,7 @@ use crate::{
     operation::{Control, Error, ErrorCode, Event, Result, preview::Guard},
     scan::ScanReport,
 };
-use std::{
-    collections::BTreeSet,
-    path::Path,
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc,
-    },
-};
+use std::{collections::BTreeSet, path::Path};
 
 #[derive(Clone)]
 pub enum Version {
@@ -137,6 +131,7 @@ pub fn query_with_filter(
         &pending,
         config.install.jobs,
         control,
+        "querying_updates",
         |(entry, metadata)| {
             control.emit(Event::Log(entry.path.clone()));
             if metadata.updates_via_curseforge() {
@@ -235,54 +230,6 @@ pub fn query_with_filter(
         skipped,
     })
 }
-/// Bound API traffic even when a download configuration requests many workers.
-fn parallel_query<T: Sync, R: Send>(
-    items: &[T],
-    jobs: usize,
-    control: &Control,
-    query: impl Fn(&T) -> Result<R> + Sync,
-) -> Result<Vec<R>> {
-    control.check()?;
-    control.emit(Event::Progress {
-        label: "querying_updates".into(),
-        current: 0,
-        total: Some(items.len() as u64),
-    });
-    let next = AtomicUsize::new(0);
-    let stopped = AtomicBool::new(false);
-    let (tx, rx) = mpsc::channel();
-    std::thread::scope(|scope| {
-        for _ in 0..jobs.clamp(1, 64).min(items.len()) {
-            let (tx, next, stopped, query) = (tx.clone(), &next, &stopped, &query);
-            scope.spawn(move || {
-                while !stopped.load(Ordering::Acquire) {
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(item) = items.get(index) else { break };
-                    let result = control.check().and_then(|()| query(item));
-                    if result.is_err() {
-                        stopped.store(true, Ordering::Release);
-                    }
-                    if tx.send((index, result)).is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-        drop(tx);
-        let mut results = Vec::new();
-        for result in rx {
-            results.push(result);
-            control.emit(Event::Progress {
-                label: "querying_updates".into(),
-                current: results.len() as u64,
-                total: Some(items.len() as u64),
-            });
-        }
-        control.check()?;
-        results.sort_by_key(|(index, _)| *index);
-        results.into_iter().map(|(_, result)| result).collect()
-    })
-}
 
 fn short(value: &str) -> String {
     value.chars().take(12).collect()
@@ -295,7 +242,13 @@ fn invalid(key: &str) -> Error {
 mod tests {
     use super::*;
     use crate::operation::durable;
-    use std::fs;
+    use std::{
+        fs,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            mpsc,
+        },
+    };
     struct Fake {
         calls: AtomicUsize,
     }
@@ -370,7 +323,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let control = Control::with_events(tx);
         let items: Vec<_> = (0..128).collect();
-        let results = parallel_query(&items, 100, &control, |&item| {
+        let results = parallel_query(&items, 100, &control, "querying_updates", |&item| {
             assert!(active.fetch_add(1, Ordering::SeqCst) < 64);
             // Hold the first wave until all 64 workers are in flight. No timing speed assertion.
             if item < 64 {
@@ -405,7 +358,7 @@ mod tests {
     fn cancellation_and_errors_stop_new_queries() {
         let control = Control::default();
         let calls = AtomicUsize::new(0);
-        let error = parallel_query(&[1, 2, 3], 1, &control, |_| {
+        let error = parallel_query(&[1, 2, 3], 1, &control, "querying_updates", |_| {
             calls.fetch_add(1, Ordering::Relaxed);
             control.cancel();
             Ok(())
@@ -413,17 +366,29 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, ErrorCode::Cancelled);
         assert_eq!(calls.load(Ordering::Relaxed), 1);
-        let error = parallel_query(&[1, 2, 3], 0, &Control::default(), |_| {
-            calls.fetch_add(1, Ordering::Relaxed);
-            Err::<(), _>(invalid("provider_failed"))
-        })
+        let error = parallel_query(
+            &[1, 2, 3],
+            0,
+            &Control::default(),
+            "querying_updates",
+            |_| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Err::<(), _>(invalid("provider_failed"))
+            },
+        )
         .unwrap_err();
         assert_eq!(error.detail, "provider_failed");
         assert_eq!(calls.load(Ordering::Relaxed), 2);
         assert!(
-            parallel_query::<(), ()>(&[], 16, &Control::default(), |_| unreachable!())
-                .unwrap()
-                .is_empty()
+            parallel_query::<(), ()>(
+                &[],
+                16,
+                &Control::default(),
+                "querying_updates",
+                |_| unreachable!()
+            )
+            .unwrap()
+            .is_empty()
         );
     }
 
