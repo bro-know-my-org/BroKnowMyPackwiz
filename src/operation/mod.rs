@@ -142,6 +142,13 @@ impl Control {
             Ok(())
         }
     }
+    pub fn progress(&self, label: &str, current: usize, total: Option<usize>) {
+        self.emit(Event::Progress {
+            label: label.into(),
+            current: current as u64,
+            total: total.map(|n| n as u64),
+        });
+    }
     pub fn emit(&self, event: Event) {
         #[cfg(test)]
         if let Some(checkpoint) = &self.checkpoint {

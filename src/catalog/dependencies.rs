@@ -77,6 +77,7 @@ pub fn plan_many(
     control: &Control,
 ) -> Result<Vec<Entry>> {
     control.check()?;
+    control.progress("preview_dependencies", 0, None);
     let mut forced = BTreeMap::new();
     for (file, side) in &selected {
         if matches!(side, Side::Unknown(_)) {
@@ -206,6 +207,8 @@ impl<S: Source> Planner<'_, S> {
         }
         self.active.remove(&id);
         self.entries.push(Entry { file, side, action });
+        self.control
+            .progress("preview_dependencies", self.entries.len(), None);
         Ok(())
     }
 }

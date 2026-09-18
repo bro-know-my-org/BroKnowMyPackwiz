@@ -27,6 +27,29 @@ fn key(app: &mut App, code: KeyCode) -> bool {
 }
 
 #[test]
+fn preview_progress_is_visible_on_files_and_catalog_pages() {
+    let mut app = app();
+    app.language = Language::En;
+    app.adding.progress = Some(super::add::Progress {
+        phase: "preview_installed".into(),
+        count: Some((3, Some(10))),
+    });
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    for page in [0, 1] {
+        app.page = page;
+        terminal.draw(|frame| view::draw(frame, &mut app)).unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("Reading installed metadata · 3/10"));
+    }
+}
+
+#[test]
 fn check_all_ignores_file_filter_and_existing_marks() {
     use crate::operation::{durable, queue::Queue};
     use std::{

@@ -16,7 +16,12 @@ pub struct Workflow {
     pending: Option<Receiver<Prepared>>,
     control: Control,
     events: Option<Receiver<Event>>,
-    pub update_progress: Option<(u64, u64)>,
+    pub progress: Option<Progress>,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub struct Progress {
+    pub phase: String,
+    pub count: Option<(u64, Option<u64>)>,
 }
 pub struct Prepared {
     pub result: Result<Output>,
@@ -116,8 +121,14 @@ impl Workflow {
     pub fn busy(&self) -> bool {
         self.pending.is_some()
     }
-    pub fn cancel(&self) {
+    pub fn cancel(&mut self) {
         self.control.cancel();
+        if self.busy() {
+            self.progress = Some(Progress {
+                phase: "preview_cancelling".into(),
+                count: None,
+            });
+        }
     }
     pub fn start(
         &mut self,
@@ -168,7 +179,10 @@ impl Workflow {
         let (events, receiver) = mpsc::channel();
         self.control = Control::with_events(events);
         self.events = Some(receiver);
-        self.update_progress = None;
+        self.progress = Some(Progress {
+            phase: "preview_preparing".into(),
+            count: None,
+        });
         let control = self.control.clone();
         let (tx, rx) = mpsc::channel();
         self.pending = Some(rx);
@@ -191,15 +205,27 @@ impl Workflow {
     pub fn poll(&mut self) -> Option<Prepared> {
         if let Some(events) = &self.events {
             for event in events.try_iter() {
-                if let Event::Progress {
-                    label,
-                    current,
-                    total: Some(total),
-                } = event
-                {
-                    if label == "querying_updates" {
-                        self.update_progress = Some((current, total));
+                if self.control.check().is_err() {
+                    continue;
+                }
+                match event {
+                    Event::Phase(label) => {
+                        self.progress = Some(Progress {
+                            phase: label,
+                            count: None,
+                        })
                     }
+                    Event::Progress {
+                        label,
+                        current,
+                        total,
+                    } => {
+                        self.progress = Some(Progress {
+                            phase: label,
+                            count: Some((current, total)),
+                        });
+                    }
+                    Event::Log(_) => {}
                 }
             }
         }
@@ -220,7 +246,7 @@ impl Workflow {
         }
         self.pending = None;
         self.events = None;
-        self.update_progress = None;
+        self.progress = None;
         Some(prepared)
     }
 }
@@ -262,14 +288,35 @@ mod tests {
             .unwrap();
         started.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(workflow.poll().is_none());
-        assert_eq!(workflow.update_progress, Some((1, 2)));
+        assert_eq!(
+            workflow.progress,
+            Some(Progress {
+                phase: "querying_updates".into(),
+                count: Some((1, Some(2)))
+            })
+        );
+        workflow
+            .control
+            .emit(Event::Phase("preview_dependencies".into()));
+        assert!(workflow.poll().is_none());
+        assert_eq!(workflow.progress.as_ref().unwrap().count, None);
+        workflow.control.progress("preview_dependencies", 3, None);
+        assert!(workflow.poll().is_none());
+        assert_eq!(workflow.progress.as_ref().unwrap().count, Some((3, None)));
+        workflow.cancel();
+        workflow.control.progress("preview_dependencies", 4, None);
+        assert!(workflow.poll().is_none());
+        assert_eq!(
+            workflow.progress.as_ref().unwrap().phase,
+            "preview_cancelling"
+        );
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while workflow.poll().is_none() {
             assert!(Instant::now() < deadline);
             std::thread::yield_now();
         }
-        assert_eq!(workflow.update_progress, None);
+        assert_eq!(workflow.progress, None);
     }
 
     #[test]

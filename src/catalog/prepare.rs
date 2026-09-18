@@ -107,11 +107,16 @@ pub fn curseforge_many<T: Transport>(
     } else {
         Filter::for_pack(root)?
     };
+    let total = selections.len();
+    control.progress("preview_selected", 0, Some(total));
     let selections = selections
         .into_iter()
-        .map(|(file, side)| {
+        .enumerate()
+        .map(|(index, (file, side))| {
+            control.check()?;
             let project = client.project(file.project_id)?;
             class_filter(&filter, project.class_id)?;
+            control.progress("preview_selected", index + 1, Some(total));
             Ok((
                 file,
                 if project.class_id == 6 {
@@ -127,7 +132,9 @@ pub fn curseforge_many<T: Transport>(
     let mut installed = Vec::new();
     let mut targets = BTreeMap::new();
     let mut metadata_paths = BTreeMap::new();
-    for item in report.metadata {
+    let total = report.metadata.len();
+    control.progress("preview_installed", 0, Some(total));
+    for (index, item) in report.metadata.into_iter().enumerate() {
         control.check()?;
         let (document, expected) = edit::document(root, &item.path)?;
         let metadata = ModMetadata::load_operation(&root.join(&item.path))?;
@@ -179,6 +186,7 @@ pub fn curseforge_many<T: Transport>(
                 },
             );
         }
+        control.progress("preview_installed", index + 1, Some(total));
     }
     let source = CatalogSource {
         client,
@@ -188,7 +196,9 @@ pub fn curseforge_many<T: Transport>(
     let mut rows = Vec::new();
     let mut drafts = Vec::new();
     let mut downloads = Vec::new();
-    for mut entry in entries {
+    let total = entries.len();
+    control.progress("preview_drafts", 0, Some(total));
+    for (index, mut entry) in entries.into_iter().enumerate() {
         control.check()?;
         let id = entry.file.project_id;
         let project = client.project(id)?;
@@ -318,6 +328,7 @@ pub fn curseforge_many<T: Transport>(
             side: entry.side,
             action: entry.action,
         });
+        control.progress("preview_drafts", index + 1, Some(total));
     }
     guard.validate(root, control)?;
     Ok(Preview {

@@ -1,5 +1,5 @@
 //! Preconditions shared by read-only previews and queued application.
-use super::{Control, Error, ErrorCode, Result, durable};
+use super::{Control, Error, ErrorCode, Event, Result, durable};
 use crate::{config::ProjectConfig, layout::PackLayout, scan::ScanReport};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
@@ -27,6 +27,7 @@ impl Guard {
         Ok(())
     }
     pub fn capture(root: &Path, control: &Control) -> Result<Self> {
+        control.emit(Event::Phase("preview_scanning".into()));
         let config = ProjectConfig::load_operation(root)?;
         let layout = PackLayout::from_config(&config);
         let report = ScanReport::build_operation(root, &config, &layout)?;
@@ -59,9 +60,12 @@ impl Guard {
                 .into_iter()
                 .filter(|p| p.ends_with("/.gitignore")),
         );
-        for path in paths {
+        let total = paths.len();
+        control.progress("preview_snapshot", 0, Some(total));
+        for (index, path) in paths.into_iter().enumerate() {
             control.check()?;
             guard.watch(root, &path)?;
+            control.progress("preview_snapshot", index + 1, Some(total));
         }
         Ok(guard)
     }
@@ -80,13 +84,16 @@ impl Guard {
         Ok(())
     }
     pub fn validate(&self, root: &Path, control: &Control) -> Result<()> {
-        for (relative, expected) in &self.fingerprints {
+        let total = self.fingerprints.len();
+        control.progress("preview_validating", 0, Some(total));
+        for (index, (relative, expected)) in self.fingerprints.iter().enumerate() {
             control.check()?;
             crate::operation::paths::relative(relative)?;
             let path = durable::absolute(&durable::canonical(root)?.join(relative))?;
             if durable::fingerprint(&path)? != *expected {
                 return Err(stale(relative));
             }
+            control.progress("preview_validating", index + 1, Some(total));
         }
         let current = Self::capture(root, control)?;
         if current.metadata != self.metadata {
