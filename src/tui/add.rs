@@ -4,7 +4,7 @@ use crate::{
         prepare::{self, Preview},
     },
     metadata::Side,
-    operation::{Control, Error, ErrorCode, Result},
+    operation::{Control, Error, ErrorCode, Event, Result},
 };
 use std::{
     path::Path,
@@ -15,6 +15,8 @@ use std::{
 pub struct Workflow {
     pending: Option<Receiver<Prepared>>,
     control: Control,
+    events: Option<Receiver<Event>>,
+    pub update_progress: Option<(u64, u64)>,
 }
 pub struct Prepared {
     pub result: Result<Output>,
@@ -163,7 +165,10 @@ impl Workflow {
         if self.busy() {
             return Err(Error::key(ErrorCode::Busy, "preview_running"));
         }
-        self.control = Control::default();
+        let (events, receiver) = mpsc::channel();
+        self.control = Control::with_events(events);
+        self.events = Some(receiver);
+        self.update_progress = None;
         let control = self.control.clone();
         let (tx, rx) = mpsc::channel();
         self.pending = Some(rx);
@@ -184,6 +189,20 @@ impl Workflow {
         Ok(())
     }
     pub fn poll(&mut self) -> Option<Prepared> {
+        if let Some(events) = &self.events {
+            for event in events.try_iter() {
+                if let Event::Progress {
+                    label,
+                    current,
+                    total: Some(total),
+                } = event
+                {
+                    if label == "querying_updates" {
+                        self.update_progress = Some((current, total));
+                    }
+                }
+            }
+        }
         let rx = self.pending.as_ref()?;
         let mut prepared = match rx.try_recv() {
             Ok(result) => result,
@@ -200,6 +219,8 @@ impl Workflow {
             prepared.result = Err(error);
         }
         self.pending = None;
+        self.events = None;
+        self.update_progress = None;
         Some(prepared)
     }
 }
@@ -221,6 +242,36 @@ mod tests {
         fs,
         time::{Duration, Instant},
     };
+    #[test]
+    fn workflow_exposes_progress_and_clears_it_on_completion() {
+        let (ready, started) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        let mut workflow = Workflow::default();
+        workflow
+            .run(move |control| {
+                control.emit(Event::Progress {
+                    label: "querying_updates".into(),
+                    current: 1,
+                    total: Some(2),
+                });
+                ready.send(()).unwrap();
+                wait.recv_timeout(Duration::from_secs(5)).unwrap();
+                let (picker, form) = super::super::github::Picker::repository();
+                Ok(Output::GitHub(picker, form))
+            })
+            .unwrap();
+        started.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(workflow.poll().is_none());
+        assert_eq!(workflow.update_progress, Some((1, 2)));
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while workflow.poll().is_none() {
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        assert_eq!(workflow.update_progress, None);
+    }
+
     #[test]
     fn closing_a_running_workflow_cleans_files_when_the_worker_finishes() {
         let base = std::env::temp_dir().join(durable::unique_id());

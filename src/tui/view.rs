@@ -288,7 +288,9 @@ fn files(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
     let indices = app.visible();
-    let title = if app.loading() {
+    let title = if let Some((current, total)) = app.adding.update_progress {
+        format!("{} · {current}/{total}", lang.text("querying_updates"))
+    } else if app.loading() {
         lang.text("loading").to_string()
     } else {
         format!(
