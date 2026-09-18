@@ -74,7 +74,14 @@ impl Workflow {
             crate::catalog::update_plan::prepare(
                 &root, &state, &preview, &paths, download, &control,
             )
-            .map(Output::UpdateReady)
+            .map(|planned| {
+                // Newly required dependencies still need an explicit review.
+                if planned.rows.len() > paths.len() {
+                    Output::UpdateReady(planned)
+                } else {
+                    Output::UpdateDirect(planned)
+                }
+            })
         })
     }
     pub fn github(&mut self, action: super::github::Action) -> Result<()> {

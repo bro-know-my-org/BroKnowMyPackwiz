@@ -424,13 +424,15 @@ impl App {
                         self.dialog = Some(super::dialog::Dialog::command(kind, self.language));
                     }
                     KeyCode::Char('r') if self.page != 3 && self.page != 1 => self.reload(),
-                    KeyCode::Char(code @ ('u' | 'd')) if self.page == 0 => {
-                        let paths: Vec<_> = if self.marked.is_empty() {
+                    KeyCode::Char(code @ ('u' | 'U' | 'd')) if self.page == 0 => {
+                        let paths: Vec<_> = if code == 'U' {
+                            Vec::new()
+                        } else if self.marked.is_empty() {
                             self.current().map(|e| e.path.clone()).into_iter().collect()
                         } else {
                             self.marked.iter().cloned().collect()
                         };
-                        if !paths.is_empty() {
+                        if code == 'U' || !paths.is_empty() {
                             let result = self
                                 .jobs
                                 .queue

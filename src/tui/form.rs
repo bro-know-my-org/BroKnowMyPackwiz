@@ -73,6 +73,8 @@ impl Field {
 }
 
 pub struct Form {
+    pub checklist: bool,
+    checklist_scroll: u16,
     pub title: String,
     pub fields: Vec<Field>,
     pub focus: usize,
@@ -93,6 +95,8 @@ pub enum Action {
 impl Form {
     pub fn new(title: &str, fields: Vec<Field>) -> Self {
         Self {
+            checklist: false,
+            checklist_scroll: 0,
             title: title.into(),
             fields,
             focus: 0,
@@ -112,8 +116,15 @@ impl Form {
             .unwrap_or("")
     }
     pub fn event(&mut self, event: Event) -> Action {
+        let previous_focus = self.focus;
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
+                KeyCode::Left if self.checklist => {
+                    self.checklist_scroll = self.checklist_scroll.saturating_sub(8);
+                }
+                KeyCode::Right if self.checklist => {
+                    self.checklist_scroll = self.checklist_scroll.saturating_add(8);
+                }
                 KeyCode::PageDown if self.preview.is_some() => {
                     self.preview_scroll = self.preview_scroll.saturating_add(10)
                 }
@@ -131,6 +142,22 @@ impl Form {
                 }
                 KeyCode::Enter if self.focus == self.fields.len() => return Action::Submit,
                 KeyCode::Enter if self.focus > self.fields.len() => return Action::Cancel,
+                KeyCode::Enter if self.checklist => return Action::Submit,
+                KeyCode::Char('a')
+                    if self.checklist
+                        && !key
+                            .modifiers
+                            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    let selected = self
+                        .fields
+                        .iter()
+                        .filter(|f| f.key != "download")
+                        .all(|f| f.value == "true");
+                    for field in self.fields.iter_mut().filter(|f| f.key != "download") {
+                        field.value = (!selected).to_string();
+                    }
+                }
                 KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     return Action::Submit;
                 }
@@ -227,6 +254,9 @@ impl Form {
             }
             _ => {}
         }
+        if self.focus != previous_focus {
+            self.checklist_scroll = 0;
+        }
         Action::Continue
     }
 
@@ -252,7 +282,12 @@ impl Form {
             frame.render_widget(Paragraph::new(lang.text("small")), inner);
             return;
         }
-        let count = (inner.height.saturating_sub(4) / 3).max(1) as usize;
+        let field_height = if self.checklist && self.preview.is_some() {
+            ((inner.height.saturating_sub(4) / 2 / 3).max(1)) * 3
+        } else {
+            inner.height.saturating_sub(4)
+        };
+        let count = (field_height / 3).max(1) as usize;
         let offset = self
             .focus
             .min(self.fields.len().saturating_sub(1))
@@ -260,6 +295,35 @@ impl Form {
         for (row, i) in (offset..self.fields.len()).take(count).enumerate() {
             let field = &self.fields[i];
             let area = Rect::new(inner.x, inner.y + row as u16 * 3, inner.width, 3);
+            if self.checklist {
+                let text = format!(
+                    "[{}] {}",
+                    if field.value == "true" { "x" } else { " " },
+                    lang.text(&field.label)
+                );
+                let overflow = text
+                    .lines()
+                    .map(unicode_width::UnicodeWidthStr::width)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_sub(area.width as usize)
+                    .min(u16::MAX as usize) as u16;
+                if self.focus == i {
+                    self.checklist_scroll = self.checklist_scroll.min(overflow);
+                }
+                frame.render_widget(
+                    Paragraph::new(text)
+                        .scroll((0, self.checklist_scroll.min(overflow)))
+                        .style(if self.focus == i {
+                            Style::default().fg(Color::Cyan)
+                        } else {
+                            Style::default()
+                        }),
+                    area,
+                );
+                self.areas.push((i, area));
+                continue;
+            }
             let text = match field.kind {
                 Kind::Secret => "•".repeat(field.value.chars().count()),
                 Kind::Bool => lang
@@ -294,11 +358,12 @@ impl Form {
         }
         let footer = Rect::new(inner.x, inner.bottom().saturating_sub(4), inner.width, 3);
         if let Some(preview) = &self.preview {
+            let offset = if self.checklist { field_height } else { 0 };
             let area = Rect::new(
                 inner.x,
-                inner.y,
+                inner.y + offset,
                 inner.width,
-                inner.height.saturating_sub(4),
+                inner.height.saturating_sub(4 + offset),
             );
             self.preview_area = area;
             super::view::scroll_text(frame, preview, area, &mut self.preview_scroll);
@@ -326,7 +391,9 @@ impl Form {
             Paragraph::new(
                 self.error
                     .as_deref()
-                    .unwrap_or(lang.text(if self.preview.is_some() {
+                    .unwrap_or(lang.text(if self.checklist {
+                        "update_selection_keys"
+                    } else if self.preview.is_some() {
                         "preview_keys"
                     } else {
                         "form_keys"

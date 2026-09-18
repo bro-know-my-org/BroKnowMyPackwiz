@@ -520,6 +520,9 @@ impl Dialog {
             }),
             Purpose::Update(selection) => {
                 let (preview, paths, download) = selection.submit(&self.form);
+                if paths.is_empty() {
+                    return Err(Error::key(ErrorCode::Invalid, "update_selection_required"));
+                }
                 Ok(Submission::Update {
                     preview,
                     paths,

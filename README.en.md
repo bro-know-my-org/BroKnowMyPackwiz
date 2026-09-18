@@ -92,7 +92,12 @@ and mouse input. Use `Tab` / `Shift+Tab` to switch pages, `L` to change language
 `?` for scrollable help and `Q` to quit. Letters typed into an input field stay
 in that field instead of triggering global shortcuts.
 
-- Files: `/` searches, Space marks files, `U` previews updates, `D` updates
+Update lists use ↑↓ to move, Space to select, A to select all/none, Enter to update,
+and Esc to cancel. Metadata-only is the default; downloading is optional.
+Use ←→ for long version names and PgUp/PgDn for skipped reasons.
+Additional dependency changes are shown for confirmation.
+
+- Files: `/` searches, Space marks files, `Shift+U` checks all updates, `U` previews selected updates, `D` updates
   directly, `E` edits common fields, `Shift+E` opens an external editor and
   `Delete` confirms bulk metadata removal.
 - Add: search CurseForge and select files/dependencies; `G` selects GitHub

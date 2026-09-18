@@ -12,7 +12,17 @@ impl Selection {
         let mut fields: Vec<_> = preview
             .candidates
             .iter()
-            .map(|candidate| Field::new(&candidate.relative, &candidate.name, "true", Kind::Bool))
+            .map(|candidate| {
+                Field::new(
+                    &candidate.relative,
+                    &format!(
+                        "{}\n    {}\n  → {}",
+                        candidate.name, candidate.before, candidate.after
+                    ),
+                    "false",
+                    Kind::Bool,
+                )
+            })
             .collect();
         fields.push(Field::new(
             "download",
@@ -21,26 +31,25 @@ impl Selection {
             Kind::Bool,
         ));
         let mut form = Form::new("update_preview", fields);
-        let mut rows: Vec<_> = preview
-            .candidates
-            .iter()
-            .map(|candidate| {
-                format!(
-                    "{}\n{} → {}",
-                    candidate.name, candidate.before, candidate.after
-                )
-            })
-            .collect();
-        rows.extend(
-            preview
-                .skipped
-                .iter()
-                .map(|(path, key)| format!("{path}: {}", lang.text(key))),
+        form.checklist = true;
+        form.title = format!(
+            "{} ({})",
+            lang.text("update_preview"),
+            preview.candidates.len()
         );
-        if rows.is_empty() {
-            rows.push(lang.text("update_no_candidates").into());
+        if preview.candidates.is_empty() {
+            form.error = Some(lang.text("update_no_candidates").into());
         }
-        form.preview = Some(rows.join("\n\n"));
+        if !preview.skipped.is_empty() {
+            form.preview = Some(
+                preview
+                    .skipped
+                    .iter()
+                    .map(|(path, reason)| format!("{path}: {}", lang.text(reason)))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
+        }
         (Self { preview }, form)
     }
     pub fn submit(&self, form: &Form) -> (Preview, Vec<String>, bool) {
@@ -95,14 +104,83 @@ mod tests {
         let preview = Preview {
             guard: Guard::capture(&root, &Control::default()).unwrap(),
             candidates,
-            skipped: Vec::new(),
+            skipped: vec![("mods/pinned.pw.toml".into(), "update_pinned")],
         };
         let (selection, mut form) = Selection::open(preview, Language::ZhCn);
-        form.fields[0].value = "false".into();
+        use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+        let key =
+            |form: &mut Form, code| form.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+        assert!(selection.submit(&form).1.is_empty());
+        key(&mut form, KeyCode::Down);
+        key(&mut form, KeyCode::Char(' '));
         let (_, paths, download) = selection.submit(&form);
         assert_eq!(paths, vec!["mods/b.pw.toml"]);
         assert!(!download);
-        assert!(form.preview.as_ref().unwrap().contains("old → new"));
+        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::ALT] {
+            form.event(Event::Key(KeyEvent::new(KeyCode::Char('a'), modifiers)));
+            assert_eq!(selection.submit(&form).1, paths);
+        }
+        let mut screen =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 12)).unwrap();
+        screen
+            .draw(|frame| form.draw(frame, Language::ZhCn))
+            .unwrap();
+        let text: String = screen
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("[x] b") && text.contains("old") && text.contains("→ new"));
+        assert!(text.contains("mods/pinned.pw.toml"));
+        assert!(form.preview.as_ref().unwrap().contains("已跳过"));
+        form.fields[1].label = format!(
+            "b\n{}old-v1.jar\n{}new-v2.jar",
+            "长前缀".repeat(30),
+            "长前缀".repeat(30)
+        );
+        screen.backend_mut().resize(30, 12);
+        for _ in 0..30 {
+            key(&mut form, KeyCode::Right);
+        }
+        screen
+            .draw(|frame| form.draw(frame, Language::ZhCn))
+            .unwrap();
+        let text: String = screen
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("old-v1.jar") && text.contains("new-v2.jar"));
+        key(&mut form, KeyCode::Left);
+        screen
+            .draw(|frame| form.draw(frame, Language::ZhCn))
+            .unwrap();
+        let text: String = screen
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(!text.contains("new-v2.jar")); // No overscroll delay when reversing direction.
+        assert_eq!(selection.submit(&form).1, vec!["mods/b.pw.toml"]);
+        assert_eq!(
+            key(&mut form, KeyCode::Enter),
+            super::super::form::Action::Submit
+        );
+        key(&mut form, KeyCode::Char('a'));
+        assert_eq!(selection.submit(&form).1.len(), 2);
+        assert!(!selection.submit(&form).2);
+        key(&mut form, KeyCode::Char('a'));
+        assert!(selection.submit(&form).1.is_empty());
+        assert_eq!(
+            key(&mut form, KeyCode::Esc),
+            super::super::form::Action::Cancel
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

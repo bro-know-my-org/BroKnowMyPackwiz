@@ -155,6 +155,7 @@ fn actions(app: &App) -> Vec<(crossterm::event::KeyCode, &'static str, &'static 
     match app.page {
         0 if app.adding.busy() => vec![(KeyCode::Char('c'), "C", "cf_cancel_preview")],
         0 => vec![
+            (KeyCode::Char('U'), "Shift+U", "update_check_all"),
             (KeyCode::Char('u'), "U", "update_preview"),
             (KeyCode::Delete, "Del", "remove"),
             (KeyCode::Char('d'), "D", "update_direct"),
