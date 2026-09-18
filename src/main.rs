@@ -117,6 +117,7 @@ fn main() {
         "sync" => sync(rest),
         "refresh" => refresh(first_path(rest)),
         "update" => update_cmd(rest),
+        "check-updates" => check_updates_cmd(rest),
         "unpin" => pin_or_unpin(rest, false),
         other => Err(format!("unknown command: {other}")),
     };
@@ -132,6 +133,9 @@ fn print_help() {
     println!();
     println!("Usage:");
     println!("  bkmpw tui [pack-root]");
+    println!(
+        "  bkmpw check-updates <pack-root> [--all|<name>...] [--mc-version v] [--loader name]"
+    );
     println!("  bkmpw add-url <pack-root> <side> <name> <filename> <url> <sha256>");
     println!("  bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>");
     println!("  bkmpw add-shaderpack <pack-root> <name> <filename> <url> <sha256>");
@@ -170,7 +174,7 @@ fn print_help() {
         "  bkmpw sync <source-root> <target-root> [side] [jobs] [--force] [--retries n] [--retry-delay-seconds n]"
     );
     println!("  bkmpw refresh [pack-root]");
-    println!("  bkmpw update <pack-root> (--all|<name>) [--mc-version v] [--loader neoforge]");
+    println!("  bkmpw update <pack-root> (--all|<name>...) [--mc-version v] [--loader neoforge]");
     println!("  bkmpw unpin <pack-root> <name>");
     println!("  bkmpw --help");
     println!("  bkmpw --version");
@@ -546,19 +550,13 @@ fn parse_add_github_options(args: &[String]) -> Result<AddGitHubOptions, String>
 }
 
 fn update_cmd(args: &[String]) -> Result<(), String> {
-    if args.len() < 2 {
-        return Err(
-            "usage: bkmpw update <pack-root> (--all|<name>) [--mc-version v] [--loader neoforge]"
-                .to_string(),
-        );
-    }
-    let root = PathBuf::from(&args[0]);
-    let target = &args[1];
-    let options = parse_update_options(&args[2..])?;
-    let result = if target == "--all" || target == "-a" {
+    let (root, names, options) = update::parse_args(args, false)?;
+    let result = if names.is_empty() {
         update::update_all(&root, options)?
+    } else if names.len() == 1 {
+        update::update_one(&root, &names[0], options)?
     } else {
-        update::update_one(&root, target, options)?
+        update::update_many(&root, &names, options)?
     };
     for item in &result.updated {
         println!("updated: {item}");
@@ -575,24 +573,26 @@ fn update_cmd(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_update_options(args: &[String]) -> Result<update::UpdateOptions, String> {
-    let mut options = update::UpdateOptions::default();
-    let mut idx = 0;
-    while idx < args.len() {
-        match args[idx].as_str() {
-            "--mc-version" => {
-                idx += 1;
-                options.minecraft_version = Some(parse_string_arg(args.get(idx), "--mc-version")?);
-            }
-            "--loader" => {
-                idx += 1;
-                options.loader = Some(parse_string_arg(args.get(idx), "--loader")?);
-            }
-            other => return Err(format!("unknown update option: {other}")),
-        }
-        idx += 1;
+fn check_updates_cmd(args: &[String]) -> Result<(), String> {
+    let (root, names, options) = update::parse_args(args, true)?;
+    let preview = update::check_updates(&root, &names, options)?;
+    for candidate in &preview.candidates {
+        println!(
+            "available: {} ({})\n  {} -> {}",
+            candidate.name, candidate.relative, candidate.before, candidate.after
+        );
     }
-    Ok(options)
+    for (path, reason) in &preview.skipped {
+        let reason = match *reason {
+            "update_pinned" => "pinned",
+            "update_no_provider" => "no update provider",
+            "update_unchanged" => "already up to date",
+            other => other,
+        };
+        println!("skipped: {path}: {reason}");
+    }
+    println!("available updates: {}", preview.candidates.len());
+    Ok(())
 }
 
 #[derive(Debug, Clone, Default)]

@@ -4,7 +4,13 @@
 pub fn repair_legacy_windows_pack_root(mut args: Vec<String>) -> Vec<String> {
     if !matches!(
         args.first().map(String::as_str),
-        Some("update" | "install-files" | "install-files-headless" | "install-files-retry")
+        Some(
+            "check-updates"
+                | "update"
+                | "install-files"
+                | "install-files-headless"
+                | "install-files-retry"
+        )
     ) {
         return args;
     }

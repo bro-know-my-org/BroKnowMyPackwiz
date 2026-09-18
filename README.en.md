@@ -144,7 +144,7 @@ bkmpw add-file <pack-root> <side> <name> <source-file> [filename]
 bkmpw pin <pack-root> <name>
 bkmpw unpin <pack-root> <name>
 bkmpw remove <pack-root> <name>
-bkmpw update <pack-root> (--all|<name>) [--mc-version v] [--loader neoforge]
+bkmpw update <pack-root> (--all|<name>...) [--mc-version v] [--loader neoforge]
 bkmpw download-files <pack-root> [jobs] [--force] [--retries n] [--retry-delay-seconds n]
 bkmpw sync <source-root> <target-root> [side] [jobs] [--force] [--retries n] [--retry-delay-seconds n]
 bkmpw install-files-headless <pack-root> [attempts] [delay-seconds]
@@ -266,9 +266,15 @@ matching file.
 Update:
 
 ```text
+bkmpw check-updates <pack-root>
+bkmpw check-updates <pack-root> --json
 bkmpw update <pack-root> --all
-bkmpw update <pack-root> <name>
+bkmpw update <pack-root> <name> [<name>...]
 ```
+
+`check-updates` lists available updates without modifying the pack. It accepts multiple
+names or metadata paths and `--mc-version` / `--loader`. `update` writes metadata
+and the index; run `download-files` or `sync` separately to download the new files.
 
 - CurseForge metadata uses `[update.curseforge]` to query the latest matching file and update `filename`, hash, and `file-id`; it needs `CURSEFORGE_API_KEY` or `[curseforge].api-key`.
 - GitHub metadata uses `[update.github]` to query the latest release or a pinned tag. Only metadata created by the newer `add-github` command includes this update source automatically.

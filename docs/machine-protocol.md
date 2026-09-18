@@ -76,6 +76,7 @@ case `data.valid` is false, `ok` is false, and the process exits with status 2.
 - `list`
 - `refresh`
 - `init`
+- `check-updates`
 - `update`
 - `download-files`
 - `install-files`
@@ -108,3 +109,14 @@ Protocol version 1 follows these compatibility rules:
 
 For a Tauri or other desktop shell, invoke the executable directly with an
 argument array. Do not construct a shell command string.
+
+### Update checks and selection
+
+`check-updates <pack-root> [--all|<name>...]` returns `available` entries with
+`path`, `name`, `before`, and `after`, plus `skipped` entries with `path` and `reason`.
+Reasons include `update_pinned`, `update_no_provider`, and `update_unchanged`.
+Checks do not write pack files; both JSON and JSON Lines are supported.
+`update <pack-root> <name>...` accepts multiple names or metadata paths. Its result
+adds `targets` with the requested operands (empty for `--all`); repeated names/aliases
+resolve to one file. Legacy `target` is the single name/all flag, or `null` for a batch.
+Use `--` before names beginning with `-`; put command options before this delimiter.
