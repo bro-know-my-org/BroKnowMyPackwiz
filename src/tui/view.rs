@@ -172,7 +172,21 @@ fn actions(app: &App) -> Vec<(crossterm::event::KeyCode, &'static str, &'static 
         ],
         3 => vec![
             (KeyCode::Char(' '), "Space", "resume_pause"),
-            (KeyCode::Char('c'), "C", "cancel"),
+            (
+                KeyCode::Char('c'),
+                "C",
+                if app
+                    .jobs
+                    .queue
+                    .as_ref()
+                    .and_then(|q| q.tasks.get(app.jobs.selected))
+                    .is_some_and(|t| t.status == crate::operation::queue::Status::Failed)
+                {
+                    "dismiss_failed_task"
+                } else {
+                    "cancel"
+                },
+            ),
             (KeyCode::Char('r'), "R", "retry_recovery"),
             (KeyCode::Char('k'), "K", "keep_short"),
             (KeyCode::Char('o'), "O", "restore_short"),
