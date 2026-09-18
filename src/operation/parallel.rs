@@ -1,12 +1,12 @@
-//! Bounded provider I/O with ordered results and completion progress.
+//! Bounded independent work with ordered results and completion progress.
 use crate::operation::{Control, Event, Result};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc,
 };
 
-/// Bound API traffic even when a download configuration requests many workers.
-pub(super) fn query<T: Sync, R: Send>(
+/// Bound worker count and aggregate successful results in input order.
+pub(crate) fn map<T: Sync, R: Send>(
     items: &[T],
     jobs: usize,
     control: &Control,

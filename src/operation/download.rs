@@ -43,74 +43,83 @@ pub fn execute(
     let config = ProjectConfig::load_operation(root)?;
     let incoming = task.join("incoming");
     fs::create_dir_all(&incoming)?;
-    let mut files = Vec::new();
-    for (index, download) in downloads.iter().enumerate() {
-        control.check()?;
-        crate::operation::paths::relative(&download.relative)?;
-        let current = root.join(&download.relative);
-        if durable::fingerprint(&current)? != download.expected {
-            return Err(Error::new(ErrorCode::Conflict, &download.relative));
-        }
-        if current.exists()
-            && (download.preserve
-                || transfer::hash(&current, control)?
-                    .verify(&download.hash_format, &download.hash)
-                    .is_ok())
-        {
-            continue;
-        }
-        control.emit(Event::Phase("downloading".into()));
-        control.emit(Event::Log(download.relative.clone()));
-        let target = incoming.join(index.to_string());
-        let mut last = None;
-        let mut hashes = None;
-        for attempt in 0..=config.install.retries {
+    let indexed: Vec<_> = downloads.iter().enumerate().collect();
+    let files = super::parallel::map(
+        &indexed,
+        config.install.jobs,
+        control,
+        "downloading",
+        |(index, download)| {
             control.check()?;
-            let result = urls(&download.source, &config).and_then(|urls| {
-                let mut error = None;
-                for url in urls {
-                    control.check()?;
-                    match transfer::download(
-                        &url,
-                        &target,
-                        Some((&download.hash_format, &download.hash)),
-                        control,
-                    ) {
-                        Ok(hashes) => return Ok(hashes),
-                        Err(e) if e.code == ErrorCode::Cancelled => return Err(e),
-                        Err(e) => error = Some(e),
+            crate::operation::paths::relative(&download.relative)?;
+            let current = root.join(&download.relative);
+            if durable::fingerprint(&current)? != download.expected {
+                return Err(Error::new(ErrorCode::Conflict, &download.relative));
+            }
+            if current.exists()
+                && (download.preserve
+                    || transfer::hash(&current, control)?
+                        .verify(&download.hash_format, &download.hash)
+                        .is_ok())
+            {
+                return Ok(None);
+            }
+            control.emit(Event::Phase("downloading".into()));
+            control.emit(Event::Log(download.relative.clone()));
+            let target = incoming.join(index.to_string());
+            let mut last = None;
+            let mut hashes = None;
+            for attempt in 0..=config.install.retries {
+                control.check()?;
+                let result = urls(&download.source, &config).and_then(|urls| {
+                    let mut error = None;
+                    for url in urls {
+                        control.check()?;
+                        match transfer::download(
+                            &url,
+                            &target,
+                            Some((&download.hash_format, &download.hash)),
+                            control,
+                        ) {
+                            Ok(hashes) => return Ok(hashes),
+                            Err(e) if e.code == ErrorCode::Cancelled => return Err(e),
+                            Err(e) => error = Some(e),
+                        }
+                    }
+                    Err(error
+                        .unwrap_or_else(|| Error::key(ErrorCode::Failed, "download_url_missing")))
+                });
+                match result {
+                    Ok(value) => {
+                        hashes = Some(value);
+                        break;
+                    }
+                    Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+                    Err(error) => last = Some(error),
+                }
+                if attempt < config.install.retries {
+                    control.emit(Event::Phase("retrying".into()));
+                    let start = Instant::now();
+                    while start.elapsed() < Duration::from_secs(config.install.retry_delay_seconds)
+                    {
+                        control.check()?;
+                        std::thread::sleep(Duration::from_millis(50));
                     }
                 }
-                Err(error.unwrap_or_else(|| Error::key(ErrorCode::Failed, "download_url_missing")))
-            });
-            match result {
-                Ok(value) => {
-                    hashes = Some(value);
-                    break;
-                }
-                Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
-                Err(error) => last = Some(error),
             }
-            if attempt < config.install.retries {
-                control.emit(Event::Phase("retrying".into()));
-                let start = Instant::now();
-                while start.elapsed() < Duration::from_secs(config.install.retry_delay_seconds) {
-                    control.check()?;
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-            }
-        }
-        let hashes = hashes.ok_or_else(|| {
-            last.unwrap_or_else(|| Error::key(ErrorCode::Failed, "download_failed"))
-        })?;
-        files.push(Attachment {
-            relative: download.relative.clone(),
-            source: target.clone(),
-            expected: download.expected.clone(),
-            prepared: durable::fingerprint(&target)?.unwrap(),
-            sha256: hashes.sha256,
-        });
-    }
+            let hashes = hashes.ok_or_else(|| {
+                last.unwrap_or_else(|| Error::key(ErrorCode::Failed, "download_failed"))
+            })?;
+            Ok(Some(Attachment {
+                relative: download.relative.clone(),
+                source: target.clone(),
+                expected: download.expected.clone(),
+                prepared: durable::fingerprint(&target)?.unwrap(),
+                sha256: hashes.sha256,
+            }))
+        },
+    )?;
+    let files: Vec<_> = files.into_iter().flatten().collect();
     // Revalidate under the write lock; downloads have touched only private state.
     edit::execute_files(root, state, task, drafts, &files, Some(guard), control)
 }
@@ -177,8 +186,8 @@ mod tests {
             let address = listener.local_addr().unwrap();
             let server = std::thread::spawn(move || {
                 let end = Instant::now() + Duration::from_secs(5);
-                let mut served = 0;
-                while served < 2 && Instant::now() < end {
+                let mut streams = Vec::new();
+                while streams.len() < 2 && Instant::now() < end {
                     let (mut stream, _) = match listener.accept() {
                         Ok(connection) => connection,
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -194,14 +203,21 @@ mod tests {
                         .unwrap();
                     let mut request = [0; 4096];
                     stream.read(&mut request).unwrap();
+                    streams.push(stream);
+                }
+                assert_eq!(
+                    streams.len(),
+                    2,
+                    "downloads must overlap before responses are sent"
+                );
+                for stream in &mut streams {
                     stream
                         .write_all(
                             b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nnew",
                         )
                         .unwrap();
-                    served += 1;
                 }
-                served
+                streams.len()
             });
             let control = Control::default();
             let hash = transfer::stream(&mut &b"new"[..], &mut std::io::sink(), Some(3), &control)

@@ -1,5 +1,5 @@
 use super::curseforge::{Client, File, Filter};
-use super::parallel::query as parallel_query;
+use crate::operation::parallel::map as parallel_query;
 use crate::{
     config::ProjectConfig,
     github::GitHubFileInfo,

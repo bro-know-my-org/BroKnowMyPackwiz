@@ -8,6 +8,7 @@ pub mod edit;
 pub(crate) mod faults;
 pub mod lock;
 pub mod manifest;
+pub(crate) mod parallel;
 pub mod paths;
 pub mod preview;
 pub mod process;

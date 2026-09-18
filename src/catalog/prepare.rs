@@ -107,7 +107,7 @@ pub fn curseforge_many<T: Transport + Sync>(
     } else {
         Filter::for_pack(root)?
     };
-    let selections = super::parallel::query(
+    let selections = crate::operation::parallel::map(
         &selections,
         config.install.jobs,
         control,
@@ -130,7 +130,7 @@ pub fn curseforge_many<T: Transport + Sync>(
     let mut installed = Vec::new();
     let mut targets = BTreeMap::new();
     let mut metadata_paths = BTreeMap::new();
-    let loaded = super::parallel::query(
+    let loaded = crate::operation::parallel::map(
         &report.metadata,
         config.install.jobs,
         control,
@@ -224,7 +224,7 @@ pub fn curseforge_many<T: Transport + Sync>(
     let mut rows = Vec::new();
     let mut drafts = Vec::new();
     let mut downloads = Vec::new();
-    let projects = super::parallel::query(
+    let projects = crate::operation::parallel::map(
         &entries,
         config.install.jobs,
         control,
