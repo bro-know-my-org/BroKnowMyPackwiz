@@ -277,6 +277,10 @@ bkmpw update <pack-root> --all
 bkmpw update <pack-root> <name> [<name>...]
 ```
 
+CLI and TUI update previews query up to 16 items concurrently by default. Lower
+`[install].jobs` in `.pw/config.toml` to reduce concurrency (preview range: 1–16).
+The TUI displays the completed query count.
+
 `check-updates` lists available updates without modifying the pack. It accepts multiple
 names or metadata paths and `--mc-version` / `--loader`. `update` writes metadata
 and the index; run `download-files` or `sync` separately to download the new files.
