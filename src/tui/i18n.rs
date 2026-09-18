@@ -936,6 +936,7 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "Runs in a private copy and publishes as one task. Cancel or failure rolls back this task. Blank numeric options use project defaults.",
         "在私有副本执行，作为一个任务提交。取消或失败会回滚本任务。数字选项留空使用项目默认值。",
     ),
+    ("dismiss_failed_task", "Clear failed task", "清除失败记录"),
     ("querying_updates", "Querying updates", "正在查询更新"),
     ("update_preview", "Preview updates", "预览更新"),
     ("update_check_all", "Check all updates", "检查全部更新"),

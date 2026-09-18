@@ -101,7 +101,11 @@ impl Jobs {
                     queue.paused = true;
                 }
             }
-            KeyCode::Char('c') => queue.cancel(self.selected)?,
+            KeyCode::Char('c') => {
+                queue.cancel(self.selected)?;
+                self.selected = self.selected.min(queue.tasks.len().saturating_sub(1));
+                self.log_scroll = 0;
+            }
             KeyCode::Char('r') => queue.retry_recovery(self.selected)?,
             _ => {}
         }

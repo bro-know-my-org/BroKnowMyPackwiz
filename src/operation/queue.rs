@@ -270,6 +270,24 @@ impl Queue {
         Ok(())
     }
     pub fn cancel(&mut self, index: usize) -> Result<()> {
+        // A failed worker is already stopped. Dismiss its history row, retaining logs.
+        if self
+            .tasks
+            .get(index)
+            .is_some_and(|task| task.status == Status::Failed)
+        {
+            let task = self.tasks.remove(index);
+            if let Err(error) = self.save() {
+                self.tasks.insert(index, task);
+                return Err(error);
+            }
+            if let Some(running) = &mut self.running {
+                if running.index > index {
+                    running.index -= 1;
+                }
+            }
+            return Ok(());
+        }
         let task = self
             .tasks
             .get_mut(index)
@@ -590,6 +608,47 @@ pub fn root_key(root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dismiss_failed_task_preserves_logs_and_running_task_identity() {
+        let base = std::env::temp_dir().join(durable::unique_id());
+        let root = base.join("pack");
+        let state = base.join("state");
+        fs::create_dir_all(&root).unwrap();
+        let mut queue = Queue::open(&root, &state).unwrap();
+        queue.enqueue("failed", Request::Edit(vec![])).unwrap();
+        queue.enqueue("running", Request::Edit(vec![])).unwrap();
+        queue.tasks[0].status = Status::Failed;
+        queue.tasks[1].status = Status::Running;
+        let log_dir = state.join("tasks").join(&queue.tasks[0].id).join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        fs::write(log_dir.join("stderr.log"), "original failure").unwrap();
+        let (done, result) = mpsc::channel();
+        queue.running = Some(Running {
+            index: 1,
+            control: Control::default(),
+            result,
+            recovery: false,
+        });
+        queue.paused = true;
+        queue.cancel(0).unwrap();
+        assert_eq!(queue.tasks.len(), 1);
+        assert_eq!(queue.running.as_ref().unwrap().index, 0);
+        assert!(queue.paused);
+        assert_eq!(
+            fs::read_to_string(log_dir.join("stderr.log")).unwrap(),
+            "original failure"
+        );
+        done.send(Ok(())).unwrap();
+        queue.poll().unwrap();
+        assert_eq!(queue.tasks[0].status, Status::Completed);
+        drop(queue);
+        let queue = Queue::open(&root, &state).unwrap();
+        assert_eq!(queue.tasks.len(), 1);
+        assert_eq!(queue.tasks[0].label, "running");
+        drop(queue);
+        fs::remove_dir_all(base).unwrap();
+    }
+
     #[test]
     fn task_logs_survive_restart_and_duplicate_ids_are_rejected() {
         let base = std::env::temp_dir().join(durable::unique_id());
