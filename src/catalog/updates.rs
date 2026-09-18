@@ -254,7 +254,7 @@ fn parallel_query<T: Sync, R: Send>(
     let stopped = AtomicBool::new(false);
     let (tx, rx) = mpsc::channel();
     std::thread::scope(|scope| {
-        for _ in 0..jobs.clamp(1, 16).min(items.len()) {
+        for _ in 0..jobs.clamp(1, 64).min(items.len()) {
             let (tx, next, stopped, query) = (tx.clone(), &next, &stopped, &query);
             scope.spawn(move || {
                 while !stopped.load(Ordering::Acquire) {
@@ -324,19 +324,19 @@ mod tests {
         let active = AtomicUsize::new(0);
         let (tx, rx) = mpsc::channel();
         let control = Control::with_events(tx);
-        let items: Vec<_> = (0..32).collect();
+        let items: Vec<_> = (0..128).collect();
         let results = parallel_query(&items, 100, &control, |&item| {
-            assert!(active.fetch_add(1, Ordering::SeqCst) < 16);
-            // Hold the first wave until all 16 workers are in flight. No timing speed assertion.
-            if item < 16 {
+            assert!(active.fetch_add(1, Ordering::SeqCst) < 64);
+            // Hold the first wave until all 64 workers are in flight. No timing speed assertion.
+            if item < 64 {
                 let mut entered = gate.0.lock().unwrap();
                 *entered += 1;
                 gate.1.notify_all();
                 let (entered, timeout) = gate
                     .1
-                    .wait_timeout_while(entered, Duration::from_secs(5), |count| *count < 16)
+                    .wait_timeout_while(entered, Duration::from_secs(5), |count| *count < 64)
                     .unwrap();
-                assert!(!timeout.timed_out() && *entered == 16);
+                assert!(!timeout.timed_out() && *entered == 64);
             }
             active.fetch_sub(1, Ordering::SeqCst);
             Ok(item)
@@ -350,7 +350,10 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(counts, (0..=32).map(|n| (n, Some(32))).collect::<Vec<_>>());
+        assert_eq!(
+            counts,
+            (0..=128).map(|n| (n, Some(128))).collect::<Vec<_>>()
+        );
     }
 
     #[test]
