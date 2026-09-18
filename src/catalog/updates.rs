@@ -124,9 +124,7 @@ pub fn query_with_filter(
                 &crate::install::resolve_pack_file_path_operation(&entry.path, filename, &layout)?,
             )?;
         }
-        if metadata.download_mode.as_deref() != Some("metadata:curseforge")
-            && metadata.github_project.is_none()
-        {
+        if !metadata.updates_via_curseforge() && metadata.github_project.is_none() {
             skipped.push((entry.path, "update_no_provider"));
             continue;
         }
@@ -141,7 +139,7 @@ pub fn query_with_filter(
         control,
         |(entry, metadata)| {
             control.emit(Event::Log(entry.path.clone()));
-            if metadata.download_mode.as_deref() == Some("metadata:curseforge") {
+            if metadata.updates_via_curseforge() {
                 provider
                     .curseforge(metadata, &filter)
                     .map(Version::CurseForge)
@@ -316,6 +314,53 @@ mod tests {
             })
         }
     }
+    #[test]
+    fn direct_download_with_curseforge_update_metadata_is_not_skipped() {
+        struct Direct;
+        impl Provider for Direct {
+            fn curseforge(&self, metadata: &ModMetadata, _: &Filter) -> Result<File> {
+                assert_eq!(metadata.curseforge_project_id, Some(385587));
+                Ok(File {
+                    project_id: 385587,
+                    id: 20,
+                    name: "New shaders".into(),
+                    filename: "new.zip".into(),
+                    versions: vec!["1.21.1".into()],
+                    date: String::new(),
+                    release_type: 1,
+                    size: 1,
+                    sha1: "a".repeat(40),
+                    dependencies: vec![],
+                })
+            }
+            fn github(&self, _: &ModMetadata) -> Result<GitHubFileInfo> {
+                panic!("wrong provider")
+            }
+        }
+        let root = std::env::temp_dir().join(durable::unique_id());
+        fs::create_dir_all(root.join("shaderpacks")).unwrap();
+        fs::write(root.join("pack.toml"), "name = \"Test\"\n").unwrap();
+        let text = "name = \"Shaders\"\nfilename = \"old.zip\"\n[download]\nurl = \"https://example.invalid/old.zip\"\n[update.curseforge]\nproject-id = 385587\nfile-id = 10\n";
+        fs::write(root.join("shaderpacks/shaders.pw.toml"), text).unwrap();
+        let preview = query(&root, &[], &Direct, &Control::default()).unwrap();
+        assert!(preview.skipped.is_empty());
+        assert_eq!(preview.candidates.len(), 1);
+        assert!(preview.candidates[0].after.contains("new.zip"));
+        assert_eq!(
+            fs::read_to_string(root.join("shaderpacks/shaders.pw.toml")).unwrap(),
+            text
+        );
+        // Export-only CF hints must not turn a direct download into a CF updater.
+        assert!(
+            !ModMetadata::parse("[export.curseforge]\nproject-id = 1").updates_via_curseforge()
+        );
+        let mixed = ModMetadata::parse(
+            "[update.github]\nproject = \"owner/repo\"\n[update.curseforge]\nproject-id = 1",
+        );
+        assert!(!mixed.updates_via_curseforge());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn queries_overlap_are_bounded_and_keep_input_order() {
         use std::sync::{Condvar, Mutex};

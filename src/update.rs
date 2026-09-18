@@ -208,7 +208,7 @@ fn update_metadata_path(
         result.skipped.push(format!("{rel}: pinned"));
         return Ok(());
     }
-    if metadata.download_mode.as_deref() == Some("metadata:curseforge") {
+    if metadata.updates_via_curseforge() {
         update_curseforge(
             root, layout, path, &text, &metadata, config, options, result, rel,
         )
@@ -237,15 +237,20 @@ fn update_curseforge(
     let api_key = curseforge::api_key(config)
         .ok_or_else(|| format!("{rel}: CurseForge update needs CURSEFORGE_API_KEY"))?;
     let pack = PackInfo::load(root)?;
-    let latest_file_id = curseforge::latest_file_id(
-        &api_key,
-        project_id,
-        options
-            .minecraft_version
-            .as_deref()
-            .or(pack.minecraft.as_deref()),
-        options.loader.as_deref().or(pack.loader_name()),
-    )?;
+    let filter = crate::catalog::curseforge::Filter {
+        minecraft: options.minecraft_version.clone().or(pack.minecraft.clone()),
+        loader: options
+            .loader
+            .clone()
+            .or_else(|| pack.loader_name().map(str::to_string)),
+    };
+    let latest_file_id = crate::catalog::updates::Provider::curseforge(
+        &crate::catalog::updates::Online { root },
+        metadata,
+        &filter,
+    )
+    .map_err(|error| error.to_string())?
+    .id;
     let latest = curseforge::get_file_info(&api_key, project_id, latest_file_id)?;
     let latest_filename = crate::pathutil::safe_filename(&latest.filename)?;
     reject_manual_target_collision(
