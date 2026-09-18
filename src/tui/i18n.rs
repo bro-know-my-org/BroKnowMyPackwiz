@@ -978,6 +978,11 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "正在准备元数据变更",
     ),
     ("dismiss_failed_task", "Clear failed task", "清除失败记录"),
+    (
+        "preview_projects",
+        "Reading project information",
+        "正在读取项目信息",
+    ),
     ("querying_updates", "Querying updates", "正在查询更新"),
     ("update_preview", "Preview updates", "预览更新"),
     ("update_check_all", "Check all updates", "检查全部更新"),
