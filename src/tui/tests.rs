@@ -26,6 +26,42 @@ fn key(app: &mut App, code: KeyCode) -> bool {
     app.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
 }
 
+#[test]
+fn check_all_ignores_file_filter_and_existing_marks() {
+    use crate::operation::{durable, queue::Queue};
+    use std::{
+        fs,
+        time::{Duration, Instant},
+    };
+    let base = std::env::temp_dir().join(durable::unique_id());
+    let root = base.join("pack");
+    fs::create_dir_all(root.join("mods")).unwrap();
+    fs::write(root.join("pack.toml"), "name = 'Test'").unwrap();
+    fs::write(root.join("mods/local.pw.toml"), "name = 'Local'").unwrap();
+    let mut app = App::new(root.clone());
+    app.page = 0;
+    app.jobs.queue = Some(Queue::open(&root, &base.join("state")).unwrap());
+    app.filter = "no matches".into();
+    app.marked.insert("mods/missing.pw.toml".into());
+    key(&mut app, KeyCode::Char('U'));
+    assert!(app.adding.busy());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while app.dialog.is_none() {
+        app.poll();
+        assert!(app.error.is_none(), "{:?}", app.error);
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(app.dialog.as_ref().unwrap().form.checklist);
+    key(&mut app, KeyCode::Enter);
+    assert!(app.dialog.is_some()); // Empty selection cannot enqueue an update.
+    assert!(app.jobs.queue.as_ref().unwrap().tasks.is_empty());
+    key(&mut app, KeyCode::Esc);
+    assert!(!root.join("index.toml").exists());
+    drop(app);
+    fs::remove_dir_all(base).unwrap();
+}
+
 fn click_action(app: &mut App, terminal: &mut Terminal<TestBackend>, code: KeyCode) -> bool {
     terminal.draw(|frame| view::draw(frame, app)).unwrap();
     let area = app
