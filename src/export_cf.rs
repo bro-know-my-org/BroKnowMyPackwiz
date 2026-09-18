@@ -36,39 +36,43 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
     let output_rel = output_rel_in_root(root, output);
     let output_abs = output.canonicalize().ok();
 
-    for entry in &report.metadata {
-        let metadata = ModMetadata::load(&join_slash(root, &entry.path))?;
-        let declared_side = side_from_directory_or_metadata(entry.side_hint, &metadata);
-        let target = metadata
-            .filename
-            .as_deref()
-            .map(|filename| install::resolve_pack_file_path(&entry.path, filename, &layout))
-            .transpose()?;
-        if metadata.optional && !metadata.option_default {
-            if let Some(target) = target {
-                cf_override_targets.insert(target);
-            }
-            continue;
-        }
-        if !declared_side.installs_on(target_side) {
-            if let Some(target) = target {
-                cf_override_targets.insert(target);
-            }
-            continue;
-        }
-
-        if let Some((project_id, file_id)) =
-            export_curseforge_ids(&metadata, &config, &pack, &entry.path)?
-        {
+    let resolved = crate::operation::parallel::map(
+        &report.metadata,
+        config.install.jobs,
+        &crate::operation::Control::default(),
+        "resolving_export",
+        |entry| {
+            let metadata = ModMetadata::load(&join_slash(root, &entry.path))?;
+            let declared_side = side_from_directory_or_metadata(entry.side_hint, &metadata);
+            let target = metadata
+                .filename
+                .as_deref()
+                .map(|filename| install::resolve_pack_file_path(&entry.path, filename, &layout))
+                .transpose()?;
+            let include = (!metadata.optional || metadata.option_default)
+                && declared_side.installs_on(target_side);
+            let ids = if include {
+                export_curseforge_ids(&metadata, &config, &pack, &entry.path)?
+            } else {
+                None
+            };
+            Ok((target, include, ids))
+        },
+    )
+    .map_err(|error| error.detail)?;
+    for (target, include, ids) in resolved {
+        if let Some((project_id, file_id)) = ids {
             cf_files.push(CfManifestFile {
                 project_id,
                 file_id,
             });
-            if let Some(target) = target {
+        }
+        if let Some(target) = target {
+            if !include || ids.is_some() {
                 cf_override_targets.insert(target);
+            } else {
+                managed_runtime_jars.insert(target);
             }
-        } else if let Some(target) = target {
-            managed_runtime_jars.insert(target);
         }
     }
 
