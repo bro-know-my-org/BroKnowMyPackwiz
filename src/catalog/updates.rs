@@ -69,10 +69,24 @@ pub fn query(
     provider: &impl Provider,
     control: &Control,
 ) -> Result<Preview> {
+    query_with_filter(root, paths, provider, control, Filter::default())
+}
+
+pub fn query_with_filter(
+    root: &Path,
+    paths: &[String],
+    provider: &impl Provider,
+    control: &Control,
+    overrides: Filter,
+) -> Result<Preview> {
     let mut guard = Guard::capture(root, control)?;
+    let base = Filter::for_pack(root)?;
+    let filter = Filter {
+        minecraft: overrides.minecraft.or(base.minecraft),
+        loader: overrides.loader.or(base.loader),
+    };
     let config = ProjectConfig::load_operation(root)?;
     let layout = PackLayout::from_config(&config);
-    let filter = Filter::for_pack(root)?;
     let report = ScanReport::build_operation(root, &config, &layout)?;
     let requested: BTreeSet<_> = paths.iter().cloned().collect();
     for path in &requested {

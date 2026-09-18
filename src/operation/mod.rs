@@ -5,7 +5,7 @@ pub mod download;
 pub mod durable;
 pub mod edit;
 #[cfg(test)]
-mod faults;
+pub(crate) mod faults;
 pub mod lock;
 pub mod manifest;
 pub mod paths;

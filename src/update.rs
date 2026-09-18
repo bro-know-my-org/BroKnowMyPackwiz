@@ -26,6 +26,85 @@ pub struct UpdateResult {
     pub skipped: Vec<String>,
 }
 
+/// An empty target list explicitly means all managed metadata.
+pub fn parse_args(
+    args: &[String],
+    check_only: bool,
+) -> Result<(std::path::PathBuf, Vec<String>, UpdateOptions), String> {
+    let root = args
+        .first()
+        .filter(|s| !s.starts_with('-'))
+        .ok_or("missing pack-root")?;
+    let mut names = Vec::new();
+    let mut all = false;
+    let mut options = UpdateOptions::default();
+    let mut args = args[1..].iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--" => {
+                names.extend(args.cloned());
+                break;
+            }
+            "--all" | "-a" => all = true,
+            "--mc-version" | "--loader" => {
+                let value = args
+                    .next()
+                    .filter(|s| !s.trim().is_empty() && !s.starts_with('-'))
+                    .ok_or_else(|| format!("missing value for {arg}"))?
+                    .clone();
+                if arg == "--loader" {
+                    options.loader = Some(value);
+                } else {
+                    options.minecraft_version = Some(value);
+                }
+            }
+            name if !name.starts_with('-') => names.push(name.to_string()),
+            _ => return Err(format!("unknown update option: {arg}")),
+        }
+    }
+    if all && !names.is_empty() {
+        return Err("cannot combine --all with update names".into());
+    }
+    if !check_only && !all && names.is_empty() {
+        return Err("update requires --all or at least one name".into());
+    }
+    Ok((root.into(), names, options))
+}
+
+pub fn check_updates(
+    root: &Path,
+    names: &[String],
+    options: UpdateOptions,
+) -> Result<crate::catalog::updates::Preview, String> {
+    use crate::operation::{Control, preview::Guard};
+    let control = Control::default();
+    let guard = Guard::capture(root, &control).map_err(|e| e.to_string())?;
+    let config = ProjectConfig::load(root)?;
+    let layout = PackLayout::from_config(&config);
+    let paths = ops::find_metadata_many(root, &config, &layout, names)?
+        .iter()
+        .map(|p| display_path(root, p))
+        .collect::<Vec<_>>();
+    let filter = crate::catalog::curseforge::Filter {
+        minecraft: options.minecraft_version,
+        loader: options.loader,
+    };
+    let mut preview = crate::catalog::updates::query_with_filter(
+        root,
+        &paths,
+        &crate::catalog::updates::Online { root },
+        &control,
+        filter,
+    )
+    .map_err(|e| e.to_string())?;
+    preview.guard.merge(guard).map_err(|e| e.to_string())?;
+    preview
+        .guard
+        .validate(root, &control)
+        .map_err(|e| e.to_string())?;
+    Ok(preview)
+}
+
 pub fn update_all(root: &Path, options: UpdateOptions) -> Result<UpdateResult, String> {
     let config = ProjectConfig::load(root)?;
     let layout = PackLayout::from_config(&config);
@@ -47,6 +126,70 @@ pub fn update_one(root: &Path, name: &str, options: UpdateOptions) -> Result<Upd
     update_metadata_path(root, &config, &layout, &path, &options, &mut result)?;
     refresh::refresh(root, &config, &layout)?;
     Ok(result)
+}
+
+pub fn update_many(
+    root: &Path,
+    names: &[String],
+    options: UpdateOptions,
+) -> Result<UpdateResult, String> {
+    use crate::operation::durable;
+    let task = durable::user_state()
+        .map_err(|e| e.to_string())?
+        .join("cli-updates")
+        .join(durable::unique_id());
+    update_many_with(root, names, options, &task, update_metadata_path)
+}
+
+fn update_many_with(
+    root: &Path,
+    names: &[String],
+    options: UpdateOptions,
+    task: &Path,
+    mut apply: impl FnMut(
+        &Path,
+        &ProjectConfig,
+        &PackLayout,
+        &Path,
+        &UpdateOptions,
+        &mut UpdateResult,
+    ) -> Result<(), String>,
+) -> Result<UpdateResult, String> {
+    use crate::operation::{Control, transaction::Transaction, workspace::Workspace};
+    if names.is_empty() {
+        return Err("no update names selected".into());
+    }
+    let control = Control::default();
+    let mut publication_attempted = false;
+    let outcome = (|| -> Result<UpdateResult, String> {
+        let workspace = Workspace::create(root, &task.join("workspace"), &control)
+            .map_err(|e| e.to_string())?;
+        let config = ProjectConfig::load(&workspace.staged)?;
+        let layout = PackLayout::from_config(&config);
+        let paths = ops::find_metadata_many(&workspace.staged, &config, &layout, names)?;
+        let mut result = UpdateResult::default();
+        for path in paths {
+            apply(
+                &workspace.staged,
+                &config,
+                &layout,
+                &path,
+                &options,
+                &mut result,
+            )?;
+        }
+        refresh::refresh(&workspace.staged, &config, &layout)?;
+        let changes = workspace.changes(&control).map_err(|e| e.to_string())?;
+        let mut txn = Transaction::prepare(task, changes, &control).map_err(|e| e.to_string())?;
+        publication_attempted = true;
+        txn.commit(&control).map_err(|e| e.to_string())?;
+        Ok(result)
+    })();
+    // Retain recovery journals on publication errors; never delete a backup needed for recovery.
+    if outcome.is_ok() || !publication_attempted {
+        let _ = fs::remove_dir_all(task);
+    }
+    outcome.map_err(|e| format!("{e} (update task: {})", task.display()))
 }
 
 fn update_metadata_path(
@@ -356,6 +499,92 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
+
+    #[test]
+    fn bulk_updates_publish_together_and_restore_on_failure() {
+        use crate::operation::faults::{Point, Scope};
+        for mode in [
+            "lookup-failure",
+            "prepare-failure",
+            "publish-failure",
+            "success",
+        ] {
+            let base = temp_root("bulk-update");
+            let root = base.join("pack");
+            fs::create_dir_all(root.join("mods")).unwrap();
+            create_pack(&root);
+            let pack_before = fs::read(root.join("pack.toml")).unwrap();
+            for name in ["a", "b", "c"] {
+                fs::write(root.join(format!("mods/{name}.pw.toml")), "name = 'Old'\n").unwrap();
+            }
+            let fail_path = fs::canonicalize(&root).unwrap().join("mods/b.pw.toml");
+            let fired = std::cell::Cell::new(false);
+            let scope = Scope::new(move |point, path| {
+                if mode == "prepare-failure" && point == Point::BackupBefore {
+                    return Err(std::io::Error::other("injected preparation failure"));
+                }
+                if mode == "publish-failure"
+                    && point == Point::ReplacePublished
+                    && path == fail_path
+                    && !fired.replace(true)
+                {
+                    Err(std::io::Error::other("injected publication failure"))
+                } else {
+                    Ok(())
+                }
+            });
+            let result = update_many_with(
+                &root,
+                &["a".into(), "mods/b.pw.toml".into()],
+                UpdateOptions::default(),
+                &base.join("task"),
+                |stage, _, _, path, _, result| {
+                    if mode == "lookup-failure" && path.ends_with("b.pw.toml") {
+                        return Err("second lookup failed".into());
+                    }
+                    fs::write(path, "name = 'Updated'\n").map_err(|e| e.to_string())?;
+                    result.updated.push(display_path(stage, path));
+                    Ok(())
+                },
+            );
+            drop(scope);
+            assert_eq!(result.is_ok(), mode == "success", "{mode}: {result:?}");
+            for name in ["a", "b"] {
+                assert_eq!(
+                    fs::read_to_string(root.join(format!("mods/{name}.pw.toml"))).unwrap(),
+                    if mode == "success" {
+                        "name = 'Updated'\n"
+                    } else {
+                        "name = 'Old'\n"
+                    }
+                );
+            }
+            assert_eq!(
+                fs::read_to_string(root.join("mods/c.pw.toml")).unwrap(),
+                "name = 'Old'\n"
+            );
+            assert_eq!(root.join("index.toml").exists(), mode == "success");
+            if mode != "success" {
+                assert_eq!(fs::read(root.join("pack.toml")).unwrap(), pack_before);
+            }
+            let transactions = base.join("task/transactions");
+            assert_eq!(transactions.exists(), mode == "publish-failure");
+            if mode == "publish-failure" {
+                let journal = fs::read_dir(transactions)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .unwrap()
+                    .path();
+                let txn = crate::operation::transaction::Transaction::open(&journal).unwrap();
+                assert_eq!(
+                    txn.state(),
+                    crate::operation::transaction::State::RolledBack
+                );
+            }
+            fs::remove_dir_all(base).unwrap();
+        }
+    }
 
     #[test]
     fn set_top_level_updates_before_sections() {
