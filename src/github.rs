@@ -26,6 +26,7 @@ struct GitHubRelease {
 struct GitHubAsset {
     name: String,
     url: String,
+    sha256: Option<String>,
 }
 
 pub fn resolve_github_release_asset(
@@ -88,19 +89,25 @@ pub fn resolve_github_release_asset_operation(
         .or_else(|| release.name.clone())
         .or_else(|| release.tag.clone())
         .unwrap_or_else(|| filename.clone());
+    let hash = asset_hash(asset, &filename)?;
+    Ok(GitHubFileInfo {
+        name: display_name,
+        filename,
+        url: asset.url.clone(),
+        hash_format: "sha256".to_string(),
+        hash,
+    })
+}
+
+fn asset_hash(asset: &GitHubAsset, filename: &str) -> OperationResult<String> {
+    if let Some(hash) = &asset.sha256 {
+        return Ok(hash.clone());
+    }
     let temp_dir = temp_download_dir()?;
-    let temp = temp_dir.join(sanitize_filename(&filename));
-    let result = (|| -> OperationResult<GitHubFileInfo> {
-        http_get_to_file(&asset.url, &temp)?;
-        let hash = sha256_file_hex_operation(&temp)?;
-        Ok(GitHubFileInfo {
-            name: display_name,
-            filename,
-            url: asset.url.clone(),
-            hash_format: "sha256".to_string(),
-            hash,
-        })
-    })();
+    let temp = temp_dir.join(sanitize_filename(filename));
+    let result = http_get_to_file(&asset.url, &temp)
+        .map_err(Error::from)
+        .and_then(|()| sha256_file_hex_operation(&temp));
     let _ = fs::remove_dir_all(&temp_dir);
     result
 }
@@ -179,6 +186,12 @@ fn parse_release(json: &str) -> OperationResult<GitHubRelease> {
             Some(GitHubAsset {
                 name: asset.get("name")?.as_str()?.to_string(),
                 url: asset.get("browser_download_url")?.as_str()?.to_string(),
+                sha256: asset
+                    .get("digest")
+                    .and_then(|value| value.as_str())
+                    .and_then(|digest| digest.strip_prefix("sha256:"))
+                    .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .map(str::to_ascii_lowercase),
             })
         })
         .collect::<Vec<_>>();
@@ -326,6 +339,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn valid_api_digest_avoids_download_and_invalid_digests_use_fallback() {
+        let hash = "AB".repeat(32);
+        for digest in [
+            serde_json::Value::Null,
+            serde_json::json!(format!("sha256:{hash}")),
+            serde_json::json!("sha256:1234"),
+            serde_json::json!(format!("sha256:{}", "z".repeat(64))),
+            serde_json::json!(format!("sha512:{hash}")),
+        ] {
+            let json = serde_json::json!({ "assets": [{
+                "name": "mod.jar", "browser_download_url": "invalid-url", "digest": digest,
+            }] });
+            let release = parse_release(&json.to_string()).unwrap();
+            let asset = &release.assets[0];
+            if digest == format!("sha256:{hash}") {
+                // An invalid URL proves the valid-digest path never tries downloading.
+                assert_eq!(
+                    asset_hash(asset, "mod.jar").unwrap(),
+                    hash.to_ascii_lowercase()
+                );
+            } else {
+                assert!(asset.sha256.is_none());
+            }
+        }
+    }
+
+    #[test]
     fn release_selection_errors_keep_legacy_text_and_stable_message_keys() {
         for (json, key, legacy) in [
             (
@@ -422,10 +462,12 @@ mod tests {
     fn selects_single_jar_asset() {
         let assets = vec![
             GitHubAsset {
+                sha256: None,
                 name: "readme.txt".to_string(),
                 url: "https://example.invalid/readme.txt".to_string(),
             },
             GitHubAsset {
+                sha256: None,
                 name: "mod.jar".to_string(),
                 url: "https://example.invalid/mod.jar".to_string(),
             },
@@ -437,6 +479,7 @@ mod tests {
     #[test]
     fn filename_override_requires_exact_asset() {
         let assets = vec![GitHubAsset {
+            sha256: None,
             name: "actual.jar".to_string(),
             url: "https://example.invalid/actual.jar".to_string(),
         }];
