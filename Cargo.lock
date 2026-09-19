@@ -40,7 +40,7 @@ dependencies = [
 
 [[package]]
 name = "bro-know-my-packwiz"
-version = "0.1.1"
+version = "0.0.0"
 dependencies = [
  "crc32fast",
  "crossterm",
