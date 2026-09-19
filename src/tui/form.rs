@@ -80,6 +80,7 @@ pub struct Form {
     pub focus: usize,
     pub error: Option<String>,
     pub preview: Option<String>,
+    preview_hidden: bool,
     preview_scroll: u16,
     preview_area: Rect,
     preview_text: String,
@@ -102,6 +103,7 @@ impl Form {
             focus: 0,
             error: None,
             preview: None,
+            preview_hidden: false,
             preview_scroll: 0,
             preview_area: Rect::default(),
             preview_text: String::new(),
@@ -119,20 +121,33 @@ impl Form {
         let previous_focus = self.focus;
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
+                KeyCode::Char('h' | 'H')
+                    if self.checklist
+                        && !key
+                            .modifiers
+                            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    self.preview_hidden = !self.preview_hidden;
+                    self.preview_area = Rect::default();
+                }
                 KeyCode::Left if self.checklist => {
                     self.checklist_scroll = self.checklist_scroll.saturating_sub(8);
                 }
                 KeyCode::Right if self.checklist => {
                     self.checklist_scroll = self.checklist_scroll.saturating_add(8);
                 }
-                KeyCode::PageDown if self.preview.is_some() => {
+                KeyCode::PageDown if self.preview.is_some() && !self.preview_hidden => {
                     self.preview_scroll = self.preview_scroll.saturating_add(10)
                 }
-                KeyCode::PageUp if self.preview.is_some() => {
+                KeyCode::PageUp if self.preview.is_some() && !self.preview_hidden => {
                     self.preview_scroll = self.preview_scroll.saturating_sub(10)
                 }
-                KeyCode::Home if self.preview.is_some() => self.preview_scroll = 0,
-                KeyCode::End if self.preview.is_some() => self.preview_scroll = u16::MAX,
+                KeyCode::Home if self.preview.is_some() && !self.preview_hidden => {
+                    self.preview_scroll = 0
+                }
+                KeyCode::End if self.preview.is_some() && !self.preview_hidden => {
+                    self.preview_scroll = u16::MAX
+                }
                 KeyCode::Esc => return Action::Cancel,
                 KeyCode::Tab | KeyCode::Down => {
                     self.focus = (self.focus + 1) % (self.fields.len() + 2)
@@ -208,6 +223,7 @@ impl Form {
             }
             Event::Mouse(mouse) => {
                 if self.preview.is_some()
+                    && !self.preview_hidden
                     && self.preview_area.contains((mouse.column, mouse.row).into())
                 {
                     match mouse.kind {
@@ -282,7 +298,17 @@ impl Form {
             frame.render_widget(Paragraph::new(lang.text("small")), inner);
             return;
         }
-        let field_height = if self.checklist && self.preview.is_some() {
+        let show_preview = self.preview.is_some() && !self.preview_hidden;
+        let side_by_side = self.checklist && show_preview && inner.width >= 96;
+        let columns = Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(Rect::new(
+                inner.x,
+                inner.y,
+                inner.width,
+                inner.height.saturating_sub(4),
+            ));
+        let fields_area = if side_by_side { columns[0] } else { inner };
+        let field_height = if self.checklist && show_preview && !side_by_side {
             ((inner.height.saturating_sub(4) / 2 / 3).max(1)) * 3
         } else {
             inner.height.saturating_sub(4)
@@ -294,7 +320,12 @@ impl Form {
             .saturating_sub(count - 1);
         for (row, i) in (offset..self.fields.len()).take(count).enumerate() {
             let field = &self.fields[i];
-            let area = Rect::new(inner.x, inner.y + row as u16 * 3, inner.width, 3);
+            let area = Rect::new(
+                fields_area.x,
+                fields_area.y + row as u16 * 3,
+                fields_area.width,
+                3,
+            );
             if self.checklist {
                 let text = format!(
                     "[{}] {}",
@@ -357,14 +388,26 @@ impl Form {
             self.areas.push((i, area));
         }
         let footer = Rect::new(inner.x, inner.bottom().saturating_sub(4), inner.width, 3);
-        if let Some(preview) = &self.preview {
+        if let Some(preview) = self.preview.as_ref().filter(|_| show_preview) {
             let offset = if self.checklist { field_height } else { 0 };
-            let area = Rect::new(
-                inner.x,
-                inner.y + offset,
-                inner.width,
-                inner.height.saturating_sub(4 + offset),
-            );
+            let area = if side_by_side {
+                columns[1]
+            } else {
+                Rect::new(
+                    inner.x,
+                    inner.y + offset,
+                    inner.width,
+                    inner.height.saturating_sub(4 + offset),
+                )
+            };
+            let area = if side_by_side {
+                let block = Block::bordered().title(lang.text("update_skipped"));
+                let content = block.inner(area);
+                frame.render_widget(block, area);
+                content
+            } else {
+                area
+            };
             self.preview_area = area;
             super::view::scroll_text(frame, preview, area, &mut self.preview_scroll);
         }
@@ -411,6 +454,61 @@ mod tests {
     fn key(form: &mut Form, code: KeyCode) -> Action {
         form.event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
     }
+    #[test]
+    fn checklist_layout_and_hidden_preview_preserve_selection_and_scroll() {
+        let mut form = Form::new(
+            "update_preview",
+            (0..12)
+                .map(|i| {
+                    Field::new(
+                        &i.to_string(),
+                        &format!("Mod {i}\nold.jar\nnew.jar"),
+                        "false",
+                        Kind::Bool,
+                    )
+                })
+                .collect(),
+        );
+        form.checklist = true;
+        form.preview = Some(
+            (0..50)
+                .map(|i| format!("skipped-{i}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        let mut screen =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 24)).unwrap();
+        screen.draw(|frame| form.draw(frame, Language::En)).unwrap();
+        assert!(form.preview_area.x > form.areas[0].1.right());
+        key(&mut form, KeyCode::Char(' '));
+        key(&mut form, KeyCode::PageDown);
+        screen.draw(|frame| form.draw(frame, Language::En)).unwrap();
+        let scroll = form.preview_scroll;
+        let width = form.areas[0].1.width;
+        key(&mut form, KeyCode::Char('h'));
+        screen.draw(|frame| form.draw(frame, Language::En)).unwrap();
+        assert_eq!(form.preview_area, Rect::default());
+        assert!(form.areas[0].1.width > width);
+        key(&mut form, KeyCode::PageDown);
+        assert_eq!(form.preview_scroll, scroll);
+        assert_eq!(form.value("0"), "true");
+        key(&mut form, KeyCode::Char('h'));
+        screen.draw(|frame| form.draw(frame, Language::En)).unwrap();
+        assert_eq!(form.preview_scroll, scroll);
+        screen.backend_mut().resize(60, 24);
+        screen
+            .draw(|frame| form.draw(frame, Language::ZhCn))
+            .unwrap();
+        assert!(form.preview_area.y >= form.areas[0].1.bottom());
+        let count = form.areas.len();
+        key(&mut form, KeyCode::Char('h'));
+        screen
+            .draw(|frame| form.draw(frame, Language::ZhCn))
+            .unwrap();
+        assert!(form.areas.len() > count);
+        assert_eq!(form.value("0"), "true");
+    }
+
     #[test]
     fn preview_scroll_keeps_tail_visible_and_mouse_preserves_focus() {
         use crossterm::event::MouseEvent;
