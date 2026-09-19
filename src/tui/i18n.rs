@@ -984,6 +984,7 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "正在读取项目信息",
     ),
     ("querying_updates", "Querying updates", "正在查询更新"),
+    ("update_skipped", "Up to date / skipped", "无更新 / 已跳过"),
     ("update_preview", "Preview updates", "预览更新"),
     ("update_check_all", "Check all updates", "检查全部更新"),
     (
@@ -993,8 +994,8 @@ const MESSAGES: &[(&str, &str, &str)] = &[
     ),
     (
         "update_selection_keys",
-        "↑↓ move  ←→ scroll  Space select  A all/none  Enter update  Esc cancel  PgUp/Dn skipped",
-        "↑↓移动 ←→横移 空格勾选 A全选/清空 Enter更新 Esc取消 PgUp/Dn跳过原因",
+        "H hide/show skipped  ↑↓ move  ←→ scroll  Space select  A all/none  Enter update  Esc cancel  PgUp/Dn skipped",
+        "H隐藏/显示无更新项 ↑↓移动 ←→横移 空格勾选 A全选/清空 Enter更新 Esc取消 PgUp/Dn跳过原因",
     ),
     ("update_direct", "Update directly", "直接更新"),
     ("update_files", "Update files", "更新文件"),
@@ -1005,7 +1006,7 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "Skipped: no update source",
         "已跳过：没有更新来源",
     ),
-    ("update_unchanged", "Already up to date", "已是当前版本"),
+    ("update_unchanged", "Already up to date", "已是最新版本"),
     (
         "update_no_candidates",
         "No update candidates",
@@ -1275,8 +1276,8 @@ const MESSAGES: &[(&str, &str, &str)] = &[
     ("popup_scroll", "↑↓ PgUp/PgDn: scroll", "↑↓ PgUp/PgDn：滚动"),
     (
         "help_text",
-        "↑↓ / wheel / PgUp / PgDn: scroll; Esc: close\n\nTab / Shift+Tab: change page; L: language; Q: quit\nFiles: / search, F type, S sort, Space/right click mark, A select visible\nEnter: details; E: edit; Shift+E: external editor; P: pin/unpin\nShift+U: check all updates; U: preview selected; D: update directly; Del: remove metadata\nAdd: / CurseForge search; F type; V relax compatibility; Enter select; ←→ page\nG: GitHub releases/assets; U: URL; A: local file; C: cancel preview\nPack: ↑↓ / wheel browse; Enter/click configure and enqueue\nForms: Tab / Shift+Tab move fields; ←→ choices; Enter next field or save\nPgUp / PgDn: scroll change preview; Esc: cancel\nTasks: Space pause/resume; C cancel; R retry recovery\nK: keep external changes; O: restore originals; PgUp/PgDn scroll logs\nQuit with a running task: W wait; C cancel and roll back; Esc return\nWaiting tasks are saved; reopening requires confirmation before resuming\nSettings: pack, loader, API, templates, language, editor, recent directories\n\nCLI details: bkmpw --help\nTo update bkmpw itself, exit the TUI and run bkmpw self-update",
-        "↑↓ / 滚轮 / PgUp / PgDn：滚动；Esc：关闭\n\nTab / Shift+Tab：切换页面；L：语言；Q：退出\n文件：/ 搜索，F 类型，S 排序，空格/右键多选，A 全选当前列表\nEnter：详情；E：编辑；Shift+E：外部编辑器；P：锁定/解除锁定\nShift+U：检查全部更新；U：预览所选更新；D：直接更新；Del：移除元数据\n添加：/ 搜索 CurseForge；F 类型；V 放宽兼容过滤；Enter 选择；←→ 翻页\nG：GitHub Release/附件；U：直链；A：本地文件；C：取消预览\n整合包：↑↓ / 滚轮浏览；Enter/点击配置并加入队列\n表单：Tab / Shift+Tab 切换字段；←→ 切换选项；Enter 下一项或保存\nPgUp / PgDn：滚动变更预览；Esc：取消\n任务：空格暂停/继续；C 取消；R 重试恢复\nK：保留外部改动；O：恢复原内容；PgUp/PgDn 滚动日志\n有任务运行时退出：W 等待；C 取消并回滚；Esc 返回\n等待任务会保存，重新打开后需确认才继续\n设置：整合包、加载器、API、模板、语言、编辑器和最近目录\n\nCLI 详细帮助：bkmpw --help\n更新 bkmpw 本体：退出 TUI 后运行 bkmpw self-update",
+        "↑↓ / wheel / PgUp / PgDn: scroll; Esc: close\n\nTab / Shift+Tab: change page; L: language; Q: quit\nFiles: / search, F type, S sort, Space/right click mark, A select visible\nEnter: details; E: edit; Shift+E: external editor; P: pin/unpin\nShift+U: check all updates; U: preview selected; D: update directly; Del: remove metadata\nAdd: / CurseForge search; F type; V relax compatibility; Enter select; ←→ page\nG: GitHub releases/assets; U: URL; A: local file; C: cancel preview\nPack: ↑↓ / wheel browse; Enter/click configure and enqueue\nForms: Tab / Shift+Tab move fields; ←→ choices; Enter next field or save\nUpdate selection: H hide/show up-to-date/skipped items; Space select; A all/none\nPgUp / PgDn: scroll change preview; Esc: cancel\nTasks: Space pause/resume; C cancel; R retry recovery\nK: keep external changes; O: restore originals; PgUp/PgDn scroll logs\nQuit with a running task: W wait; C cancel and roll back; Esc return\nWaiting tasks are saved; reopening requires confirmation before resuming\nSettings: pack, loader, API, templates, language, editor, recent directories\n\nCLI details: bkmpw --help\nTo update bkmpw itself, exit the TUI and run bkmpw self-update",
+        "↑↓ / 滚轮 / PgUp / PgDn：滚动；Esc：关闭\n\nTab / Shift+Tab：切换页面；L：语言；Q：退出\n文件：/ 搜索，F 类型，S 排序，空格/右键多选，A 全选当前列表\nEnter：详情；E：编辑；Shift+E：外部编辑器；P：锁定/解除锁定\nShift+U：检查全部更新；U：预览所选更新；D：直接更新；Del：移除元数据\n添加：/ 搜索 CurseForge；F 类型；V 放宽兼容过滤；Enter 选择；←→ 翻页\nG：GitHub Release/附件；U：直链；A：本地文件；C：取消预览\n整合包：↑↓ / 滚轮浏览；Enter/点击配置并加入队列\n表单：Tab / Shift+Tab 切换字段；←→ 切换选项；Enter 下一项或保存\n更新列表：H 隐藏/显示无更新及跳过项；空格勾选；A 全选/清空\nPgUp / PgDn：滚动变更预览；Esc：取消\n任务：空格暂停/继续；C 取消；R 重试恢复\nK：保留外部改动；O：恢复原内容；PgUp/PgDn 滚动日志\n有任务运行时退出：W 等待；C 取消并回滚；Esc 返回\n等待任务会保存，重新打开后需确认才继续\n设置：整合包、加载器、API、模板、语言、编辑器和最近目录\n\nCLI 详细帮助：bkmpw --help\n更新 bkmpw 本体：退出 TUI 后运行 bkmpw self-update",
     ),
     ("name", "Name", "名称"),
     ("source", "Source", "来源"),
