@@ -1,5 +1,5 @@
 use super::{
-    curseforge::{Client, File, Filter, Transport},
+    curseforge::{Client, File, Filter, Project, Transport},
     dependencies::{self, Action, Installed, Source},
 };
 use crate::{
@@ -13,7 +13,11 @@ use crate::{
     },
     scan::ScanReport,
 };
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::Mutex,
+};
 use toml_edit::{DocumentMut, Value};
 
 pub struct Row {
@@ -41,16 +45,79 @@ struct Existing {
 struct CatalogSource<'a, T> {
     client: &'a Client<T>,
     pack_filter: &'a Filter,
+    jobs: usize,
+    projects: Mutex<BTreeMap<u64, Project>>,
+    versions: Mutex<BTreeMap<u64, File>>,
 }
-impl<T: Transport> Source for CatalogSource<'_, T> {
+impl<'a, T: Transport> CatalogSource<'a, T> {
+    fn new(client: &'a Client<T>, pack_filter: &'a Filter, jobs: usize) -> Self {
+        Self {
+            client,
+            pack_filter,
+            jobs,
+            projects: Mutex::default(),
+            versions: Mutex::default(),
+        }
+    }
+    fn project(&self, id: u64) -> Result<Project> {
+        if let Some(project) = self.projects.lock().unwrap().get(&id).cloned() {
+            return Ok(project);
+        }
+        // Do not hold the cache lock during network I/O.
+        let project = self.client.project(id)?;
+        self.projects.lock().unwrap().insert(id, project.clone());
+        Ok(project)
+    }
+}
+impl<T: Transport + Sync> Source for CatalogSource<'_, T> {
+    fn prefetch_projects(&self, ids: &[u64], control: &Control) -> Result<()> {
+        let missing: Vec<_> = ids
+            .iter()
+            .copied()
+            .filter(|id| !self.projects.lock().unwrap().contains_key(id))
+            .collect();
+        if !missing.is_empty() {
+            crate::operation::parallel::map(
+                &missing,
+                self.jobs,
+                control,
+                "preview_dependency_projects",
+                |&id| self.project(id),
+            )?;
+        }
+        Ok(())
+    }
+    fn prefetch_latest(&self, ids: &[u64], filter: &Filter, control: &Control) -> Result<()> {
+        let missing: Vec<_> = ids
+            .iter()
+            .copied()
+            .filter(|id| !self.versions.lock().unwrap().contains_key(id))
+            .collect();
+        if !missing.is_empty() {
+            crate::operation::parallel::map(
+                &missing,
+                self.jobs,
+                control,
+                "preview_dependency_versions",
+                |&id| self.latest(id, filter),
+            )?;
+        }
+        Ok(())
+    }
     fn compatible(&self, file: &File, _: &Filter) -> Result<bool> {
-        let project = self.client.project(file.project_id)?;
+        let project = self.project(file.project_id)?;
         Ok(file.compatible(&class_filter(self.pack_filter, project.class_id)?))
     }
     fn latest(&self, id: u64, _: &Filter) -> Result<File> {
-        let project = self.client.project(id)?;
-        self.client
-            .latest_compatible(id, &class_filter(self.pack_filter, project.class_id)?)
+        if let Some(file) = self.versions.lock().unwrap().get(&id).cloned() {
+            return Ok(file);
+        }
+        let project = self.project(id)?;
+        let file = self
+            .client
+            .latest_compatible(id, &class_filter(self.pack_filter, project.class_id)?)?;
+        self.versions.lock().unwrap().insert(id, file.clone());
+        Ok(file)
     }
 }
 fn class_filter(filter: &Filter, class: u64) -> Result<Filter> {
@@ -107,13 +174,25 @@ pub fn curseforge_many<T: Transport + Sync>(
     } else {
         Filter::for_pack(root)?
     };
+    // Project fetch batches must contain unique IDs: the cache is preview-local,
+    // and no two workers should race to populate the same key.
+    let mut selected_ids = BTreeSet::new();
+    for (file, _) in &selections {
+        if !selected_ids.insert(file.project_id) {
+            return Err(
+                Error::key(ErrorCode::Conflict, "duplicate_selected_project")
+                    .context(file.project_id.to_string()),
+            );
+        }
+    }
+    let source = CatalogSource::new(client, &filter, config.install.jobs);
     let selections = crate::operation::parallel::map(
         &selections,
         config.install.jobs,
         control,
         "preview_selected",
         |(file, side)| {
-            let project = client.project(file.project_id)?;
+            let project = source.project(file.project_id)?;
             class_filter(&filter, project.class_id)?;
             Ok((
                 file.clone(),
@@ -216,10 +295,6 @@ pub fn curseforge_many<T: Transport + Sync>(
             );
         }
     }
-    let source = CatalogSource {
-        client,
-        pack_filter: &filter,
-    };
     let entries = dependencies::plan_many(&source, selections, &filter, &installed, control)?;
     let mut rows = Vec::new();
     let mut drafts = Vec::new();
@@ -229,7 +304,7 @@ pub fn curseforge_many<T: Transport + Sync>(
         config.install.jobs,
         control,
         "preview_projects",
-        |entry| client.project(entry.file.project_id),
+        |entry| source.project(entry.file.project_id),
     )?;
     let total = entries.len();
     control.progress("preview_drafts", 0, Some(total));
@@ -386,6 +461,101 @@ mod tests {
     use serde_json::json;
     use std::fs;
     #[test]
+    fn dependency_requests_overlap_and_shared_projects_are_fetched_once() {
+        use std::sync::{Condvar, Mutex};
+        use std::time::Duration;
+        let base = std::env::temp_dir().join(durable::unique_id());
+        let root = base.join("pack");
+        fs::create_dir_all(root.join(".pw")).unwrap();
+        fs::write(root.join("pack.toml"), "name = \"Test\"\n").unwrap();
+        fs::write(root.join(".pw/config.toml"), "[install]\njobs = 2\n").unwrap();
+        let gate = (Mutex::new(BTreeMap::<bool, usize>::new()), Condvar::new());
+        let requests = Mutex::new(BTreeMap::<String, usize>::new());
+        let client = Client {
+            transport: |path: &str| {
+                *requests.lock().unwrap().entry(path.into()).or_default() += 1;
+                let id = path.split('/').nth(1).unwrap().parse::<u64>().unwrap();
+                let version = path.contains("/files?");
+                if matches!(id, 2 | 3) {
+                    let mut counts = gate.0.lock().unwrap();
+                    *counts.entry(version).or_default() += 1;
+                    gate.1.notify_all();
+                    let (_counts, timeout) = gate
+                        .1
+                        .wait_timeout_while(counts, Duration::from_secs(5), |counts| {
+                            counts[&version] < 2
+                        })
+                        .unwrap();
+                    assert!(
+                        !timeout.timed_out(),
+                        "dependency requests must overlap: {path}"
+                    );
+                }
+                if version {
+                    return Ok(
+                        json!({"data":[{"id":id * 100,"modId":id,"fileName":format!("{id}.jar"),"gameVersions":[],"hashes":[{"algo":1,"value":"a".repeat(40)}]}]}),
+                    );
+                }
+                Ok(json!({"data":{"id":id,"name":format!("Mod {id}"),"classId":6}}))
+            },
+        };
+        let file = |id, dependencies| File {
+            project_id: id,
+            id: id * 100,
+            name: format!("Mod {id}"),
+            filename: format!("{id}.jar"),
+            versions: vec![],
+            date: String::new(),
+            release_type: 1,
+            size: 1,
+            sha1: "a".repeat(40),
+            dependencies,
+        };
+        let dep = |id, relation| super::super::curseforge::Dependency {
+            project_id: id,
+            relation,
+        };
+        let duplicate = file(1, vec![]);
+        let error = curseforge_many(
+            &root,
+            &base.join("state"),
+            &client,
+            vec![(duplicate.clone(), Side::Both), (duplicate, Side::Both)],
+            false,
+            &Control::default(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.message.as_deref(), Some("duplicate_selected_project"));
+        assert!(requests.lock().unwrap().is_empty());
+        let preview = curseforge_many(
+            &root,
+            &base.join("state"),
+            &client,
+            vec![
+                (file(1, vec![dep(2, 3), dep(3, 3), dep(99, 2)]), Side::Both),
+                (file(4, vec![dep(2, 3)]), Side::Both),
+            ],
+            false,
+            &Control::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            preview
+                .rows
+                .iter()
+                .map(|row| row.file.project_id)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 1, 4]
+        );
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 6); // Four project details, two latest-version queries.
+        assert!(requests.values().all(|&count| count == 1));
+        assert!(!root.join("mods").exists());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn installed_file_queries_overlap_and_preview_keeps_pack_unchanged() {
         use std::sync::{Condvar, Mutex, mpsc};
         use std::time::Duration;
@@ -487,10 +657,7 @@ mod tests {
             minecraft: Some("1.21.1".into()),
             loader: Some("fabric".into()),
         };
-        let source = CatalogSource {
-            client: &client,
-            pack_filter: &filter,
-        };
+        let source = CatalogSource::new(&client, &filter, 4);
         let selected = File {
             project_id: 1,
             id: 100,

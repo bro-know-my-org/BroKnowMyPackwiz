@@ -983,6 +983,16 @@ const MESSAGES: &[(&str, &str, &str)] = &[
         "Reading project information",
         "正在读取项目信息",
     ),
+    (
+        "preview_dependency_projects",
+        "Reading dependency projects",
+        "正在并发读取依赖项目信息",
+    ),
+    (
+        "preview_dependency_versions",
+        "Querying dependency versions",
+        "正在并发查询依赖版本",
+    ),
     ("querying_updates", "Querying updates", "正在查询更新"),
     ("switch_version", "Switch version", "切换指定版本"),
     (

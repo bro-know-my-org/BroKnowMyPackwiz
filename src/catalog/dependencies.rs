@@ -28,6 +28,14 @@ pub struct Entry {
 }
 
 pub trait Source {
+    /// Optional bounded prefetch; planning order and decisions remain in Planner.
+    fn prefetch_projects(&self, _ids: &[u64], _control: &Control) -> Result<()> {
+        Ok(())
+    }
+    fn prefetch_latest(&self, _ids: &[u64], _filter: &Filter, _control: &Control) -> Result<()> {
+        Ok(())
+    }
+
     fn latest(&self, project: u64, filter: &Filter) -> Result<File>;
     fn compatible(&self, file: &File, filter: &Filter) -> Result<bool> {
         Ok(file.compatible(filter))
@@ -105,6 +113,7 @@ pub fn plan_many(
         entries: Vec::new(),
         control,
     };
+    planner.prefetch(selected.iter().map(|(file, _)| file))?;
     for (file, side) in selected {
         planner.visit(file, side)?;
     }
@@ -141,6 +150,40 @@ struct Planner<'a, S> {
     control: &'a Control,
 }
 impl<S: Source> Planner<'_, S> {
+    fn prefetch<'a>(&self, files: impl Iterator<Item = &'a File>) -> Result<()> {
+        self.control.check()?;
+        let ids: BTreeSet<_> = files
+            .flat_map(|file| file.dependencies.iter())
+            .filter(|dep| dep.relation == 3)
+            .map(|dep| dep.project_id)
+            .collect();
+        if ids.len() > 512 {
+            return Err(conflict(
+                "dependency_graph_too_large",
+                *ids.first().unwrap(),
+            ));
+        }
+        let ids: Vec<_> = ids.into_iter().collect();
+        self.source.prefetch_projects(&ids, self.control)?;
+        let mut latest = Vec::new();
+        for id in ids {
+            self.control.check()?;
+            if self.active.contains(&id)
+                || self.forced.contains_key(&id)
+                || self.entries.iter().any(|e| e.file.project_id == id)
+            {
+                continue;
+            }
+            if let Some(old) = self.existing.get(&id) {
+                if old.pinned || self.source.compatible(&old.file, self.filter)? {
+                    continue;
+                }
+            }
+            latest.push(id);
+        }
+        self.source
+            .prefetch_latest(&latest, self.filter, self.control)
+    }
     fn visit(&mut self, file: File, requested_side: Side) -> Result<()> {
         self.control.check()?;
         let id = file.project_id;
@@ -175,6 +218,7 @@ impl<S: Source> Planner<'_, S> {
             }
         };
         self.active.insert(id);
+        self.prefetch(std::iter::once(&file))?;
         for dep in file.dependencies.iter().filter(|d| d.relation == 3) {
             self.control.check()?;
             if self.active.contains(&dep.project_id) {
