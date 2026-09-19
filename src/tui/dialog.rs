@@ -12,6 +12,7 @@ use toml_edit::{DocumentMut, Item, Value};
 
 pub const SETTINGS: [&str; 4] = ["pack_info", "project_config", "preferences", "open_pack"];
 enum Purpose {
+    Version(super::update::VersionEditor),
     Command(crate::operation::command::Kind),
     Update(super::update::Selection),
     GitHub(super::github::Picker),
@@ -38,6 +39,10 @@ pub struct Dialog {
     purpose: Purpose,
 }
 pub enum Submission {
+    Version {
+        path: String,
+        target: crate::catalog::updates::TargetVersion,
+    },
     Update {
         preview: crate::catalog::updates::Preview,
         paths: Vec<String>,
@@ -66,6 +71,14 @@ pub enum Submission {
 }
 
 impl Dialog {
+    pub fn version(entry: &super::files::Entry) -> Result<Self> {
+        let (editor, form) = super::update::VersionEditor::open(entry)?;
+        Ok(Self {
+            form,
+            purpose: Purpose::Version(editor),
+        })
+    }
+
     pub fn remove(root: &Path, names: Vec<String>, lang: Language) -> Result<Self> {
         let mut request =
             crate::operation::command::Request::new(crate::operation::command::Kind::Remove);
@@ -512,6 +525,10 @@ impl Dialog {
 
     pub fn submit(&self, state: &Path, prefs: &Preferences) -> Result<Submission> {
         match &self.purpose {
+            Purpose::Version(editor) => {
+                let (path, target) = editor.submit(&self.form)?;
+                Ok(Submission::Version { path, target })
+            }
             Purpose::Command(kind) => Ok(Submission::Prepared {
                 request: crate::operation::queue::Request::Command(super::pack::submit(
                     *kind, &self.form,

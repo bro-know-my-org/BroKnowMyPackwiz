@@ -63,6 +63,65 @@ impl Provider for Online<'_> {
         )
     }
 }
+/// A one-off version choice; normal update tracking remains unchanged.
+pub enum TargetVersion {
+    CurseForge {
+        project: u64,
+        file: u64,
+    },
+    GitHub {
+        project: String,
+        tag: String,
+        asset: String,
+    },
+}
+pub struct Specific<'a> {
+    pub root: &'a Path,
+    pub target: &'a TargetVersion,
+}
+impl Provider for Specific<'_> {
+    fn curseforge(&self, metadata: &ModMetadata, _: &Filter) -> Result<File> {
+        let TargetVersion::CurseForge { project, file: id } = self.target else {
+            return Err(invalid("version_source_changed"));
+        };
+        if metadata.curseforge_project_id != Some(*project) {
+            return Err(invalid("version_source_changed"));
+        }
+        if *id == 0 {
+            return Err(invalid("version_file_required"));
+        }
+        // Compatibility and required dependencies are checked during plan preparation.
+        let file = Client::for_pack(self.root)?.file(*project, *id)?;
+        if file.id != *id || file.project_id != *project {
+            return Err(invalid("update_project_mismatch"));
+        }
+        Ok(file)
+    }
+    fn github(&self, metadata: &ModMetadata) -> Result<GitHubFileInfo> {
+        let TargetVersion::GitHub {
+            project,
+            tag,
+            asset,
+        } = self.target
+        else {
+            return Err(invalid("version_source_changed"));
+        };
+        if metadata.github_project.as_ref() != Some(project) {
+            return Err(invalid("version_source_changed"));
+        }
+        if tag.trim().is_empty() || tag.eq_ignore_ascii_case("latest") {
+            return Err(invalid("version_tag_required"));
+        }
+        crate::github::resolve_github_release_asset_operation(
+            project,
+            Some(tag),
+            (!asset.is_empty()).then_some(asset.as_str()),
+            None,
+            None,
+        )
+    }
+}
+
 /// Query only. The apply phase receives these exact candidates, never "latest".
 pub fn query(
     root: &Path,
@@ -267,6 +326,42 @@ mod tests {
             })
         }
     }
+    #[test]
+    fn specific_version_rejects_changed_project_before_network_lookup() {
+        let metadata = ModMetadata::parse(
+            "[update.github]\nproject = \"new/repo\"\n[update.curseforge]\nproject-id = 2",
+        );
+        let targets = [
+            TargetVersion::CurseForge {
+                project: 1,
+                file: 10,
+            },
+            TargetVersion::GitHub {
+                project: "old/repo".into(),
+                tag: "v1".into(),
+                asset: String::new(),
+            },
+        ];
+        for target in &targets {
+            let provider = Specific {
+                root: Path::new("."),
+                target,
+            };
+            assert_eq!(
+                provider
+                    .curseforge(&metadata, &Filter::default())
+                    .unwrap_err()
+                    .message
+                    .as_deref(),
+                Some("version_source_changed")
+            );
+            assert_eq!(
+                provider.github(&metadata).unwrap_err().message.as_deref(),
+                Some("version_source_changed")
+            );
+        }
+    }
+
     #[test]
     fn direct_download_with_curseforge_update_metadata_is_not_skipped() {
         struct Direct;

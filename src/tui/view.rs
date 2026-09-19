@@ -171,6 +171,7 @@ fn actions(app: &App) -> Vec<(crossterm::event::KeyCode, &'static str, &'static 
         0 => vec![
             (KeyCode::Char('U'), "Shift+U", "update_check_all"),
             (KeyCode::Char('u'), "U", "update_preview"),
+            (KeyCode::Char('v'), "V", "switch_version"),
             (KeyCode::Delete, "Del", "remove"),
             (KeyCode::Char('d'), "D", "update_direct"),
             (KeyCode::Char('a'), "A", "select_all"),

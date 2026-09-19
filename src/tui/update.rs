@@ -4,6 +4,91 @@ use super::{
 };
 use crate::catalog::updates::Preview;
 
+pub struct VersionEditor {
+    path: String,
+    curseforge: Option<u64>,
+    github: String,
+}
+impl VersionEditor {
+    pub fn open(entry: &super::files::Entry) -> crate::operation::Result<(Self, Form)> {
+        use crate::operation::{Error, ErrorCode};
+        if entry.metadata.pin {
+            return Err(Error::key(ErrorCode::Invalid, "version_unpin_first"));
+        }
+        let curseforge = if entry.metadata.updates_via_curseforge() {
+            Some(
+                entry
+                    .metadata
+                    .curseforge_project_id
+                    .ok_or_else(|| Error::key(ErrorCode::Invalid, "missing_curseforge_project"))?,
+            )
+        } else {
+            None
+        };
+        if curseforge.is_none() && entry.metadata.github_project.is_none() {
+            return Err(Error::key(ErrorCode::Invalid, "update_no_provider"));
+        }
+        let fields = if curseforge.is_some() {
+            vec![Field::new("version", "version_file_id", "", Kind::Number)]
+        } else {
+            vec![
+                Field::new("version", "version_tag", "", Kind::Text),
+                Field::new(
+                    "asset",
+                    "github_update_filter",
+                    entry.metadata.github_asset.clone().unwrap_or_default(),
+                    Kind::Text,
+                ),
+            ]
+        };
+        let mut form = Form::new("switch_version", fields);
+        // Keep the title translatable; the exact path is shown as a read-only field.
+        form.fields.insert(
+            0,
+            Field::new("target", &entry.path, "", Kind::Choice(Vec::new())),
+        );
+        form.focus = 1;
+        Ok((
+            Self {
+                path: entry.path.clone(),
+                curseforge,
+                github: entry.metadata.github_project.clone().unwrap_or_default(),
+            },
+            form,
+        ))
+    }
+    pub fn submit(
+        &self,
+        form: &Form,
+    ) -> crate::operation::Result<(String, crate::catalog::updates::TargetVersion)> {
+        use crate::{
+            catalog::updates::TargetVersion,
+            operation::{Error, ErrorCode},
+        };
+        let value = form.value("version").trim();
+        let target = if let Some(project) = self.curseforge {
+            TargetVersion::CurseForge {
+                project,
+                file: value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|id| *id > 0)
+                    .ok_or_else(|| Error::key(ErrorCode::Invalid, "version_file_required"))?,
+            }
+        } else {
+            if value.is_empty() || value.eq_ignore_ascii_case("latest") {
+                return Err(Error::key(ErrorCode::Invalid, "version_tag_required"));
+            }
+            TargetVersion::GitHub {
+                project: self.github.clone(),
+                tag: value.into(),
+                asset: form.value("asset").trim().into(),
+            }
+        };
+        Ok((self.path.clone(), target))
+    }
+}
+
 pub struct Selection {
     preview: Preview,
 }
@@ -78,6 +163,74 @@ mod tests {
         operation::{Control, durable, preview::Guard},
     };
     use std::fs;
+    #[test]
+    fn version_form_validates_source_and_exact_version_without_changing_metadata() {
+        let mut entry = super::super::files::Entry {
+            path: "mods/client/a.pw.toml".into(),
+            name: "A".into(),
+            source: "GitHub".into(),
+            side: "client".into(),
+            present: true,
+            metadata: crate::metadata::ModMetadata::parse(
+                "[update.github]\nproject = \"owner/repo\"\nasset = \"fabric\"",
+            ),
+        };
+        let (editor, mut form) = VersionEditor::open(&entry).unwrap();
+        assert!(editor.submit(&form).is_err());
+        form.fields
+            .iter_mut()
+            .find(|f| f.key == "version")
+            .unwrap()
+            .value = "latest".into();
+        assert!(editor.submit(&form).is_err());
+        form.fields
+            .iter_mut()
+            .find(|f| f.key == "version")
+            .unwrap()
+            .value = " v1.0 ".into();
+        let (path, target) = editor.submit(&form).unwrap();
+        assert_eq!(path, entry.path);
+        assert!(
+            matches!(target, crate::catalog::updates::TargetVersion::GitHub { project, tag, asset } if project == "owner/repo" && tag == "v1.0" && asset == "fabric")
+        );
+        entry.metadata = crate::metadata::ModMetadata::parse(
+            "[update.curseforge]\nproject-id = 1\nfile-id = 20",
+        );
+        let (editor, mut form) = VersionEditor::open(&entry).unwrap();
+        for value in ["", "0", "-1", "abc", "18446744073709551616"] {
+            form.fields
+                .iter_mut()
+                .find(|f| f.key == "version")
+                .unwrap()
+                .value = value.into();
+            assert!(editor.submit(&form).is_err());
+        }
+        form.fields
+            .iter_mut()
+            .find(|f| f.key == "version")
+            .unwrap()
+            .value = "10".into();
+        assert!(matches!(
+            editor.submit(&form).unwrap().1,
+            crate::catalog::updates::TargetVersion::CurseForge {
+                project: 1,
+                file: 10
+            }
+        ));
+        assert_eq!(entry.metadata.curseforge_file_id, Some(20));
+        entry.metadata.pin = true;
+        assert!(VersionEditor::open(&entry).is_err());
+        entry.metadata =
+            crate::metadata::ModMetadata::parse("[download]\nmode = \"metadata:curseforge\"");
+        assert!(
+            matches!(VersionEditor::open(&entry), Err(error) if error.message.as_deref() == Some("missing_curseforge_project"))
+        );
+        entry.metadata = crate::metadata::ModMetadata::parse(
+            "[download]\nurl = \"https://example.invalid/a.jar\"",
+        );
+        assert!(VersionEditor::open(&entry).is_err());
+    }
+
     #[test]
     fn update_selection_can_exclude_candidates_and_defaults_to_metadata() {
         let root = std::env::temp_dir().join(durable::unique_id());
