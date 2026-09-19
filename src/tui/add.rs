@@ -36,6 +36,32 @@ pub enum Output {
     GitHub(super::github::Picker, super::form::Form),
 }
 impl Workflow {
+    pub fn version(
+        &mut self,
+        root: &Path,
+        path: String,
+        target: crate::catalog::updates::TargetVersion,
+    ) -> Result<()> {
+        let root = root.to_path_buf();
+        self.run(move |control| {
+            let mut preview = crate::catalog::updates::query(
+                &root,
+                &[path],
+                &crate::catalog::updates::Specific {
+                    root: &root,
+                    target: &target,
+                },
+                &control,
+            )?;
+            for (_, reason) in &mut preview.skipped {
+                if *reason == "update_unchanged" {
+                    *reason = "version_unchanged";
+                }
+            }
+            Ok(Output::UpdatePreview(preview))
+        })
+    }
+
     pub fn update(
         &mut self,
         root: &Path,

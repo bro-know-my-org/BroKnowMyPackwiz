@@ -523,6 +523,14 @@ impl App {
                             self.error = Some(self.language.error(&error));
                         }
                     }
+                    KeyCode::Char('v') if self.page == 0 => {
+                        if let Some(entry) = self.current() {
+                            match super::dialog::Dialog::version(entry) {
+                                Ok(dialog) => self.dialog = Some(dialog),
+                                Err(error) => self.error = Some(self.language.error(&error)),
+                            }
+                        }
+                    }
                     KeyCode::Char('e') if self.page == 0 => {
                         if let Some(entry) = self.current() {
                             match super::dialog::Dialog::metadata(&self.root, &entry.path) {
@@ -718,6 +726,9 @@ impl App {
                 .map(|q| q.state.clone())
                 .unwrap_or(crate::operation::durable::user_state()?);
             match dialog.submit(&state, &self.preferences)? {
+                Submission::Version { path, target } => {
+                    self.adding.version(&self.root, path, target)?
+                }
                 Submission::Update {
                     preview,
                     paths,

@@ -97,7 +97,10 @@ and Esc to cancel. Metadata-only is the default; downloading is optional.
 Use ←→ for long version names and PgUp/PgDn for skipped reasons.
 Additional dependency changes are shown for confirmation.
 
-- Files: Wide terminals show update candidates and up-to-date/skipped items side by side;
+- Files: `V` switches the focused file to a CurseForge file ID or an exact GitHub release tag/asset,
+  including downgrades, with a preview before applying. Unpin with `P` first if pinned.
+  Normal update tracking is unchanged; pin again after switching to keep that version.
+  Wide terminals show update candidates and up-to-date/skipped items side by side;
   `H` hides/shows the up-to-date/skipped list.
   `/` searches, Space marks files, `Shift+U` checks all updates, `U` previews selected updates, `D` updates
   directly, `E` edits common fields, `Shift+E` opens an external editor and
