@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::Command;
 
 use crate::http::{http_get_to_file, http_get_to_string, http_get_to_string_with_header};
@@ -270,23 +271,80 @@ fn temp_download_path(asset_name: &str) -> Result<PathBuf, String> {
 fn install_downloaded_binary(downloaded: &Path, current_exe: &Path) -> Result<(), String> {
     let staged = current_exe.with_extension("exe.bkmpw-new");
     if staged.exists() {
+        // A leftover staged file means a previous update never landed.
+        eprintln!(
+            "warning: found leftover staged update {}; replacing it",
+            staged.display()
+        );
         fs::remove_file(&staged)
             .map_err(|err| format!("failed to remove old staged update: {err}"))?;
     }
-    fs::rename(downloaded, &staged)
-        .map_err(|err| format!("failed to stage update {}: {err}", staged.display()))?;
+    let failure_log = current_exe.with_extension("exe.bkmpw-update-failed.log");
+    if failure_log.exists() {
+        eprintln!(
+            "warning: previous self-update failed to replace the executable; see {}",
+            failure_log.display()
+        );
+        // The warning has been surfaced; drop the marker so it does not repeat.
+        let _ = fs::remove_file(&failure_log);
+    }
+    if let Err(err) = fs::rename(downloaded, &staged) {
+        // %TEMP% may live on a different volume than the install dir.
+        fs::copy(downloaded, &staged).map_err(|copy_err| {
+            format!(
+                "failed to stage update {}: {err}; copy fallback failed: {copy_err}",
+                staged.display()
+            )
+        })?;
+        if let Err(err) = fs::remove_file(downloaded) {
+            eprintln!(
+                "warning: could not remove downloaded update {}: {err}",
+                downloaded.display()
+            );
+        }
+    }
     let script = env::temp_dir().join(format!("bkmpw-self-update-{}.cmd", std::process::id()));
-    let staged = batch_escape_path(&staged);
-    let current_exe = batch_escape_path(current_exe);
-    let script_text = format!(
-        "@echo off\r\n\
-         timeout /t 1 /nobreak >NUL\r\n\
-         move /Y \"{}\" \"{}\" >NUL 2>&1 || echo bkmpw self-update failed: could not replace the running executable\r\n\
-         del \"%~f0\"\r\n",
-        staged, current_exe
-    );
+    // Batch files are read in the OEM codepage; paths that cannot be rendered
+    // in ASCII would produce a garbled, silently failing script.
+    let staged_text = batch_escape_path(&staged)?;
+    let current_text = batch_escape_path(current_exe)?;
+    let log_text = batch_escape_path(&failure_log)?;
+    let temp_log_text = batch_escape_path(
+        &env::temp_dir().join(format!("bkmpw-self-update-{}.log", std::process::id())),
+    )?;
+    // cmd finds the end of a parenthesized block without honoring quotes, so a
+    // `do (...)` block would misparse paths containing ( or ). A call :label
+    // retry loop keeps every path on a single unparenthesized line.
+    let script_text = [
+        "@echo off".to_string(),
+        // Keep `!` literal even when delayed expansion is globally enabled.
+        "setlocal DisableDelayedExpansion".to_string(),
+        "set BKMPW_TRIES=0".to_string(),
+        "call :retry".to_string(),
+        "del \"%~f0\"".to_string(),
+        "exit /b".to_string(),
+        ":retry".to_string(),
+        format!("move /Y \"{staged_text}\" \"{current_text}\" >NUL 2>&1 && exit /b"),
+        "set /a BKMPW_TRIES+=1".to_string(),
+        "if %BKMPW_TRIES% geq 10 goto failed".to_string(),
+        "timeout /t 1 /nobreak >NUL".to_string(),
+        "goto retry".to_string(),
+        ":failed".to_string(),
+        format!(
+            "echo bkmpw self-update failed: could not replace the running executable > \"{log_text}\" 2>NUL"
+        ),
+        // The install dir may be read-only; leave a copy in %TEMP% too.
+        format!(
+            "if not exist \"{log_text}\" echo bkmpw self-update failed: could not replace the running executable > \"{temp_log_text}\" 2>NUL"
+        ),
+        "exit /b".to_string(),
+        String::new(),
+    ]
+    .join("\r\n");
     fs::write(&script, script_text)
         .map_err(|err| format!("failed to write update script {}: {err}", script.display()))?;
+    // Command::arg adds proper quoting for paths containing spaces; adding
+    // literal quotes here would be double-escaped on Windows.
     Command::new("cmd")
         .args(["/C", "start", "", "/MIN", "cmd", "/C"])
         .arg(&script)
@@ -296,15 +354,20 @@ fn install_downloaded_binary(downloaded: &Path, current_exe: &Path) -> Result<()
     Ok(())
 }
 
-fn batch_escape_path(path: &Path) -> String {
-    path.display()
-        .to_string()
-        .replace('^', "^^")
-        .replace('%', "%%")
-        .replace('&', "^&")
-        .replace('|', "^|")
-        .replace('<', "^<")
-        .replace('>', "^>")
+// Paths are wrapped in double quotes in the generated batch script, so cmd
+// treats ^ & | < > literally. Only `%` still expands inside batch files; `!`
+// is handled by `setlocal DisableDelayedExpansion`. Non-ASCII paths cannot be
+// reliably embedded because cmd reads batch files in the OEM codepage.
+#[cfg(windows)]
+fn batch_escape_path(path: &Path) -> Result<String, String> {
+    let text = path.display().to_string();
+    if !text.is_ascii() {
+        return Err(format!(
+            "cannot self-update: install path is not representable in the OEM codepage: {}",
+            path.display()
+        ));
+    }
+    Ok(text.replace('%', "%%"))
 }
 
 #[cfg(unix)]
@@ -395,9 +458,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn escapes_batch_path_metacharacters() {
-        let escaped = batch_escape_path(Path::new(r"C:\Temp & 100%\bkmpw^.exe"));
+        let escaped = batch_escape_path(Path::new(r"C:\Temp & 100%\bkmpw^.exe")).unwrap();
 
-        assert_eq!(escaped, r"C:\Temp ^& 100%%\bkmpw^^.exe");
+        assert_eq!(escaped, r"C:\Temp & 100%%\bkmpw^.exe");
     }
 }
