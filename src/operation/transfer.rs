@@ -11,6 +11,7 @@ use std::{
 pub struct Hashes {
     pub sha1: String,
     pub sha256: String,
+    pub sha512: String,
     pub size: u64,
 }
 impl Hashes {
@@ -18,6 +19,7 @@ impl Hashes {
         let actual = match format {
             "sha1" => &self.sha1,
             "sha256" => &self.sha256,
+            "sha512" => &self.sha512,
             _ => return Err(Error::key(ErrorCode::Invalid, "unsupported_hash_format")),
         };
         if !actual.eq_ignore_ascii_case(expected) {
@@ -56,7 +58,19 @@ pub fn download(
         .get(url)
         .header("User-Agent", "bkmpw")
         .call()
-        .map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+        .map_err(|e| {
+            // Permanent HTTP rejections (other than 408/429) are not worth retrying.
+            let code = match &e {
+                ureq::Error::StatusCode(status)
+                    if !(400..500).contains(status) || matches!(status, 408 | 429) =>
+                {
+                    ErrorCode::Failed
+                }
+                ureq::Error::StatusCode(_) => ErrorCode::Invalid,
+                _ => ErrorCode::Failed,
+            };
+            Error::new(code, e.to_string())
+        })?;
     control.check()?;
     if !response.status().is_success() {
         return Err(Error::named(
@@ -105,6 +119,7 @@ pub fn stream(
 ) -> Result<Hashes> {
     let mut sha1 = sha1::Sha1::new();
     let mut sha256 = sha2::Sha256::new();
+    let mut sha512 = sha2::Sha512::new();
     let mut bytes = [0; 64 * 1024];
     let mut current = 0u64;
     let mut last = Instant::now();
@@ -118,6 +133,7 @@ pub fn stream(
         writer.write_all(&bytes[..count])?;
         sha1.update(&bytes[..count]);
         sha256.update(&bytes[..count]);
+        sha512.update(&bytes[..count]);
         current = current
             .checked_add(count as u64)
             .ok_or_else(|| Error::key(ErrorCode::Invalid, "file_size_overflow"))?;
@@ -142,6 +158,7 @@ pub fn stream(
     Ok(Hashes {
         sha1: hex(&sha1.finalize()),
         sha256: hex(&sha256.finalize()),
+        sha512: hex(&sha512.finalize()),
         size: current,
     })
 }

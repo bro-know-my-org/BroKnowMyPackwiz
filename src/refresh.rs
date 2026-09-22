@@ -187,32 +187,26 @@ fn set_index_hash(text: &str, hash: &str) -> String {
             saw_index |= in_index;
         }
 
-        if in_index && trimmed.starts_with("file") {
-            let after = &trimmed["file".len()..];
-            if after.trim_start().starts_with('=') {
-                out.push_str("file = \"index.toml\"\n");
-                file_replaced = true;
-                continue;
-            }
-        }
-
-        if in_index && trimmed.starts_with("hash-format") {
-            let after = &trimmed["hash-format".len()..];
-            if after.trim_start().starts_with('=') {
-                out.push_str("hash-format = \"sha256\"\n");
-                format_replaced = true;
-                continue;
-            }
-        }
-
-        if in_index && trimmed.starts_with("hash") {
-            let after = &trimmed["hash".len()..];
-            if after.trim_start().starts_with('=') {
-                out.push_str("hash = \"");
-                out.push_str(hash);
-                out.push_str("\"\n");
-                replaced = true;
-                continue;
+        if in_index && let Some(key) = toml_key(trimmed) {
+            match key {
+                "file" => {
+                    out.push_str("file = \"index.toml\"\n");
+                    file_replaced = true;
+                    continue;
+                }
+                "hash-format" => {
+                    out.push_str("hash-format = \"sha256\"\n");
+                    format_replaced = true;
+                    continue;
+                }
+                "hash" => {
+                    out.push_str("hash = \"");
+                    out.push_str(hash);
+                    out.push_str("\"\n");
+                    replaced = true;
+                    continue;
+                }
+                _ => {}
             }
         }
 
@@ -244,6 +238,12 @@ fn set_index_hash(text: &str, hash: &str) -> String {
     }
 
     out
+}
+
+fn toml_key(line: &str) -> Option<&str> {
+    line.split_once('=')
+        .map(|(key, _)| key.trim())
+        .filter(|key| !key.is_empty() && !key.starts_with('#'))
 }
 
 fn section_name(line: &str) -> Option<&str> {

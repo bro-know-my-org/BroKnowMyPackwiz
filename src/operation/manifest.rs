@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(manifest["files"].as_array().unwrap().len(), 2);
         assert_eq!(manifest["extra"], 42);
         assert_eq!(manifest["side"], "client");
-        let paths = crate::install::read_manifest_paths(&root).unwrap();
+        let paths = crate::install::read_manifest_paths(&root, &mut Vec::new()).unwrap();
         assert!(paths.contains("mods/old.jar") && paths.contains("mods/new.jar"));
         assert!(!paths.contains("mods/manual.jar"));
         fs::remove_dir_all(root).unwrap();
