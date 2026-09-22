@@ -202,8 +202,14 @@ fn update_metadata_path(
 ) -> Result<(), String> {
     let text = fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let metadata = ModMetadata::parse(&text);
     let rel = display_path(root, path);
+    let metadata = match ModMetadata::parse(&text) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            result.skipped.push(format!("{rel}: {err}"));
+            return Ok(());
+        }
+    };
     if metadata.pin {
         result.skipped.push(format!("{rel}: pinned"));
         return Ok(());
@@ -656,7 +662,7 @@ mod tests {
         fs::create_dir_all(root.join("mods")).unwrap();
         let metadata_path = root.join("mods").join("old.pw");
         fs::write(root.join("mods").join("new.jar"), b"manual").unwrap();
-        let metadata = ModMetadata::parse("filename = \"old.jar\"\n");
+        let metadata = ModMetadata::parse("filename = \"old.jar\"\n").unwrap();
 
         let result = reject_manual_target_collision(
             &root,
@@ -680,7 +686,7 @@ mod tests {
         fs::create_dir_all(root.join("mods")).unwrap();
         let metadata_path = root.join("mods").join("old.pw");
         fs::write(root.join("mods").join("new.jar"), b"abc").unwrap();
-        let metadata = ModMetadata::parse("filename = \"old.jar\"\n");
+        let metadata = ModMetadata::parse("filename = \"old.jar\"\n").unwrap();
 
         let result = reject_manual_target_collision(
             &root,
@@ -705,7 +711,7 @@ mod tests {
         let target = root.join("mods").join("new.jar");
         fs::write(&target, b"abc").unwrap();
         let metadata_path = root.join("mods").join("old.pw");
-        let metadata = ModMetadata::parse("filename = \"old.jar\"\n");
+        let metadata = ModMetadata::parse("filename = \"old.jar\"\n").unwrap();
         let hash = crate::sha512::sha512_file_hex(&target).unwrap();
 
         let result = reject_manual_target_collision(

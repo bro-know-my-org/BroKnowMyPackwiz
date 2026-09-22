@@ -218,9 +218,8 @@ fn config_error(key: &str, legacy: impl Into<String>) -> Error {
 }
 
 fn parse_bool(value: &str) -> Result<bool, Error> {
-    match value {
-        "true" => Ok(true),
-        "false" => Ok(false),
+    match parse_toml_value(value) {
+        Some(toml_edit::Value::Boolean(b)) => Ok(*b.value()),
         _ => Err(config_error(
             "config_expected_boolean",
             format!("expected boolean, got {value}"),
@@ -235,31 +234,24 @@ fn parse_string_path(value: &str) -> Result<PathBuf, Error> {
     })
 }
 
+// Parses one TOML value token (string, boolean, integer, ...) the way a real
+// TOML parser would, including literal strings and escape sequences.
+fn parse_toml_value(value: &str) -> Option<toml_edit::Value> {
+    format!("v = {value}")
+        .parse::<toml_edit::DocumentMut>()
+        .ok()
+        .and_then(|mut doc| doc.remove("v"))
+        .and_then(|item| item.into_value().ok())
+}
+
 fn parse_string(value: &str) -> Result<String, Error> {
-    let Some(inner) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) else {
-        return Err(config_error(
+    match parse_toml_value(value) {
+        Some(toml_edit::Value::String(s)) => Ok(s.value().clone()),
+        _ => Err(config_error(
             "config_expected_string",
             format!("expected quoted string, got {value}"),
-        ));
-    };
-    let mut chars = inner.chars();
-    let mut out = String::new();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some('"') => out.push('"'),
-            Some('\\') => out.push('\\'),
-            Some(other) => {
-                out.push('\\');
-                out.push(other);
-            }
-            None => out.push('\\'),
-        }
+        )),
     }
-    Ok(out)
 }
 
 fn parse_string_list(value: &str) -> Result<Vec<PathBuf>, Error> {

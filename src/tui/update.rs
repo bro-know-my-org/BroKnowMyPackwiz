@@ -173,7 +173,8 @@ mod tests {
             present: true,
             metadata: crate::metadata::ModMetadata::parse(
                 "[update.github]\nproject = \"owner/repo\"\nasset = \"fabric\"",
-            ),
+            )
+            .unwrap(),
         };
         let (editor, mut form) = VersionEditor::open(&entry).unwrap();
         assert!(editor.submit(&form).is_err());
@@ -195,7 +196,8 @@ mod tests {
         );
         entry.metadata = crate::metadata::ModMetadata::parse(
             "[update.curseforge]\nproject-id = 1\nfile-id = 20",
-        );
+        )
+        .unwrap();
         let (editor, mut form) = VersionEditor::open(&entry).unwrap();
         for value in ["", "0", "-1", "abc", "18446744073709551616"] {
             form.fields
@@ -221,13 +223,15 @@ mod tests {
         entry.metadata.pin = true;
         assert!(VersionEditor::open(&entry).is_err());
         entry.metadata =
-            crate::metadata::ModMetadata::parse("[download]\nmode = \"metadata:curseforge\"");
+            crate::metadata::ModMetadata::parse("[download]\nmode = \"metadata:curseforge\"")
+                .unwrap();
         assert!(
             matches!(VersionEditor::open(&entry), Err(error) if error.message.as_deref() == Some("missing_curseforge_project"))
         );
         entry.metadata = crate::metadata::ModMetadata::parse(
             "[download]\nurl = \"https://example.invalid/a.jar\"",
-        );
+        )
+        .unwrap();
         assert!(VersionEditor::open(&entry).is_err());
     }
 

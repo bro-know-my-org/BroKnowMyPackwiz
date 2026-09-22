@@ -15,7 +15,7 @@ fn app() -> App {
             source: "URL".into(),
             side: "both".into(),
             present: false,
-            metadata: crate::metadata::ModMetadata::parse(""),
+            metadata: crate::metadata::ModMetadata::parse("").unwrap(),
         })
         .collect();
     app.table.select(Some(0));

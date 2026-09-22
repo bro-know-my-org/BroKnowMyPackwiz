@@ -329,7 +329,8 @@ mod tests {
              [export.curseforge]\n\
              project-id = 3\n\
              file-id = 4\n",
-        );
+        )
+        .unwrap();
 
         let config = ProjectConfig::load(Path::new(".")).unwrap();
         let pack = PackInfo::default();
@@ -350,7 +351,8 @@ mod tests {
              file-id = 1\n\
              [export.curseforge]\n\
              latest = true\n",
-        );
+        )
+        .unwrap();
         assert_eq!(
             export_curseforge_latest_project_id(&metadata, "mods/core.pw").unwrap(),
             123456
@@ -359,7 +361,7 @@ mod tests {
 
     #[test]
     fn directory_side_overrides_metadata_side() {
-        let metadata = ModMetadata::parse("side = \"server\"\n");
+        let metadata = ModMetadata::parse("side = \"server\"\n").unwrap();
 
         assert_eq!(
             side_from_directory_or_metadata(SideHint::Client, &metadata),
