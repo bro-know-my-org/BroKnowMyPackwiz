@@ -81,111 +81,62 @@ impl ModMetadata {
             )
             .context(format!("{}: {err}", path.display()))
         })?;
-        Ok(Self::parse(&text))
+        Self::parse(&text).map_err(|detail| {
+            crate::operation::Error::named(
+                crate::operation::ErrorCode::Failed,
+                "metadata_parse_failed",
+                format!("{}: {detail}", path.display()),
+            )
+            .context(path.display().to_string())
+        })
     }
 
-    pub fn parse(text: &str) -> Self {
-        let mut name = None;
-        let mut filename = None;
-        let mut side = None;
-        let mut preserve = false;
-        let mut pin = false;
-        let mut optional = false;
-        let mut option_default = false;
-        let mut download_url = None;
-        let mut download_mode = None;
-        let mut download_hash_format = None;
-        let mut download_hash = None;
-        let mut curseforge_project_id = None;
-        let mut curseforge_file_id = None;
-        let mut export_curseforge_project_id = None;
-        let mut export_curseforge_file_id = None;
-        let mut export_curseforge_latest = false;
-        let mut github_project = None;
-        let mut github_tag = None;
-        let mut github_asset = None;
-        let mut section = "";
-        for raw in text.lines() {
-            let line = strip_comment(raw).trim();
-            if let Some(name) = line.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
-                section = name.trim();
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            let key = key.trim();
-            let value = value.trim();
-            match (section, key) {
-                ("", "name") => name = parse_string(value),
-                ("", "filename") => filename = parse_string(value),
-                ("", "side") => side = parse_string(value).map(|value| Side::parse(&value)),
-                ("", "preserve") => preserve = parse_bool(value).unwrap_or(false),
-                ("", "pin") => pin = parse_bool(value).unwrap_or(false),
-                ("download", "url") => download_url = parse_string(value),
-                ("download", "mode") => download_mode = parse_string(value),
-                ("download", "hash-format") => download_hash_format = parse_string(value),
-                ("download", "hash") => download_hash = parse_string(value),
-                ("update.curseforge", "project-id") => curseforge_project_id = parse_u64(value),
-                ("update.curseforge", "file-id") => curseforge_file_id = parse_u64(value),
-                ("export.curseforge", "project-id") => {
-                    export_curseforge_project_id = parse_u64(value)
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let doc = text
+            .parse::<toml_edit::DocumentMut>()
+            .map_err(|err| format!("invalid metadata TOML: {err}"))?;
+        let get = |section: &str, key: &str| -> Option<&toml_edit::Item> {
+            let mut item = doc.as_item();
+            for part in section.split('.') {
+                if part.is_empty() {
+                    break;
                 }
-                ("export.curseforge", "file-id") => export_curseforge_file_id = parse_u64(value),
-                ("export.curseforge", "latest") => {
-                    export_curseforge_latest = parse_bool(value).unwrap_or(false)
-                }
-                ("update.github", "project") => github_project = parse_string(value),
-                ("update.github", "tag") => github_tag = parse_string(value),
-                ("update.github", "asset") => github_asset = parse_string(value),
-                ("option", "optional") => optional = parse_bool(value).unwrap_or(false),
-                ("option", "default") => option_default = parse_bool(value).unwrap_or(false),
-                _ => {}
+                item = item.get(part)?;
             }
-        }
-        Self {
-            name,
-            filename,
-            side,
-            preserve,
-            pin,
-            optional,
-            option_default,
-            download_url,
-            download_mode,
-            download_hash_format,
-            download_hash,
-            curseforge_project_id,
-            curseforge_file_id,
-            export_curseforge_project_id,
-            export_curseforge_file_id,
-            export_curseforge_latest,
-            github_project,
-            github_tag,
-            github_asset,
-        }
+            item.get(key)
+        };
+        let string = |section: &str, key: &str| {
+            get(section, key).and_then(|v| v.as_str().map(str::to_string))
+        };
+        let boolv =
+            |section: &str, key: &str| get(section, key).and_then(|v| v.as_bool()).unwrap_or(false);
+        let int = |section: &str, key: &str| {
+            get(section, key)
+                .and_then(|v| v.as_integer())
+                .and_then(|v| u64::try_from(v).ok())
+        };
+        Ok(Self {
+            name: string("", "name"),
+            filename: string("", "filename"),
+            side: string("", "side").map(|value| Side::parse(&value)),
+            preserve: boolv("", "preserve"),
+            pin: boolv("", "pin"),
+            optional: boolv("option", "optional"),
+            option_default: boolv("option", "default"),
+            download_url: string("download", "url"),
+            download_mode: string("download", "mode"),
+            download_hash_format: string("download", "hash-format"),
+            download_hash: string("download", "hash"),
+            curseforge_project_id: int("update.curseforge", "project-id"),
+            curseforge_file_id: int("update.curseforge", "file-id"),
+            export_curseforge_project_id: int("export.curseforge", "project-id"),
+            export_curseforge_file_id: int("export.curseforge", "file-id"),
+            export_curseforge_latest: boolv("export.curseforge", "latest"),
+            github_project: string("update.github", "project"),
+            github_tag: string("update.github", "tag"),
+            github_asset: string("update.github", "asset"),
+        })
     }
-}
-
-fn strip_comment(line: &str) -> &str {
-    crate::pathutil::strip_comment(line)
-}
-
-fn parse_string(value: &str) -> Option<String> {
-    let inner = value.strip_prefix('"')?.strip_suffix('"')?;
-    Some(inner.replace("\\\"", "\"").replace("\\\\", "\\"))
-}
-
-fn parse_bool(value: &str) -> Option<bool> {
-    match value {
-        "true" => Some(true),
-        "false" => Some(false),
-        _ => None,
-    }
-}
-
-fn parse_u64(value: &str) -> Option<u64> {
-    value.parse().ok()
 }
 
 #[cfg(test)]
@@ -194,7 +145,7 @@ mod tests {
 
     #[test]
     fn parses_existing_side_without_inference() {
-        let meta = ModMetadata::parse("name = \"Bad upstream side\"\nside = \"client\"\n");
+        let meta = ModMetadata::parse("name = \"Bad upstream side\"\nside = \"client\"\n").unwrap();
 
         assert_eq!(meta.side, Some(Side::Client));
         assert_eq!(meta.name.as_deref(), Some("Bad upstream side"));
@@ -204,7 +155,8 @@ mod tests {
     fn parses_download_hash_and_preserve() {
         let meta = ModMetadata::parse(
             "preserve = true\npin = true\n[download]\nhash-format = \"sha256\"\nhash = \"abc\"\n",
-        );
+        )
+        .unwrap();
 
         assert!(meta.preserve);
         assert!(meta.pin);
@@ -216,7 +168,7 @@ mod tests {
 
     #[test]
     fn parses_optional_metadata() {
-        let meta = ModMetadata::parse("[option]\noptional = true\ndefault = false\n");
+        let meta = ModMetadata::parse("[option]\noptional = true\ndefault = false\n").unwrap();
 
         assert!(meta.optional);
         assert!(!meta.option_default);
@@ -235,7 +187,8 @@ mod tests {
              [update.curseforge]\n\
              file-id = 6498183\n\
              project-id = 1259229\n",
-        );
+        )
+        .unwrap();
 
         assert_eq!(meta.download_mode.as_deref(), Some("metadata:curseforge"));
         assert_eq!(meta.curseforge_file_id, Some(6498183));
@@ -250,7 +203,8 @@ mod tests {
              project = \"owner/repo\"\n\
              tag = \"latest\"\n\
              asset = \"neoforge\"\n",
-        );
+        )
+        .unwrap();
 
         assert_eq!(meta.github_project.as_deref(), Some("owner/repo"));
         assert_eq!(meta.github_tag.as_deref(), Some("latest"));
@@ -266,7 +220,8 @@ mod tests {
              project-id = 123456\n\
              file-id = 789012\n\
              latest = true\n",
-        );
+        )
+        .unwrap();
 
         assert_eq!(meta.export_curseforge_project_id, Some(123456));
         assert_eq!(meta.export_curseforge_file_id, Some(789012));
@@ -277,7 +232,8 @@ mod tests {
     fn keeps_hash_inside_quoted_strings() {
         let meta = ModMetadata::parse(
             "name = \"A # B\"\n[download]\nurl = \"https://example.invalid/file.jar#sha256\"\n",
-        );
+        )
+        .unwrap();
 
         assert_eq!(meta.name.as_deref(), Some("A # B"));
         assert_eq!(

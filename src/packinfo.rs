@@ -32,42 +32,39 @@ impl PackInfo {
                 .context(format!("{}: {err}", path.display())));
             }
         };
-        Ok(Self::parse(&text))
+        Self::parse(&text).map_err(|error| {
+            crate::operation::Error::named(
+                crate::operation::ErrorCode::Failed,
+                "pack_info_parse_failed",
+                format!("{}: {}", path.display(), error.detail),
+            )
+            .context(path.display().to_string())
+        })
     }
 
-    fn parse(text: &str) -> Self {
-        let mut info = Self::default();
-        let mut section = "";
-        for raw in text.lines() {
-            let line = crate::pathutil::strip_comment(raw).trim();
-            if line.is_empty() {
-                continue;
-            }
-            if let Some(name) = line
-                .strip_prefix('[')
-                .and_then(|value| value.strip_suffix(']'))
-            {
-                section = name.trim();
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
+    fn parse(text: &str) -> crate::operation::Result<Self> {
+        use crate::operation::{Error, ErrorCode};
+        let doc = text
+            .parse::<toml_edit::DocumentMut>()
+            .map_err(|err| Error::new(ErrorCode::Failed, format!("invalid pack.toml: {err}")))?;
+        let string = |section: &str, key: &str| -> Option<String> {
+            let parent = if section.is_empty() {
+                Some(doc.as_item())
+            } else {
+                doc.get(section)
             };
-            let key = key.trim();
-            let value = parse_string(value.trim());
-            match (section, key) {
-                ("", "name") => info.name = value,
-                ("", "author") => info.author = value,
-                ("", "version") => info.version = value,
-                ("versions", "minecraft") => info.minecraft = value,
-                ("versions", "neoforge") => info.neoforge = value,
-                ("versions", "forge") => info.forge = value,
-                ("versions", "fabric") => info.fabric = value,
-                ("versions", "quilt") => info.quilt = value,
-                _ => {}
-            }
-        }
-        info
+            parent?.get(key)?.as_str().map(str::to_string)
+        };
+        Ok(Self {
+            name: string("", "name"),
+            author: string("", "author"),
+            version: string("", "version"),
+            minecraft: string("versions", "minecraft"),
+            neoforge: string("versions", "neoforge"),
+            forge: string("versions", "forge"),
+            fabric: string("versions", "fabric"),
+            quilt: string("versions", "quilt"),
+        })
     }
 
     pub fn primary_loader_id(&self) -> Option<String> {
@@ -106,11 +103,6 @@ impl PackInfo {
     }
 }
 
-fn parse_string(value: &str) -> Option<String> {
-    let inner = value.strip_prefix('"')?.strip_suffix('"')?;
-    Some(inner.replace("\\\"", "\"").replace("\\\\", "\\"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,13 +110,14 @@ mod tests {
     #[test]
     fn fabric_and_quilt_loader_ids_preserve_existing_loader_priority() {
         for loader in ["fabric", "quilt"] {
-            let info = PackInfo::parse(&format!("[versions]\n{loader} = \"0.1\""));
+            let info = PackInfo::parse(&format!("[versions]\n{loader} = \"0.1\"")).unwrap();
             assert_eq!(info.loader_name(), Some(loader));
             assert_eq!(info.primary_loader_id(), Some(format!("{loader}-0.1")));
         }
         let info = PackInfo::parse(
             "[versions]\nneoforge = \"21\"\nforge = \"52\"\nfabric = \"0.16\"\nquilt = \"0.27\"",
-        );
+        )
+        .unwrap();
         assert_eq!(info.loader_name(), Some("neoforge"));
         assert_eq!(info.primary_loader_id().as_deref(), Some("neoforge-21"));
     }
@@ -133,7 +126,7 @@ mod tests {
     fn parses_pack_versions() {
         let info = PackInfo::parse(
             "name = \"Pack\"\nauthor = \"Me\"\nversion = \"1\"\n[versions]\nminecraft = \"1.21.1\"\nneoforge = \"21.1.228\"\n",
-        );
+        ).unwrap();
 
         assert_eq!(info.name.as_deref(), Some("Pack"));
         assert_eq!(info.minecraft.as_deref(), Some("1.21.1"));
@@ -146,7 +139,8 @@ mod tests {
 
     #[test]
     fn keeps_hash_inside_pack_strings() {
-        let info = PackInfo::parse("name = \"A # Pack\"\n[versions]\nminecraft = \"1.21.1\"\n");
+        let info =
+            PackInfo::parse("name = \"A # Pack\"\n[versions]\nminecraft = \"1.21.1\"\n").unwrap();
 
         assert_eq!(info.name.as_deref(), Some("A # Pack"));
     }

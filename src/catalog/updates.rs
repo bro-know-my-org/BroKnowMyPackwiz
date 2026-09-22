@@ -330,7 +330,8 @@ mod tests {
     fn specific_version_rejects_changed_project_before_network_lookup() {
         let metadata = ModMetadata::parse(
             "[update.github]\nproject = \"new/repo\"\n[update.curseforge]\nproject-id = 2",
-        );
+        )
+        .unwrap();
         let targets = [
             TargetVersion::CurseForge {
                 project: 1,
@@ -400,11 +401,14 @@ mod tests {
         );
         // Export-only CF hints must not turn a direct download into a CF updater.
         assert!(
-            !ModMetadata::parse("[export.curseforge]\nproject-id = 1").updates_via_curseforge()
+            !ModMetadata::parse("[export.curseforge]\nproject-id = 1")
+                .unwrap()
+                .updates_via_curseforge()
         );
         let mixed = ModMetadata::parse(
             "[update.github]\nproject = \"owner/repo\"\n[update.curseforge]\nproject-id = 1",
-        );
+        )
+        .unwrap();
         assert!(!mixed.updates_via_curseforge());
         fs::remove_dir_all(root).unwrap();
     }

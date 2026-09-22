@@ -464,9 +464,9 @@ pub fn set_pin(
     let path = find_metadata(root, config, layout, name)?;
     let text = fs::read_to_string(&path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let updated = set_top_level_bool(&text, "pin", pin);
-    fs::write(&path, updated)
-        .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    let updated = set_top_level_bool(&text, "pin", pin)
+        .map_err(|err| format!("{}: {err}", path.display()))?;
+    crate::pathutil::write_atomic(&path, updated)?;
     Ok(path)
 }
 
@@ -496,8 +496,12 @@ pub(crate) fn find_metadata_many(
         let metadata = ModMetadata::load(&path)?;
         let aliases = [
             Some(entry.path.as_str()),
-            metadata_stem(&entry.path),
-            entry.path.rsplit('/').next().and_then(metadata_stem),
+            metadata_stem(&entry.path, layout),
+            entry
+                .path
+                .rsplit('/')
+                .next()
+                .and_then(|file| metadata_stem(file, layout)),
             metadata.name.as_deref(),
         ];
         for alias in aliases.into_iter().flatten() {
@@ -520,50 +524,85 @@ pub(crate) fn find_metadata_many(
     Ok(paths.into_iter().collect())
 }
 
-fn metadata_stem(file: &str) -> Option<&str> {
-    file.strip_suffix(".pw")
+fn metadata_stem<'a>(file: &'a str, layout: &PackLayout) -> Option<&'a str> {
+    let extension = layout.metadata_extension.trim_start_matches('.');
+    file.strip_suffix(extension)
+        .filter(|stem| stem.ends_with('.'))
+        .map(|stem| &stem[..stem.len() - 1])
+        // Also accept legacy spellings of the default extension.
+        .or_else(|| file.strip_suffix(".pw"))
         .or_else(|| file.strip_suffix(".pw.toml"))
 }
 
-fn set_top_level_bool(text: &str, key: &str, value: bool) -> String {
-    let replacement = format!("{key} = {value}");
-    let mut out = String::new();
-    let mut replaced = false;
-    let mut inserted = false;
+fn set_top_level_bool(text: &str, key: &str, value: bool) -> Result<String, String> {
+    Ok(match text.parse::<toml_edit::DocumentMut>() {
+        Ok(mut doc) => {
+            // Only a top-level item is touched; same-named keys inside tables
+            // belong to their own section. A table/array under the key is not
+            // a boolean — refuse to clobber it.
+            match doc.get(key) {
+                Some(item)
+                    if item.is_table()
+                        || item.is_array_of_tables()
+                        || item.as_inline_table().is_some()
+                        || item.as_array().is_some() =>
+                {
+                    return Err(format!(
+                        "`{key}` already exists as a table/array; refusing to overwrite"
+                    ));
+                }
+                _ => {
+                    doc[key] = toml_edit::value(value);
+                    doc.to_string()
+                }
+            }
+        }
+        Err(_) => {
+            // Keep a line-oriented fallback for legacy files that are not
+            // strictly valid TOML: only top-level lines are considered.
+            let replacement = format!("{key} = {value}");
+            let mut out = String::new();
+            let mut replaced = false;
+            let mut inserted = false;
+            let mut in_top_level = true;
 
-    for raw in text.lines() {
-        let trimmed = raw.trim_start();
-        let in_section = trimmed.starts_with('[');
-        if !replaced && !inserted && in_section {
-            out.push_str(&replacement);
-            out.push('\n');
-            if !out.ends_with("\n\n") {
+            for raw in text.lines() {
+                let trimmed = crate::pathutil::strip_comment(raw).trim();
+                if trimmed.starts_with('[') {
+                    if !replaced && !inserted {
+                        out.push_str(&replacement);
+                        out.push('\n');
+                        if !out.ends_with("\n\n") {
+                            out.push('\n');
+                        }
+                        inserted = true;
+                    }
+                    in_top_level = false;
+                } else if !replaced && in_top_level {
+                    if let Some((name, _)) = trimmed.split_once('=')
+                        && name.trim() == key
+                    {
+                        out.push_str(&replacement);
+                        out.push('\n');
+                        replaced = true;
+                        continue;
+                    }
+                }
+                out.push_str(raw);
                 out.push('\n');
             }
-            inserted = true;
-        }
-        if !replaced && !in_section && trimmed.starts_with(key) {
-            let after_key = &trimmed[key.len()..];
-            if after_key.trim_start().starts_with('=') {
+
+            if !replaced && !inserted {
+                if !out.ends_with('\n') {
+                    out.push('\n');
+                }
                 out.push_str(&replacement);
                 out.push('\n');
-                replaced = true;
-                continue;
             }
-        }
-        out.push_str(raw);
-        out.push('\n');
-    }
 
-    if !replaced && !inserted {
-        if !out.ends_with('\n') {
-            out.push('\n');
+            out
         }
-        out.push_str(&replacement);
-        out.push('\n');
-    }
-
-    out
+    })
 }
 
 #[cfg(test)]
@@ -669,16 +708,31 @@ mod tests {
     #[test]
     fn set_pin_replaces_existing_top_level_value() {
         let text = "name = \"x\"\npin = false\n[download]\npin = false\n";
-        let updated = set_top_level_bool(text, "pin", true);
+        let updated = set_top_level_bool(text, "pin", true).unwrap();
 
         assert!(updated.starts_with("name = \"x\"\npin = true\n[download]\npin = false\n"));
     }
 
     #[test]
     fn set_pin_appends_when_missing() {
-        let updated = set_top_level_bool("name = \"x\"\n[download]\nurl = \"x\"\n", "pin", true);
+        let updated =
+            set_top_level_bool("name = \"x\"\n[download]\nurl = \"x\"\n", "pin", true).unwrap();
 
-        assert!(updated.starts_with("name = \"x\"\npin = true\n\n[download]\n"));
+        let doc: toml_edit::DocumentMut = updated.parse().unwrap();
+        assert_eq!(doc["pin"].as_bool(), Some(true));
+        assert!(doc["download"]["url"].is_str());
+        assert!(doc["download"].get("pin").is_none());
+    }
+
+    #[test]
+    fn set_pin_leaves_section_keys_and_multiline_values_alone() {
+        let text = "name = \"x\"\nurls = [\n  \"[bracketed]\",\n]\npin = false\n[download]\npin = false\nurl = \"x\"\n";
+        let updated = set_top_level_bool(text, "pin", true).unwrap();
+        let doc: toml_edit::DocumentMut = updated.parse().unwrap();
+
+        assert_eq!(doc["pin"].as_bool(), Some(true));
+        assert_eq!(doc["download"]["pin"].as_bool(), Some(false));
+        assert_eq!(doc["urls"].as_array().unwrap().len(), 1);
     }
 
     #[test]

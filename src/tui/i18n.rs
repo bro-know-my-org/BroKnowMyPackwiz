@@ -1400,7 +1400,7 @@ mod tests {
             "元数据文件名指向托管目录之外: outside/file.jar"
         );
         std::fs::write(root.join("mods/manual.jar"), "manual").unwrap();
-        let metadata = ModMetadata::parse("filename = \"old.jar\"\n");
+        let metadata = ModMetadata::parse("filename = \"old.jar\"\n").unwrap();
         let path = root.join("mods/a.pw.toml");
         let error = update::reject_manual_target_collision_operation(
             &root,
