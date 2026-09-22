@@ -73,6 +73,7 @@ pub fn execute(
                 control.check()?;
                 let result = urls(&download.source, &config).and_then(|urls| {
                     let mut error = None;
+                    let mut transient = false;
                     for url in urls {
                         control.check()?;
                         match transfer::download(
@@ -83,11 +84,21 @@ pub fn execute(
                         ) {
                             Ok(hashes) => return Ok(hashes),
                             Err(e) if e.code == ErrorCode::Cancelled => return Err(e),
-                            Err(e) => error = Some(e),
+                            Err(e) => {
+                                transient |= e.code != ErrorCode::Invalid;
+                                error = Some(e);
+                            }
                         }
                     }
-                    Err(error
-                        .unwrap_or_else(|| Error::key(ErrorCode::Failed, "download_url_missing")))
+                    let error = error
+                        .unwrap_or_else(|| Error::key(ErrorCode::Failed, "download_url_missing"));
+                    // Only the last URL's error is visible; a transient failure on
+                    // an earlier mirror still makes the whole attempt retryable.
+                    Err(if transient {
+                        Error::new(ErrorCode::Failed, error.detail)
+                    } else {
+                        error
+                    })
                 });
                 match result {
                     Ok(value) => {
@@ -95,6 +106,9 @@ pub fn execute(
                         break;
                     }
                     Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+                    // Invalid input (bad URL, auth/404-class failure) cannot be
+                    // fixed by retrying; keep retrying transient failures.
+                    Err(error) if error.code == ErrorCode::Invalid => return Err(error),
                     Err(error) => last = Some(error),
                 }
                 if attempt < config.install.retries {

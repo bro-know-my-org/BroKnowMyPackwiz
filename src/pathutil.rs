@@ -92,15 +92,19 @@ pub fn is_under_slash(rel: &str, parent: &str) -> bool {
 
 pub fn strip_comment(line: &str) -> &str {
     let mut escaped = false;
-    let mut in_string = false;
+    let mut quote = None;
     for (idx, ch) in line.char_indices() {
         match ch {
-            '\\' if in_string => escaped = !escaped,
-            '"' if !escaped => {
-                in_string = !in_string;
+            '\\' if quote == Some('"') => escaped = !escaped,
+            '"' | '\'' if quote.is_none() => {
+                quote = Some(ch);
                 escaped = false;
             }
-            '#' if !in_string => return &line[..idx],
+            '"' | '\'' if quote == Some(ch) && !escaped => {
+                quote = None;
+                escaped = false;
+            }
+            '#' if quote.is_none() => return &line[..idx],
             _ => escaped = false,
         }
     }
@@ -157,26 +161,48 @@ pub fn write_atomic_operation(
     match fs::rename(&tmp, path) {
         Ok(()) => Ok(()),
         Err(first_err) if path.exists() => {
-            fs::remove_file(path).map_err(|err| {
-                Error::named(
-                    ErrorCode::Failed,
-                    "remove_file_failed",
-                    format!("failed to remove {}: {err}", path.display()),
-                )
-                .context(format!("{}: {err}", path.display()))
-            })?;
-            fs::rename(&tmp, path).map_err(|err| {
+            // Rename the old file aside instead of deleting it, so a failed
+            // retry leaves the original content recoverable.
+            let backup = temp_sibling(path, COUNTER.fetch_add(1, Ordering::Relaxed));
+            fs::rename(path, &backup).map_err(|err| {
                 let _ = fs::remove_file(&tmp);
                 Error::named(
                     ErrorCode::Failed,
-                    "replace_file_failed",
-                    format!(
-                        "failed to replace {}: {err}; initial rename error: {first_err}",
-                        path.display()
-                    ),
+                    "remove_file_failed",
+                    format!("failed to move aside {}: {err}", path.display()),
                 )
-                .context(format!("{}: {err}; {first_err}", path.display()))
-            })
+                .context(format!("{}: {err}", path.display()))
+            })?;
+            match fs::rename(&tmp, path) {
+                Ok(()) => {
+                    let _ = fs::remove_file(&backup);
+                    Ok(())
+                }
+                Err(err) => {
+                    let _ = fs::remove_file(&tmp);
+                    match fs::rename(&backup, path) {
+                        Ok(()) => Err(Error::named(
+                            ErrorCode::Failed,
+                            "replace_file_failed",
+                            format!(
+                                "failed to replace {}: {err}; initial rename error: {first_err}",
+                                path.display()
+                            ),
+                        )
+                        .context(format!("{}: {err}; {first_err}", path.display()))),
+                        Err(restore_err) => Err(Error::named(
+                            ErrorCode::Failed,
+                            "replace_file_failed",
+                            format!(
+                                "failed to replace {}: {err}; initial rename error: {first_err}; restore failed: {restore_err}; original preserved at {}",
+                                path.display(),
+                                backup.display()
+                            ),
+                        )
+                        .context(format!("{}: {err}; {first_err}", path.display()))),
+                    }
+                }
+            }
         }
         Err(err) => {
             let _ = fs::remove_file(&tmp);

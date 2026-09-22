@@ -93,12 +93,17 @@ fn check_impl(root: &Path, release: bool, templates: &BTreeSet<String>) -> Check
         }
     };
 
-    let managed_files = match install::read_manifest_paths(root) {
-        Ok(paths) => paths,
-        Err(err) => {
-            result.errors.push(err);
-            BTreeSet::new()
-        }
+    let managed_files = {
+        let mut manifest_warnings = Vec::new();
+        let paths = match install::read_manifest_paths(root, &mut manifest_warnings) {
+            Ok(paths) => paths,
+            Err(err) => {
+                result.errors.push(err);
+                BTreeSet::new()
+            }
+        };
+        result.warnings.extend(manifest_warnings);
+        paths
     };
     let unmanaged_pack_files = report
         .included

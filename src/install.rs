@@ -50,6 +50,7 @@ struct CopyTask {
     url: Option<String>,
     curseforge: Option<CurseForgeDownload>,
     target: PathBuf,
+    target_root: PathBuf,
     target_rel: String,
     expected_hash: Option<ExpectedHash>,
     preserve: bool,
@@ -89,11 +90,12 @@ pub fn install_local(
     let mut target_paths = BTreeSet::new();
     let mut skipped = 0;
     let cleanup = options.cleanup;
-    let old_manifest = if cleanup {
-        read_manifest_paths(target_root)?
-    } else {
-        BTreeSet::new()
-    };
+    // The manifest marks which existing targets are managed by us, so it is
+    // needed even without cleanup to allow replacing managed files.
+    let mut warnings = temp_cleanup.warnings;
+    let old_manifest = read_manifest_paths(target_root, &mut warnings)?;
+    // Canonical once: per-file symlink checks resolve against this root.
+    let target_root_canonical = canonical_prefix(target_root)?;
 
     if cleanup && report.metadata.is_empty() {
         return Err(
@@ -101,9 +103,16 @@ pub fn install_local(
         );
     }
 
+    let mut plan_errors = Vec::new();
     for entry in report.metadata {
         let metadata_path = join_slash(source_root, &entry.path);
-        let metadata = ModMetadata::load(&metadata_path)?;
+        let metadata = match ModMetadata::load(&metadata_path) {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                plan_errors.push(err);
+                continue;
+            }
+        };
         let declared_side = side_from_directory_or_metadata(entry.side_hint, &metadata);
 
         if !declared_side.installs_on(target_side) {
@@ -143,6 +152,7 @@ pub fn install_local(
             url,
             curseforge,
             target: join_slash(target_root, &file_target),
+            target_root: target_root_canonical.clone(),
             managed_target: old_manifest.contains(&file_target),
             target_rel: file_target,
             expected_hash,
@@ -151,10 +161,16 @@ pub fn install_local(
         });
     }
 
-    let task_count = tasks.len();
-    let (installed_files, errors) = run_copy_tasks(tasks, options);
+    let (installed_files, mut errors) = run_copy_tasks(tasks, options);
+    errors.extend(plan_errors);
     let removed = if errors.is_empty() && cleanup {
-        cleanup_removed_files(target_root, &old_manifest, &installed_files)?
+        cleanup_removed_files(
+            &target_root_canonical,
+            &layout,
+            &old_manifest,
+            &installed_files,
+            &mut warnings,
+        )?
     } else {
         0
     };
@@ -162,11 +178,11 @@ pub fn install_local(
         write_manifest(target_root, target_side, &installed_files)?;
     }
     Ok(InstallResult {
-        installed: task_count - errors.len(),
+        installed: installed_files.len(),
         skipped,
         removed,
         temp_removed: temp_cleanup.removed,
-        warnings: temp_cleanup.warnings,
+        warnings,
         errors,
     })
 }
@@ -336,7 +352,7 @@ fn run_copy_tasks(
                         None
                     };
                     match copy_with_retries(&task, &options, &log, task_progress.clone()) {
-                        Ok(hash) => {
+                        Ok(outcome) => {
                             if let Some(progress) = progress {
                                 progress.finish_slot(worker_idx, false);
                             } else {
@@ -346,7 +362,8 @@ fn run_copy_tasks(
                             guard.push(InstalledFile {
                                 name: task.name,
                                 path: task.target_rel,
-                                sha256: hash,
+                                sha256: outcome.sha256,
+                                record: outcome.record,
                             });
                         }
                         Err(err) => {
@@ -386,7 +403,7 @@ fn copy_with_retries(
     options: &InstallOptions,
     log: &Mutex<()>,
     progress: Option<Arc<dyn DownloadProgress>>,
-) -> Result<String, String> {
+) -> Result<CopyOutcome, String> {
     let attempts = options.retries.max(1);
     let mut last_error = None;
     for attempt in 1..=attempts {
@@ -394,19 +411,23 @@ fn copy_with_retries(
             progress.reset();
         }
         match copy_atomic(task, options, progress.clone()) {
-            Ok(hash) => return Ok(hash),
+            Ok(outcome) => return Ok(outcome),
             Err(err) => {
+                if err.permanent {
+                    return Err(err.message);
+                }
                 if progress.is_none() {
                     log_install(
                         log,
                         format!(
-                            "failed attempt {attempt}/{attempts} for {} ({}): {err}",
+                            "failed attempt {attempt}/{attempts} for {} ({}): {}",
                             task.target_rel,
-                            task_source(task)
+                            task_source(task),
+                            err.message
                         ),
                     );
                 }
-                last_error = Some(err);
+                last_error = Some(err.message);
                 if attempt < attempts && options.retry_delay_seconds > 0 {
                     thread::sleep(Duration::from_secs(options.retry_delay_seconds));
                 }
@@ -440,91 +461,211 @@ fn task_source(task: &CopyTask) -> String {
     "missing source".to_string()
 }
 
+#[derive(Debug)]
+struct CopyError {
+    message: String,
+    /// Deterministic failures that can never succeed on retry.
+    permanent: bool,
+}
+
+impl CopyError {
+    fn permanent(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            permanent: true,
+        }
+    }
+    fn transient(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            permanent: false,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CopyOutcome {
+    sha256: String,
+    /// False when the existing file was preserved rather than written by us;
+    /// such targets must not become managed in the manifest.
+    record: bool,
+}
+
 fn copy_atomic(
     task: &CopyTask,
     options: &InstallOptions,
     progress: Option<Arc<dyn DownloadProgress>>,
-) -> Result<String, String> {
-    let preserve_existing = options.preserve_existing;
+) -> Result<CopyOutcome, CopyError> {
+    require_within_root(task).map_err(CopyError::permanent)?;
+    let preserve_existing = options.preserve_existing && !task.managed_target;
     if !task.force
         && let Some(expected) = &task.expected_hash
         && task.target.exists()
     {
         if file_hash_hex(&task.target, &expected.format).as_ref() == Ok(&expected.value) {
-            return sha256_file_hex(&task.target);
+            return Ok(CopyOutcome {
+                sha256: sha256_file_hex(&task.target).map_err(CopyError::transient)?,
+                // Content matched without us writing it; only files that were
+                // already managed or are free to adopt become managed.
+                record: task.managed_target || (!task.preserve && !preserve_existing),
+            });
         }
         if preserve_existing || task.preserve {
-            return Err(format!(
+            return Err(CopyError::permanent(format!(
                 "existing file hash mismatch for {}; use --force to replace it",
                 task.target.display()
-            ));
+            )));
         }
     }
     if !task.force && (task.preserve || preserve_existing) && task.target.exists() {
-        return sha256_file_hex(&task.target);
+        return Ok(CopyOutcome {
+            sha256: sha256_file_hex(&task.target).map_err(CopyError::transient)?,
+            // Preserved files keep whatever managed status they already had:
+            // a managed file stays managed, a manual file stays unmanaged.
+            record: task.managed_target,
+        });
     }
     if !task.force && task.target.exists() && !task.managed_target {
-        return Err(format!(
+        return Err(CopyError::permanent(format!(
             "refusing to overwrite unmanaged file: {}",
             task.target.display()
-        ));
+        )));
     }
     if let Some(parent) = task.target.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|err| {
+            CopyError::transient(format!("failed to create {}: {err}", parent.display()))
+        })?;
     }
 
     let tmp = unique_tmp_path(&task.target);
-    if let Some(source) = valid_local_source(task)? {
+    if let Some(source) = valid_local_source(task).map_err(CopyError::transient)? {
         let source_size = fs::metadata(source)
-            .map_err(|err| format!("failed to stat {}: {err}", source.display()))?
+            .map_err(|err| {
+                CopyError::transient(format!("failed to stat {}: {err}", source.display()))
+            })?
             .len();
         if let Some(progress) = &progress {
             progress.set_total(source_size);
         }
         let copied = fs::copy(source, &tmp).map_err(|err| {
-            format!(
+            CopyError::transient(format!(
                 "failed to copy {} to {}: {err}",
                 source.display(),
                 tmp.display()
-            )
+            ))
         })?;
         if let Some(progress) = &progress {
             progress.add_bytes(copied);
         }
     } else if let Some(url) = &task.url {
-        http_get_to_file_with_options(url, &tmp, &http_download_options(options, progress))?;
+        http_get_to_file_with_options(url, &tmp, &http_download_options(options, progress))
+            .map_err(CopyError::transient)?;
     } else if let Some(curseforge) = &task.curseforge {
-        download_curseforge(curseforge, &tmp, &http_download_options(options, progress))?;
+        download_curseforge(curseforge, &tmp, &http_download_options(options, progress))
+            .map_err(CopyError::transient)?;
     } else {
-        return Err(format!("missing source file for {}", task.name));
+        return Err(CopyError::permanent(format!(
+            "missing source file for {}",
+            task.name
+        )));
     }
     if let Some(expected) = &task.expected_hash {
-        let actual = file_hash_hex(&tmp, &expected.format)?;
+        let actual = file_hash_hex(&tmp, &expected.format).map_err(CopyError::transient)?;
         if actual != expected.value {
             let _ = fs::remove_file(&tmp);
-            return Err(format!(
+            // A bad download might succeed on retry (CDN propagation), so
+            // this stays transient.
+            return Err(CopyError::transient(format!(
                 "hash mismatch for {}: expected {} {}, got {}",
                 task.name, expected.format, expected.value, actual
-            ));
+            )));
         }
     }
-    replace_with_tmp(&tmp, &task.target)?;
-    sha256_file_hex(&task.target)
+    replace_with_tmp(&tmp, &task.target).map_err(CopyError::transient)?;
+    Ok(CopyOutcome {
+        sha256: sha256_file_hex(&task.target).map_err(CopyError::transient)?,
+        record: true,
+    })
+}
+
+// Canonicalizes the deepest existing ancestor of `path` and reattaches the
+// remaining components, so symlinked directories in the target root are
+// detected even when the final file does not exist yet. The reattached suffix
+// is compared lexically — this is only safe because callers pass paths that
+// already went through `safe_slash_path` (no `..` components). This is a
+// check-then-act guard: it prevents persistent symlinked roots, but a
+// concurrently swapped symlink could still escape; a local CLI accepts that.
+fn canonical_prefix(path: &Path) -> Result<PathBuf, String> {
+    let mut suffix = Vec::new();
+    let mut current = path.to_path_buf();
+    loop {
+        match current.canonicalize() {
+            Ok(mut resolved) => {
+                for part in suffix.iter().rev() {
+                    resolved.push(part);
+                }
+                return Ok(resolved);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let Some(name) = current.file_name() else {
+                    return Err(format!("failed to resolve {}: {err}", path.display()));
+                };
+                suffix.push(name.to_os_string());
+                if !current.pop() {
+                    return Err(format!("failed to resolve {}: {err}", path.display()));
+                }
+            }
+            Err(err) => {
+                return Err(format!("failed to resolve {}: {err}", path.display()));
+            }
+        }
+    }
+}
+
+fn path_within_root(canonical_root: &Path, path: &Path) -> Result<bool, String> {
+    Ok(canonical_prefix(path)?.starts_with(canonical_root))
+}
+
+fn require_within_root(task: &CopyTask) -> Result<(), String> {
+    if path_within_root(&task.target_root, &task.target)? {
+        Ok(())
+    } else {
+        Err(format!(
+            "target {} resolves outside the target root (possible symlink)",
+            task.target.display()
+        ))
+    }
 }
 
 fn replace_with_tmp(tmp: &Path, target: &Path) -> Result<(), String> {
     match fs::rename(tmp, target) {
         Ok(()) => Ok(()),
+        Err(first_err) if target.is_dir() => Err(format!(
+            "failed to replace {}: {first_err} (target is a directory)",
+            target.display()
+        )),
         Err(first_err) if target.exists() => {
-            fs::remove_file(target)
-                .map_err(|err| format!("failed to remove {}: {err}", target.display()))?;
-            fs::rename(tmp, target).map_err(|err| {
-                format!(
-                    "failed to replace {} after removing old file: {err}; initial rename error: {first_err}",
-                    target.display()
-                )
-            })
+            // Move the old file aside first so a failed retry restores it.
+            let backup = unique_tmp_path(target);
+            fs::rename(target, &backup)
+                .map_err(|err| format!("failed to move aside {}: {err}", target.display()))?;
+            match fs::rename(tmp, target) {
+                Ok(()) => {
+                    let _ = fs::remove_file(&backup);
+                    Ok(())
+                }
+                Err(err) => match fs::rename(&backup, target) {
+                    Ok(()) => Err(format!(
+                        "failed to replace {} after moving old file aside: {err}; initial rename error: {first_err}",
+                        target.display()
+                    )),
+                    Err(restore_err) => Err(format!(
+                        "failed to replace {} after moving old file aside: {err}; initial rename error: {first_err}; restore failed: {restore_err}; original preserved at {}",
+                        target.display(),
+                        backup.display()
+                    )),
+                },
+            }
         }
         Err(err) => Err(format!("failed to replace {}: {err}", target.display())),
     }
@@ -623,12 +764,15 @@ struct InstalledFile {
     name: String,
     path: String,
     sha256: String,
+    record: bool,
 }
 
 fn cleanup_removed_files(
     root: &Path,
+    layout: &PackLayout,
     old_paths: &BTreeSet<String>,
     new_files: &[InstalledFile],
+    warnings: &mut Vec<String>,
 ) -> Result<usize, String> {
     let new_paths = new_files
         .iter()
@@ -639,10 +783,27 @@ fn cleanup_removed_files(
         if new_paths.contains(path.as_str()) {
             continue;
         }
-        if !is_safe_manifest_path(path) {
+        if !is_safe_manifest_path(path, layout) {
             continue;
         }
         let full_path = join_slash(root, path);
+        match path_within_root(root, &full_path) {
+            Ok(true) => {}
+            Ok(false) => {
+                warnings.push(format!(
+                    "skipping cleanup of {}: path resolves outside the target root (possible symlink)",
+                    full_path.display()
+                ));
+                continue;
+            }
+            Err(err) => {
+                warnings.push(format!(
+                    "skipping cleanup of {}: failed to resolve path ({err})",
+                    full_path.display()
+                ));
+                continue;
+            }
+        }
         if full_path.is_file() {
             fs::remove_file(&full_path)
                 .map_err(|err| format!("failed to remove {}: {err}", full_path.display()))?;
@@ -662,93 +823,57 @@ fn cleanup_stale_temp_files(
     tempfiles::cleanup_stale_temp_files(root, &managed_roots, stale_after)
 }
 
-fn is_safe_manifest_path(path: &str) -> bool {
+fn is_safe_manifest_path(path: &str, layout: &PackLayout) -> bool {
     let Ok(normalized) = crate::pathutil::safe_slash_path(path) else {
         return false;
     };
-    normalized.starts_with("mods/")
-        || normalized.starts_with("resourcepacks/")
-        || normalized.starts_with("shaderpacks/")
+    is_managed_pack_file_path(&normalized, layout)
 }
 
-pub(crate) fn read_manifest_paths(root: &Path) -> Result<BTreeSet<String>, String> {
+pub(crate) fn read_manifest_paths(
+    root: &Path,
+    warnings: &mut Vec<String>,
+) -> Result<BTreeSet<String>, String> {
     let path = root.join("packwiz.json");
-    let Ok(text) = fs::read_to_string(&path) else {
-        return Ok(BTreeSet::new());
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(BTreeSet::new());
+        }
+        Err(err) => {
+            return Err(format!("failed to read {}: {err}", path.display()));
+        }
     };
-    if json_string_field(&text, "format").as_deref() != Some("bkmpw:1") {
+    // The manifest gates both overwrite permission and deletion; a corrupt
+    // manifest silently downgrades managed files to unmanaged, so warn.
+    let manifest: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(err) => {
+            warnings.push(format!(
+                "ignoring malformed {}: {err}; managed files will be treated as unmanaged",
+                path.display()
+            ));
+            return Ok(BTreeSet::new());
+        }
+    };
+    if manifest.get("format").and_then(|v| v.as_str()) != Some("bkmpw:1") {
         return Ok(BTreeSet::new());
     }
     let mut paths = BTreeSet::new();
-    let Some(files_idx) = text.find("\"files\"") else {
-        return Ok(BTreeSet::new());
-    };
-    let Some(files_body) = json_array_after_field(&text[files_idx..], "files") else {
-        return Ok(BTreeSet::new());
-    };
-    let mut rest = files_body;
-    while let Some(idx) = rest.find("\"path\"") {
-        let after_name = &rest[idx + "\"path\"".len()..];
-        let Some(after_colon) = after_name.trim_start().strip_prefix(':') else {
-            break;
-        };
-        let after_colon = after_colon.trim_start();
-        let Some((value, consumed)) = parse_json_string_with_len(after_colon) else {
-            break;
-        };
-        paths.insert(crate::pathutil::normalize_slash(&value));
-        rest = &after_colon[consumed.min(after_colon.len())..];
-    }
-    Ok(paths)
-}
-
-fn json_array_after_field<'a>(text: &'a str, field: &str) -> Option<&'a str> {
-    let needle = format!("\"{field}\"");
-    let idx = text.find(&needle)?;
-    let after_name = &text[idx + needle.len()..];
-    let mut chars = after_name
-        .trim_start()
-        .strip_prefix(':')?
-        .trim_start()
-        .char_indices();
-    let (_, first) = chars.next()?;
-    if first != '[' {
-        return None;
-    }
-    let start = 1;
-    let mut depth = 1usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for (idx, ch) in after_name.trim_start().strip_prefix(':')?.trim_start()[start..].char_indices()
-    {
-        match ch {
-            '\\' if in_string => escaped = !escaped,
-            '"' if !escaped => {
-                in_string = !in_string;
-                escaped = false;
-            }
-            '[' if !in_string => depth += 1,
-            ']' if !in_string => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(
-                        &after_name.trim_start().strip_prefix(':')?.trim_start()
-                            [start..start + idx],
-                    );
+    match manifest.get("files").and_then(|v| v.as_array()) {
+        Some(files) => {
+            for file in files {
+                if let Some(path) = file.get("path").and_then(|v| v.as_str()) {
+                    paths.insert(crate::pathutil::normalize_slash(path));
                 }
             }
-            _ => escaped = false,
         }
+        None => warnings.push(format!(
+            "{} has format bkmpw:1 but no files array; managed files will be treated as unmanaged",
+            path.display()
+        )),
     }
-    None
-}
-
-fn json_string_field(text: &str, field: &str) -> Option<String> {
-    let needle = format!("\"{field}\"");
-    let idx = text.find(&needle)?;
-    let after_name = &text[idx + needle.len()..];
-    let after_colon = after_name.trim_start().strip_prefix(':')?.trim_start();
-    parse_json_string_with_len(after_colon).map(|(value, _)| value)
+    Ok(paths)
 }
 
 fn write_manifest(root: &Path, side: &Side, files: &[InstalledFile]) -> Result<(), String> {
@@ -762,8 +887,9 @@ fn write_manifest(root: &Path, side: &Side, files: &[InstalledFile]) -> Result<(
     out.push_str(&json_escape(side.as_str()));
     out.push_str("\",\n");
     out.push_str("  \"files\": [\n");
-    for (idx, item) in files.iter().enumerate() {
-        let comma = if idx + 1 == files.len() { "" } else { "," };
+    let recorded: Vec<_> = files.iter().filter(|file| file.record).collect();
+    for (idx, item) in recorded.iter().enumerate() {
+        let comma = if idx + 1 == recorded.len() { "" } else { "," };
         out.push_str("    {\"name\":\"");
         out.push_str(&json_escape(&item.name));
         out.push_str("\",\"path\":\"");
@@ -795,32 +921,6 @@ fn json_escape(value: &str) -> String {
         }
     }
     out
-}
-
-fn parse_json_string_with_len(text: &str) -> Option<(String, usize)> {
-    let mut chars = text.strip_prefix('"')?.char_indices();
-    let mut out = String::new();
-    while let Some((idx, ch)) = chars.next() {
-        match ch {
-            '"' => return Some((out, idx + 2)),
-            '\\' => {
-                let (_, escaped) = chars.next()?;
-                match escaped {
-                    '"' => out.push('"'),
-                    '\\' => out.push('\\'),
-                    '/' => out.push('/'),
-                    'b' => out.push('\u{0008}'),
-                    'f' => out.push('\u{000c}'),
-                    'n' => out.push('\n'),
-                    'r' => out.push('\r'),
-                    't' => out.push('\t'),
-                    other => out.push(other),
-                }
-            }
-            other => out.push(other),
-        }
-    }
-    None
 }
 
 #[cfg(test)]
@@ -880,9 +980,9 @@ mod tests {
 
     #[test]
     fn directory_side_overrides_metadata_side() {
-        let client_meta = ModMetadata::parse("side = \"server\"\n");
-        let server_meta = ModMetadata::parse("side = \"client\"\n");
-        let common_meta = ModMetadata::parse("side = \"server\"\n");
+        let client_meta = ModMetadata::parse("side = \"server\"\n").unwrap();
+        let server_meta = ModMetadata::parse("side = \"client\"\n").unwrap();
+        let common_meta = ModMetadata::parse("side = \"server\"\n").unwrap();
 
         assert_eq!(
             side_from_directory_or_metadata(crate::scan::SideHint::Client, &client_meta),
@@ -912,6 +1012,7 @@ mod tests {
             url: None,
             curseforge: None,
             target: target.clone(),
+            target_root: root.canonicalize().unwrap(),
             target_rel: "mods/target.jar".to_string(),
             expected_hash: None,
             preserve: true,
@@ -939,6 +1040,7 @@ mod tests {
             url: None,
             curseforge: None,
             target: target.clone(),
+            target_root: root.canonicalize().unwrap(),
             target_rel: "mods/target.jar".to_string(),
             expected_hash: Some(ExpectedHash {
                 format: "sha512".to_string(),
@@ -970,6 +1072,7 @@ mod tests {
             url: None,
             curseforge: None,
             target: target.clone(),
+            target_root: root.canonicalize().unwrap(),
             target_rel: "mods/target.jar".to_string(),
             expected_hash: Some(ExpectedHash {
                 format: "sha256".to_string(),
@@ -1001,6 +1104,7 @@ mod tests {
             url: None,
             curseforge: None,
             target: target.clone(),
+            target_root: root.canonicalize().unwrap(),
             target_rel: "mods/target.jar".to_string(),
             expected_hash: Some(ExpectedHash {
                 format: "sha256".to_string(),
@@ -1014,7 +1118,7 @@ mod tests {
         let mut options = test_install_options();
         options.preserve_existing = true;
         let err = copy_atomic(&task, &options, None).unwrap_err();
-        assert!(err.contains("existing file hash mismatch"));
+        assert!(err.message.contains("existing file hash mismatch"));
         assert_eq!(fs::read(&target).unwrap(), b"wrong");
 
         let _ = fs::remove_dir_all(root);
@@ -1031,7 +1135,14 @@ mod tests {
         old.insert("mods/old.jar".to_string());
         old.insert("saves/world.dat".to_string());
 
-        let removed = cleanup_removed_files(&root, &old, &[]).unwrap();
+        let removed = cleanup_removed_files(
+            &root.canonicalize().unwrap(),
+            &layout(),
+            &old,
+            &[],
+            &mut Vec::new(),
+        )
+        .unwrap();
 
         assert_eq!(removed, 1);
         assert!(!root.join("mods").join("old.jar").exists());
@@ -1049,7 +1160,7 @@ mod tests {
         )
         .unwrap();
 
-        let paths = read_manifest_paths(&root).unwrap();
+        let paths = read_manifest_paths(&root, &mut Vec::new()).unwrap();
 
         assert!(paths.is_empty());
 
@@ -1065,7 +1176,7 @@ mod tests {
         )
         .unwrap();
 
-        let paths = read_manifest_paths(&root).unwrap();
+        let paths = read_manifest_paths(&root, &mut Vec::new()).unwrap();
 
         assert!(paths.contains("mods/old.jar"));
         assert!(!paths.contains("mods/outside-array.jar"));
@@ -1082,7 +1193,7 @@ mod tests {
         )
         .unwrap();
 
-        let paths = read_manifest_paths(&root).unwrap();
+        let paths = read_manifest_paths(&root, &mut Vec::new()).unwrap();
 
         assert!(paths.contains("mods/old.jar"));
         assert!(!paths.contains("mods/manual.jar"));
@@ -1103,6 +1214,7 @@ mod tests {
             url: None,
             curseforge: None,
             target: target.clone(),
+            target_root: root.canonicalize().unwrap(),
             target_rel: "mods/target.jar".to_string(),
             expected_hash: None,
             preserve: false,
@@ -1163,6 +1275,7 @@ mod tests {
             url: Some("https://example.com/remote.jar".to_string()),
             curseforge: None,
             target: root.join("mods").join("remote.jar"),
+            target_root: root.canonicalize().unwrap(),
             target_rel: "mods/remote.jar".to_string(),
             expected_hash: None,
             preserve: false,
@@ -1193,6 +1306,7 @@ mod tests {
                 filename: "cf.jar".to_string(),
             }),
             target: root.join("mods").join("cf.jar"),
+            target_root: root.canonicalize().unwrap(),
             target_rel: "mods/cf.jar".to_string(),
             expected_hash: None,
             preserve: false,
@@ -1267,6 +1381,123 @@ mod tests {
         assert!(root.join("mods").join("old.jar").exists());
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reinstall_updates_managed_file_without_cleanup() {
+        let root = temp_root("reinstall-updates-managed-file");
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::write(root.join("mods/mod.jar"), b"v1").unwrap();
+        let meta = root.join("mods/mod.pw.toml");
+        fs::write(&meta, "filename = \"mod.jar\"\n").unwrap();
+        let options = || InstallOptions {
+            jobs: 1,
+            retries: 1,
+            retry_delay_seconds: 0,
+            force: false,
+            cleanup: false,
+            preserve_existing: false,
+            split_download_min_bytes: 16 * 1024 * 1024,
+            split_download_chunks: 4,
+        };
+
+        let target = temp_root("reinstall-updates-managed-target");
+        let first = install_local(&root, &target, &Side::Both, options()).unwrap();
+        assert!(first.errors.is_empty());
+        assert_eq!(fs::read(target.join("mods/mod.jar")).unwrap(), b"v1");
+
+        // Simulate an update: new jar bytes and updated metadata hash.
+        fs::write(root.join("mods/mod.jar"), b"v2").unwrap();
+        let hash = sha256_file_hex(&root.join("mods/mod.jar")).unwrap();
+        fs::write(
+            &meta,
+            format!(
+                "filename = \"mod.jar\"\n[download]\nhash-format = \"sha256\"\nhash = \"{hash}\"\n"
+            ),
+        )
+        .unwrap();
+
+        let second = install_local(&root, &target, &Side::Both, options()).unwrap();
+        assert!(second.errors.is_empty());
+        assert_eq!(fs::read(target.join("mods/mod.jar")).unwrap(), b"v2");
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(target);
+    }
+
+    #[test]
+    fn download_mode_repairs_corrupt_managed_file() {
+        let root = temp_root("download-mode-repairs-managed");
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::write(root.join("mods/mod.jar"), b"good").unwrap();
+        let hash = sha256_file_hex(&root.join("mods/mod.jar")).unwrap();
+        fs::write(
+            root.join("mods/mod.pw.toml"),
+            format!(
+                "filename = \"mod.jar\"\n[download]\nhash-format = \"sha256\"\nhash = \"{hash}\"\n"
+            ),
+        )
+        .unwrap();
+        let options = || InstallOptions {
+            jobs: 1,
+            retries: 1,
+            retry_delay_seconds: 0,
+            force: false,
+            cleanup: false,
+            preserve_existing: true,
+            split_download_min_bytes: 16 * 1024 * 1024,
+            split_download_chunks: 4,
+        };
+
+        let target = temp_root("download-mode-repairs-target");
+        install_local(&root, &target, &Side::Both, options()).unwrap();
+        fs::write(target.join("mods/mod.jar"), b"corrupt").unwrap();
+
+        let repaired = install_local(&root, &target, &Side::Both, options()).unwrap();
+        assert!(repaired.errors.is_empty());
+        assert_eq!(fs::read(target.join("mods/mod.jar")).unwrap(), b"good");
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(target);
+    }
+
+    #[test]
+    fn install_refuses_symlinked_managed_root_in_target() {
+        let root = temp_root("install-refuses-symlinked-root");
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::write(root.join("mods/mod.jar"), b"jar").unwrap();
+        fs::write(root.join("mods/mod.pw.toml"), "filename = \"mod.jar\"\n").unwrap();
+        let outside = temp_root("install-symlink-outside");
+        fs::write(outside.join("keep.txt"), b"precious").unwrap();
+        let target = temp_root("install-symlink-target");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, target.join("mods")).unwrap();
+            let result = install_local(
+                &root,
+                &target,
+                &Side::Both,
+                InstallOptions {
+                    jobs: 1,
+                    retries: 1,
+                    retry_delay_seconds: 0,
+                    force: false,
+                    cleanup: false,
+                    preserve_existing: false,
+                    split_download_min_bytes: 16 * 1024 * 1024,
+                    split_download_chunks: 4,
+                },
+            )
+            .unwrap();
+            assert_eq!(result.errors.len(), 1);
+            assert!(result.errors[0].contains("outside the target root"));
+            assert!(!outside.join("mod.jar").exists());
+            assert!(outside.join("keep.txt").is_file());
+        }
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
+        let _ = fs::remove_dir_all(target);
     }
 
     fn temp_root(name: &str) -> PathBuf {
