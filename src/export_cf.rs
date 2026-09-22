@@ -237,7 +237,8 @@ fn export_curseforge_latest_project_id(metadata: &ModMetadata, rel: &str) -> Res
 fn skip_override(rel: &str, layout: &PackLayout) -> bool {
     rel == "pack.toml"
         || rel == "index.toml"
-        || rel == ".pw/config.toml"
+        || rel == "packwiz.json"
+        || rel.starts_with(".pw/")
         || is_metadata_file(rel, layout)
 }
 

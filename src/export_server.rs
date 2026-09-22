@@ -410,11 +410,11 @@ fn normalize_layout_path(path: &Path) -> String {
 fn skip_server_entry(rel: &str, layout: &PackLayout, include_packwiz_files: bool) -> bool {
     rel == "packwiz.json"
         || rel.ends_with(".mrpack")
+        // Internal state never ships; the installer path re-adds
+        // .pw/config.toml explicitly when it wants it.
+        || rel.starts_with(".pw/")
         || (!include_packwiz_files
-            && (rel == "pack.toml"
-                || rel == "index.toml"
-                || rel == ".pw/config.toml"
-                || rel == ".packwizignore"))
+            && (rel == "pack.toml" || rel == "index.toml" || rel == ".packwizignore"))
         || is_metadata_file(rel, layout)
 }
 
@@ -432,6 +432,12 @@ fn reset_output_dir(root: &Path, output_dir: &Path, layout: &PackLayout) -> Resu
     let output_abs = normalized_existing_or_future_path(output_dir)?;
     if output_abs == root_abs {
         return Err("refusing to prepare server pack into the pack root".to_string());
+    }
+    if root_abs.starts_with(&output_abs) {
+        return Err(format!(
+            "refusing to prepare server pack into an ancestor of the pack root: {}",
+            output_dir.display()
+        ));
     }
     reject_pack_content_output_dir(root, &output_abs, layout)?;
     if output_abs.parent().is_none() {
@@ -1042,6 +1048,24 @@ mod tests {
         assert!(err.contains("pack content directory"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn prepare_server_refuses_output_that_contains_pack_root() {
+        let root = unique_test_dir("bkmpw-prepare-server-ancestor")
+            .join("nested")
+            .join("pack");
+        create_pack(&root);
+        let ancestor = root.parent().unwrap().to_path_buf();
+        fs::write(ancestor.join("sibling.txt"), b"precious").unwrap();
+
+        let err = prepare_server(&root, &ancestor).unwrap_err();
+
+        assert!(err.contains("ancestor"));
+        assert!(ancestor.join("pack").is_dir());
+        assert!(ancestor.join("sibling.txt").is_file());
+
+        let _ = fs::remove_dir_all(ancestor.parent().unwrap());
     }
 
     #[test]
