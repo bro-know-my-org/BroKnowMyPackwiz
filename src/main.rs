@@ -94,28 +94,28 @@ fn main() {
         "add-github" => add_github(rest),
         "add-resourcepack" => add_resourcepack(rest),
         "add-shaderpack" => add_shaderpack(rest),
-        "check" => check_cmd(first_path(rest)),
+        "check" => check_cmd(rest),
         "export-client" => export_client_cmd(rest),
         "export-curseforge" => export_curseforge(rest),
         "export-server" => export_server_cmd(rest),
         "export-server-installer" => export_server_installer_cmd(rest),
         "hash" => hash_cmd(rest),
-        "init" => init(first_path(rest)),
+        "init" => init(rest),
         "download-files" => download_files(rest),
         "install-files" | "install-files-headless" => install_files_headless(rest),
         "install-files-retry" => install_files_retry(rest),
         "install-local" => install_local(rest),
-        "inspect" => inspect(first_path(rest)),
-        "list" => list(first_path(rest)),
+        "inspect" => inspect(rest),
+        "list" => list(rest),
         "modlist" => write_modlist(rest),
         "pin" => pin_or_unpin(rest, true),
         "prepare-server" => prepare_server_cmd(rest),
         "prepare-pack" => prepare_pack_cmd(rest),
         "remove" | "rm" => remove(rest),
-        "scan" => scan(first_path(rest)),
+        "scan" => scan(rest),
         "self-update" | "update-self" => self_update_cmd(rest),
         "sync" => sync(rest),
-        "refresh" => refresh(first_path(rest)),
+        "refresh" => refresh(rest),
         "update" => update_cmd(rest),
         "check-updates" => check_updates_cmd(rest),
         "unpin" => pin_or_unpin(rest, false),
@@ -183,10 +183,6 @@ fn print_help() {
     println!("  bkmpw <command> --json-lines");
 }
 
-fn first_path(args: &[String]) -> Option<PathBuf> {
-    args.first().map(PathBuf::from)
-}
-
 fn self_update_cmd(args: &[String]) -> Result<(), String> {
     let mut options = self_update::SelfUpdateOptions {
         repo: self_update::default_repo().to_string(),
@@ -217,7 +213,7 @@ fn self_update_cmd(args: &[String]) -> Result<(), String> {
 }
 
 fn hash_cmd(args: &[String]) -> Result<(), String> {
-    if args.len() < 2 {
+    if args.len() != 2 {
         return Err("usage: bkmpw hash <sha1|sha256|sha512|murmur2> <file>".to_string());
     }
     let path = PathBuf::from(&args[1]);
@@ -231,7 +227,11 @@ fn hash_cmd(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn check_cmd(root: Option<PathBuf>) -> Result<(), String> {
+fn check_cmd(args: &[String]) -> Result<(), String> {
+    if args.len() > 1 {
+        return Err("usage: bkmpw check [pack-root]".to_string());
+    }
+    let root = args.first().map(PathBuf::from);
     let root = match root {
         Some(path) => path,
         None => env::current_dir().map_err(|err| format!("failed to read current dir: {err}"))?,
@@ -256,7 +256,11 @@ fn check_cmd(root: Option<PathBuf>) -> Result<(), String> {
     }
 }
 
-fn inspect(root: Option<PathBuf>) -> Result<(), String> {
+fn inspect(args: &[String]) -> Result<(), String> {
+    if args.len() > 1 {
+        return Err("usage: bkmpw inspect [pack-root]".to_string());
+    }
+    let root = args.first().map(PathBuf::from);
     let root = match root {
         Some(path) => path,
         None => env::current_dir().map_err(|err| format!("failed to read current dir: {err}"))?,
@@ -281,7 +285,11 @@ fn inspect(root: Option<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-fn refresh(root: Option<PathBuf>) -> Result<(), String> {
+fn refresh(args: &[String]) -> Result<(), String> {
+    if args.len() > 1 {
+        return Err("usage: bkmpw refresh [pack-root]".to_string());
+    }
+    let root = args.first().map(PathBuf::from);
     let root = match root {
         Some(path) => path,
         None => env::current_dir().map_err(|err| format!("failed to read current dir: {err}"))?,
@@ -298,7 +306,11 @@ fn refresh(root: Option<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-fn init(root: Option<PathBuf>) -> Result<(), String> {
+fn init(args: &[String]) -> Result<(), String> {
+    if args.len() > 1 {
+        return Err("usage: bkmpw init [pack-root]".to_string());
+    }
+    let root = args.first().map(PathBuf::from);
     let root = root.unwrap_or_else(|| PathBuf::from("."));
     let result = init::init_pack(&root)?;
 
@@ -314,7 +326,7 @@ fn init(root: Option<PathBuf>) -> Result<(), String> {
 }
 
 fn add_url(args: &[String]) -> Result<(), String> {
-    if args.len() < 6 {
+    if args.len() != 6 {
         return Err(
             "usage: bkmpw add-url <pack-root> <side> <name> <filename> <url> <sha256>".to_string(),
         );
@@ -357,7 +369,7 @@ fn add_pack_asset(
         &str,
     ) -> Result<PathBuf, String>,
 ) -> Result<(), String> {
-    if args.len() < 5 {
+    if args.len() != 5 {
         return Err(format!(
             "usage: bkmpw {command} <pack-root> <name> <filename> <url> <sha256>"
         ));
@@ -675,7 +687,7 @@ fn parse_string_arg(value: Option<&String>, name: &str) -> Result<String, String
 }
 
 fn add_file(args: &[String]) -> Result<(), String> {
-    if args.len() < 4 {
+    if !(4..=5).contains(&args.len()) {
         return Err(
             "usage: bkmpw add-file <pack-root> <side> <name> <source-file> [filename]".to_string(),
         );
@@ -763,7 +775,7 @@ fn prepare_pack_cmd(args: &[String]) -> Result<(), String> {
 }
 
 fn parse_export_client_args(args: &[String]) -> Result<(PathBuf, PathBuf, Option<String>), String> {
-    if args.is_empty() {
+    if args.is_empty() || args.len() > 3 {
         return Err("usage: bkmpw export-client <pack-root> [output.zip] [root-dir]".to_string());
     }
     let root = PathBuf::from(&args[0]);
@@ -776,7 +788,7 @@ fn parse_export_client_args(args: &[String]) -> Result<(PathBuf, PathBuf, Option
 }
 
 fn parse_export_server_args(args: &[String]) -> Result<(PathBuf, PathBuf), String> {
-    if args.is_empty() {
+    if args.is_empty() || args.len() > 2 {
         return Err("usage: bkmpw export-server <pack-root> [output.zip]".to_string());
     }
     let root = PathBuf::from(&args[0]);
@@ -788,7 +800,7 @@ fn parse_export_server_args(args: &[String]) -> Result<(PathBuf, PathBuf), Strin
 }
 
 fn parse_export_server_installer_args(args: &[String]) -> Result<(PathBuf, PathBuf), String> {
-    if args.is_empty() {
+    if args.is_empty() || args.len() > 2 {
         return Err("usage: bkmpw export-server-installer <pack-root> [output.zip]".to_string());
     }
     let root = PathBuf::from(&args[0]);
@@ -813,7 +825,7 @@ fn prepare_server_cmd(args: &[String]) -> Result<(), String> {
 }
 
 fn parse_prepare_server_args(args: &[String]) -> Result<(PathBuf, PathBuf), String> {
-    if args.is_empty() {
+    if args.is_empty() || args.len() > 2 {
         return Err("usage: bkmpw prepare-server <pack-root> [output-dir]".to_string());
     }
     let root = PathBuf::from(&args[0]);
@@ -827,7 +839,7 @@ fn parse_prepare_server_args(args: &[String]) -> Result<(PathBuf, PathBuf), Stri
 fn parse_export_curseforge_args(
     args: &[String],
 ) -> Result<(PathBuf, PathBuf, metadata::Side), String> {
-    if args.is_empty() {
+    if args.is_empty() || args.len() > 3 {
         return Err("usage: bkmpw export-curseforge <pack-root> [output.zip] [side]".to_string());
     }
     let root = PathBuf::from(&args[0]);
@@ -942,6 +954,12 @@ fn install_files_retry(args: &[String]) -> Result<(), String> {
 }
 
 fn install_files_with_retry_args(args: &[String]) -> Result<(), String> {
+    if args.len() > 3 {
+        return Err(
+            "usage: bkmpw install-files-headless <pack-root> [attempts] [delay-seconds]"
+                .to_string(),
+        );
+    }
     let root = PathBuf::from(&args[0]);
     let config = ProjectConfig::load(&root)?;
     let mut options = default_install_options(&config)?;
@@ -1057,7 +1075,7 @@ fn default_install_options(config: &ProjectConfig) -> Result<install::InstallOpt
 }
 
 fn write_modlist(args: &[String]) -> Result<(), String> {
-    if args.is_empty() {
+    if args.is_empty() || args.len() > 2 {
         return Err("usage: bkmpw modlist <pack-root> [output-dir]".to_string());
     }
     let root = PathBuf::from(&args[0]);
@@ -1072,7 +1090,11 @@ fn write_modlist(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn list(root: Option<PathBuf>) -> Result<(), String> {
+fn list(args: &[String]) -> Result<(), String> {
+    if args.len() > 1 {
+        return Err("usage: bkmpw list [pack-root]".to_string());
+    }
+    let root = args.first().map(PathBuf::from);
     let root = match root {
         Some(path) => path,
         None => env::current_dir().map_err(|err| format!("failed to read current dir: {err}"))?,
@@ -1138,10 +1160,20 @@ fn root_and_name(args: &[String]) -> Result<(PathBuf, String), String> {
     let Some(name) = args.get(1) else {
         return Err("missing metadata name".to_string());
     };
+    if args.len() > 2 {
+        return Err(format!(
+            "unexpected extra arguments: {}",
+            args[2..].join(" ")
+        ));
+    }
     Ok((PathBuf::from(root), name.clone()))
 }
 
-fn scan(root: Option<PathBuf>) -> Result<(), String> {
+fn scan(args: &[String]) -> Result<(), String> {
+    if args.len() > 1 {
+        return Err("usage: bkmpw scan [pack-root]".to_string());
+    }
+    let root = args.first().map(PathBuf::from);
     let root = match root {
         Some(path) => path,
         None => env::current_dir().map_err(|err| format!("failed to read current dir: {err}"))?,
