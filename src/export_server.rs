@@ -185,30 +185,41 @@ fn collect_entries(
     root: &Path,
     target_side: &Side,
     output_rel: Option<String>,
-    options: CollectOptions,
+    mut options: CollectOptions,
 ) -> Result<Vec<PackEntry>, String> {
     let config = ProjectConfig::load(root)?;
+    let retain_all_metadata = config.export.include_metadata;
+    options.include_metadata |= retain_all_metadata;
     let layout = PackLayout::from_config(&config);
     let report = ScanReport::build(root, &config, &layout)?;
     let mut entries = BTreeMap::new();
     let mut metadata_targets = BTreeSet::new();
 
     for entry in &report.metadata {
+        if is_output_path(&entry.path, output_rel.as_deref()) {
+            return Err(format!(
+                "output path collides with metadata file: {}",
+                entry.path
+            ));
+        }
         let metadata = ModMetadata::load(&join_slash(root, &entry.path))?;
+        let declared_side = side_from_directory_or_metadata(entry.side_hint, &metadata);
+        if retain_all_metadata && declared_side.installs_on(target_side) {
+            insert_entry(&mut entries, entry.path.clone(), entry.path.clone());
+        }
         let Some(filename) = metadata.filename.as_deref() else {
             continue;
         };
         let target = install::resolve_pack_file_path(&entry.path, filename, &layout)?;
         metadata_targets.insert(target.clone());
 
-        let declared_side = side_from_directory_or_metadata(entry.side_hint, &metadata);
         if metadata.optional && !metadata.option_default {
             continue;
         }
         if !declared_side.installs_on(target_side) {
             continue;
         }
-        if options.include_metadata {
+        if options.include_metadata && !retain_all_metadata {
             insert_entry(&mut entries, entry.path.clone(), entry.path.clone());
         }
         if options.include_runtime_jars {
@@ -924,6 +935,90 @@ mod tests {
         assert!(!zip_text.contains("PackRoot/mods/server.jar"));
         assert!(!zip_text.contains("manifest.json"));
         assert!(!zip_text.contains("overrides/"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_metadata_switch_keeps_side_matching_metadata() {
+        let root = unique_test_dir("bkmpw-export-pw-metadata");
+        create_pack(&root);
+        fs::create_dir_all(root.join(".pw")).unwrap();
+        fs::create_dir_all(root.join("mods/server")).unwrap();
+        fs::create_dir_all(root.join("mods/client")).unwrap();
+        fs::create_dir_all(root.join("resourcepacks")).unwrap();
+        fs::create_dir_all(root.join("shaderpacks")).unwrap();
+        fs::write(
+            root.join(".pw/config.toml"),
+            "[export]\ninclude-metadata = true\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("mods/server/server.pw.toml"),
+            "filename = \"server.jar\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("mods/client/client.pw"),
+            "filename = \"client.jar\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("resourcepacks/pack.pw.toml"),
+            "filename = \"pack.zip\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("shaderpacks/shader.pw"),
+            "filename = \"shader.zip\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("resourcepacks/optional.pw.toml"),
+            "[option]\noptional = true\ndefault = false\n",
+        )
+        .unwrap();
+        fs::write(root.join("mods/server.jar"), b"server").unwrap();
+        fs::write(root.join("mods/client.jar"), b"client").unwrap();
+        fs::write(root.join("resourcepacks/pack.zip"), b"pack").unwrap();
+        fs::write(root.join("shaderpacks/shader.zip"), b"shader").unwrap();
+
+        let server = root.join("server.zip");
+        export_server(&root, &server).unwrap();
+        let server_zip = String::from_utf8_lossy(&fs::read(server).unwrap()).into_owned();
+        assert!(server_zip.contains("mods/server/server.pw.toml"));
+        assert!(!server_zip.contains("mods/client/client.pw"));
+        assert!(!server_zip.contains("resourcepacks/pack.pw.toml"));
+
+        let client = root.join("client.zip");
+        export_client(&root, &client, Some("PackRoot")).unwrap();
+        let client_zip = String::from_utf8_lossy(&fs::read(client).unwrap()).into_owned();
+        assert!(client_zip.contains("PackRoot/mods/client/client.pw"));
+        assert!(client_zip.contains("PackRoot/resourcepacks/pack.pw.toml"));
+        assert!(client_zip.contains("PackRoot/shaderpacks/shader.pw"));
+        assert!(client_zip.contains("PackRoot/resourcepacks/optional.pw.toml"));
+        assert!(!client_zip.contains("PackRoot/mods/server/server.pw.toml"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_rejects_output_over_metadata() {
+        let root = unique_test_dir("bkmpw-export-metadata-output");
+        create_pack(&root);
+        fs::create_dir_all(root.join(".pw")).unwrap();
+        fs::write(
+            root.join(".pw/config.toml"),
+            "[export]\ninclude-metadata = true\n",
+        )
+        .unwrap();
+        let output = root.join("mods/existing.pw.toml");
+        let contents = "[option]\noptional = true\ndefault = false\n";
+        fs::write(&output, contents).unwrap();
+
+        let error = export_server(&root, &output).unwrap_err();
+        assert!(error.contains("output path collides with metadata file"));
+        assert_eq!(fs::read_to_string(&output).unwrap(), contents);
 
         let _ = fs::remove_dir_all(root);
     }
