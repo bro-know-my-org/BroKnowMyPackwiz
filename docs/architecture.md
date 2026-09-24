@@ -83,6 +83,13 @@ shaderpacks/
 
 Manual jars or runtime files that are not in `packwiz.json` must not be deleted.
 
+Cleanup does not compare a file's current SHA-256 with the old manifest. The
+hash records content observed during the previous install, not who owns the
+file now. Preserving a changed jar in `mods/` after its metadata is removed
+could leave that mod active. Cleanup therefore uses the old manifest path as
+its ownership record. Move or rename a modified jar before cleanup if it must
+be kept.
+
 ## Download Rules
 
 Install and sync downloads use `[install]` settings from `.pw/config.toml`.
