@@ -39,8 +39,9 @@ project-id = 123456
 file-id = 789012
 ```
 
-Install first tries local files. If it must download from CurseForge, it can
-use ForgeCDN fallback and then the official API when an API key exists.
+Install first tries local files. If it must download from CurseForge, it uses
+the official API when an API key exists, then ForgeCDN fallback if enabled.
+Without a key, it tries ForgeCDN directly.
 
 ## GitHub Update Source
 

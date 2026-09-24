@@ -415,7 +415,7 @@ fn add_curseforge(args: &[String]) -> Result<(), String> {
         options.filename.as_ref(),
         options.hash.as_ref(),
     ) {
-        (None, Some(project_id), Some(file_id), Some(filename), Some(hash)) => {
+        (_, Some(project_id), Some(file_id), Some(filename), Some(hash)) => {
             curseforge::CurseForgeFileInfo {
                 project_id,
                 file_id,
@@ -1217,9 +1217,47 @@ fn scan(args: &[String]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    #[test]
+    fn explicit_curseforge_metadata_does_not_use_configured_api_key() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = env::temp_dir().join(format!("bkmpw-explicit-cf-{suffix}"));
+        fs::create_dir_all(root.join(".pw")).unwrap();
+        fs::write(
+            root.join(".pw/config.toml"),
+            "[curseforge]\napi-key = \"invalid-key\"\n",
+        )
+        .unwrap();
+        let args = vec![
+            root.to_string_lossy().into_owned(),
+            "both".to_string(),
+            "123".to_string(),
+            "456".to_string(),
+            "--filename".to_string(),
+            "example.jar".to_string(),
+            "--hash".to_string(),
+            "a".repeat(40),
+        ];
+
+        add_curseforge(&args).unwrap();
+        let metadata = fs::read_dir(root.join("mods"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        assert_eq!(metadata.len(), 1);
+        let text = fs::read_to_string(&metadata[0]).unwrap();
+        assert!(text.contains("project-id = 123"));
+        assert!(text.contains("file-id = 456"));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn string_option_value_does_not_consume_next_option() {
