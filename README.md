@@ -299,6 +299,12 @@ CurseForge 格式的 zip：`metadata:curseforge` 和带 `[export.curseforge]` �
 `[export.curseforge] latest = true`，会按 `pack.toml` 里的 Minecraft 版本和 loader
 查最新适配文件。zip 使用 store 模式，不压缩，换取零额外依赖和小体积。
 
+在 `.pw/config.toml` 中设置 `[export] include-metadata = true`，四种导出都会保留
+当前导出 side 适用的 `.pw` / `.pw.toml` 元数据（包括未默认启用的可选条目、
+材质包、光影包及自定义 metadata root）；CurseForge 包将其放在 `overrides/` 下。
+`prepare-server` 使用相同规则。默认关闭；服务端安装器原本就会保留已选条目的
+元数据，不受此默认值影响。
+
 根目录 overlay：
 
 ```text

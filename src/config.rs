@@ -10,6 +10,12 @@ pub struct ProjectConfig {
     pub install: InstallConfig,
     pub curseforge: CurseForgeConfig,
     pub release: ReleaseConfig,
+    pub export: ExportConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ExportConfig {
+    pub include_metadata: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -151,6 +157,7 @@ impl ProjectConfig {
                 cdn_fallback: true,
             },
             release: ReleaseConfig::default(),
+            export: ExportConfig::default(),
         }
     }
 }
@@ -162,6 +169,7 @@ fn apply_value(
     value: &str,
 ) -> Result<(), Error> {
     match (section, key) {
+        ("export", "include-metadata") => config.export.include_metadata = parse_bool(value)?,
         ("release", "enabled") => config.release.enabled = parse_bool(value)?,
         ("release", "template-dir") => {
             config.release.template_dir = Some(parse_string_path(value)?)
@@ -318,6 +326,7 @@ mod tests {
         assert_eq!(cfg.install.retries, 1);
         assert_eq!(cfg.install.retry_delay_seconds, 5);
         assert!(!cfg.install.force);
+        assert!(!cfg.export.include_metadata);
         assert_eq!(cfg.install.split_download_min_bytes, 16 * 1024 * 1024);
         assert_eq!(cfg.install.split_download_chunks, 4);
     }
@@ -336,6 +345,21 @@ mod tests {
 
         assert_eq!(config.install.split_download_min_bytes, 1024);
         assert_eq!(config.install.split_download_chunks, 3);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_export_metadata_switch() {
+        let root = unique_test_dir("bkmpw-config-export-metadata");
+        fs::create_dir_all(root.join(".pw")).unwrap();
+        fs::write(
+            root.join(".pw/config.toml"),
+            "[export]\ninclude-metadata = true\n",
+        )
+        .unwrap();
+
+        assert!(ProjectConfig::load(&root).unwrap().export.include_metadata);
 
         let _ = fs::remove_dir_all(root);
     }

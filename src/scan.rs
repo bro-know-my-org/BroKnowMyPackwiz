@@ -323,6 +323,7 @@ mod tests {
         let config = ProjectConfig {
             source: PathBuf::from(".pw/config.toml"),
             release: Default::default(),
+            export: Default::default(),
             scan: ScanConfig {
                 use_gitignore: true,
                 packwizignore: PathBuf::from(".packwizignore"),
@@ -458,6 +459,7 @@ mod tests {
         ProjectConfig {
             source: PathBuf::from(".pw/config.toml"),
             release: Default::default(),
+            export: Default::default(),
             scan: ScanConfig {
                 use_gitignore: true,
                 packwizignore: PathBuf::from(".packwizignore"),

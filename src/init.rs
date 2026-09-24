@@ -26,6 +26,9 @@ split-download-chunks = 4
 [curseforge]
 api-key = ""
 cdn-fallback = true
+
+[export]
+include-metadata = false
 "#;
 
 const DEFAULT_PACK: &str = r#"name = "bro-know-my-packwiz-pack"

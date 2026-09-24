@@ -35,6 +35,16 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
     }
     let output_rel = output_rel_in_root(root, output);
     let output_abs = output.canonicalize().ok();
+    if let Some(entry) = report
+        .metadata
+        .iter()
+        .find(|entry| output_rel.as_deref() == Some(&entry.path))
+    {
+        return Err(format!(
+            "output path collides with metadata file: {}",
+            entry.path
+        ));
+    }
 
     let resolved = crate::operation::parallel::map(
         &report.metadata,
@@ -44,23 +54,31 @@ pub fn export_curseforge(root: &Path, output: &Path, target_side: &Side) -> Resu
         |entry| {
             let metadata = ModMetadata::load(&join_slash(root, &entry.path))?;
             let declared_side = side_from_directory_or_metadata(entry.side_hint, &metadata);
+            let metadata_side_matches = declared_side.installs_on(target_side);
             let target = metadata
                 .filename
                 .as_deref()
                 .map(|filename| install::resolve_pack_file_path(&entry.path, filename, &layout))
                 .transpose()?;
-            let include = (!metadata.optional || metadata.option_default)
-                && declared_side.installs_on(target_side);
+            let include = (!metadata.optional || metadata.option_default) && metadata_side_matches;
             let ids = if include {
                 export_curseforge_ids(&metadata, &config, &pack, &entry.path)?
             } else {
                 None
             };
-            Ok((target, include, ids))
+            Ok((target, include, metadata_side_matches, ids))
         },
     )
     .map_err(|error| error.detail)?;
-    for (target, include, ids) in resolved {
+    for (entry, (target, include, metadata_side_matches, ids)) in
+        report.metadata.iter().zip(resolved)
+    {
+        if config.export.include_metadata
+            && metadata_side_matches
+            && output_rel.as_deref() != Some(&entry.path)
+        {
+            overrides.insert(entry.path.clone());
+        }
         if let Some((project_id, file_id)) = ids {
             cf_files.push(CfManifestFile {
                 project_id,
@@ -426,6 +444,69 @@ mod tests {
         assert_eq!(count, 1);
         assert!(zip_text.contains("\"projectID\":123456"));
         assert!(!zip_text.contains("overrides/mods/core.jar"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_metadata_switch_keeps_metadata_in_overrides() {
+        let root = unique_test_dir("bkmpw-export-cf-metadata");
+        create_pack(&root);
+        fs::create_dir_all(root.join(".pw")).unwrap();
+        fs::create_dir_all(root.join("mods/client")).unwrap();
+        fs::create_dir_all(root.join("mods/server")).unwrap();
+        fs::create_dir_all(root.join("resourcepacks")).unwrap();
+        fs::write(
+            root.join(".pw/config.toml"),
+            "[export]\ninclude-metadata = true\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("mods/server/server.pw"),
+            "filename = \"server.jar\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("mods/client/client.pw.toml"),
+            "filename = \"client.jar\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("resourcepacks/pack.pw.toml"),
+            "filename = \"pack.zip\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("resourcepacks/optional.pw"),
+            "[option]\noptional = true\ndefault = false\n",
+        )
+        .unwrap();
+        fs::write(root.join("mods/server.jar"), b"server").unwrap();
+        fs::write(root.join("mods/client.jar"), b"client").unwrap();
+        fs::write(root.join("resourcepacks/pack.zip"), b"pack").unwrap();
+
+        let output = root.join("cf.zip");
+        export_curseforge(&root, &output, &Side::Client).unwrap();
+        let zip_text = String::from_utf8_lossy(&fs::read(output).unwrap()).into_owned();
+        assert!(zip_text.contains("overrides/mods/client/client.pw.toml"));
+        assert!(zip_text.contains("overrides/resourcepacks/pack.pw.toml"));
+        assert!(zip_text.contains("overrides/resourcepacks/optional.pw"));
+        assert!(!zip_text.contains("overrides/mods/server/server.pw"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_rejects_output_over_metadata() {
+        let root = unique_test_dir("bkmpw-export-cf-metadata-output");
+        create_pack(&root);
+        let output = root.join("mods/existing.pw");
+        let contents = "[option]\noptional = true\ndefault = false\n";
+        fs::write(&output, contents).unwrap();
+
+        let error = export_curseforge(&root, &output, &Side::Both).unwrap_err();
+        assert!(error.contains("output path collides with metadata file"));
+        assert_eq!(fs::read_to_string(&output).unwrap(), contents);
 
         let _ = fs::remove_dir_all(root);
     }
