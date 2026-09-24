@@ -16,13 +16,23 @@ pub struct CurseForgeFileInfo {
 }
 
 pub fn api_key(config: &ProjectConfig) -> Option<String> {
-    config
-        .curseforge
-        .api_key
-        .as_deref()
-        .and_then(normalized_api_key)
-        .or_else(|| env::var("CURSEFORGE_API_KEY").ok())
-        .and_then(|value| normalized_api_key(&value))
+    let runtime_key = env::var("CURSEFORGE_API_KEY").ok();
+    api_key_from_sources(
+        config.curseforge.api_key.as_deref(),
+        runtime_key.as_deref(),
+        option_env!("STUDIO_CURSEFORGE_API_KEY"),
+    )
+}
+
+fn api_key_from_sources(
+    config_key: Option<&str>,
+    runtime_key: Option<&str>,
+    built_in_key: Option<&str>,
+) -> Option<String> {
+    [config_key, runtime_key, built_in_key]
+        .into_iter()
+        .flatten()
+        .find_map(normalized_api_key)
 }
 
 fn normalized_api_key(value: &str) -> Option<String> {
@@ -254,6 +264,22 @@ mod tests {
             Some("abc123")
         );
         assert_eq!(normalized_api_key(" \t "), None);
+    }
+
+    #[test]
+    fn selects_config_then_runtime_then_built_in_api_key() {
+        assert_eq!(
+            api_key_from_sources(Some(" config "), Some("runtime"), Some("built-in")),
+            Some("config".to_string())
+        );
+        assert_eq!(
+            api_key_from_sources(Some(" "), Some("runtime"), Some("built-in")),
+            Some("runtime".to_string())
+        );
+        assert_eq!(
+            api_key_from_sources(None, Some(" "), Some("built-in")),
+            Some("built-in".to_string())
+        );
     }
 
     #[test]

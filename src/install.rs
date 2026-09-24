@@ -726,26 +726,39 @@ fn download_curseforge(
     tmp: &Path,
     download_options: &HttpDownloadOptions,
 ) -> Result<(), String> {
-    let mut cdn_error = None;
-    if curseforge.cdn_fallback
-        && let Some(url) = curseforge::cdn_download_url(curseforge.file_id, &curseforge.filename)
-    {
-        match http_get_to_file_with_options(&url, tmp, download_options) {
-            Ok(()) => return Ok(()),
-            Err(err) => cdn_error = Some(err),
+    download_curseforge_with(curseforge, curseforge::resolve_download_url, |url| {
+        http_get_to_file_with_options(url, tmp, download_options)
+    })
+}
+
+fn download_curseforge_with(
+    curseforge: &CurseForgeDownload,
+    resolve_url: impl FnOnce(Option<&str>, u64, u64) -> Result<String, String>,
+    mut download: impl FnMut(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut api_error = None;
+    if let Some(key) = curseforge.api_key.as_deref() {
+        match resolve_url(Some(key), curseforge.project_id, curseforge.file_id) {
+            Ok(url) => match download(&url) {
+                Ok(()) => return Ok(()),
+                Err(err) => api_error = Some(err),
+            },
+            Err(err) => api_error = Some(err),
         }
     }
 
-    if curseforge.api_key.is_some() {
-        let url = curseforge::resolve_download_url(
-            curseforge.api_key.as_deref(),
-            curseforge.project_id,
-            curseforge.file_id,
-        )?;
-        return http_get_to_file_with_options(&url, tmp, download_options);
+    if curseforge.cdn_fallback
+        && let Some(url) = curseforge::cdn_download_url(curseforge.file_id, &curseforge.filename)
+    {
+        return download(&url).map_err(|cdn_error| match api_error {
+            Some(api_error) => {
+                format!("CurseForge API failed: {api_error}; ForgeCDN fallback failed: {cdn_error}")
+            }
+            None => cdn_error,
+        });
     }
 
-    Err(cdn_error.unwrap_or_else(|| {
+    Err(api_error.unwrap_or_else(|| {
         "CurseForge metadata needs [curseforge] api-key or CURSEFORGE_API_KEY".to_string()
     }))
 }
@@ -929,6 +942,60 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    #[test]
+    fn curseforge_download_uses_api_then_cdn_when_download_fails() {
+        let source = CurseForgeDownload {
+            api_key: Some("key".to_string()),
+            cdn_fallback: true,
+            project_id: 123,
+            file_id: 6498183,
+            filename: "example.jar".to_string(),
+        };
+        let mut downloads = Vec::new();
+        download_curseforge_with(
+            &source,
+            |key, project, file| {
+                assert_eq!((key, project, file), (Some("key"), 123, 6498183));
+                Ok("https://official.example/example.jar".to_string())
+            },
+            |url| {
+                downloads.push(url.to_string());
+                if downloads.len() == 1 {
+                    Err("official download failed".to_string())
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            downloads,
+            [
+                "https://official.example/example.jar",
+                "https://edge.forgecdn.net/files/6498/183/example.jar"
+            ]
+        );
+    }
+
+    #[test]
+    fn curseforge_download_reports_api_and_cdn_failures() {
+        let source = CurseForgeDownload {
+            api_key: Some("bad-key".to_string()),
+            cdn_fallback: true,
+            project_id: 123,
+            file_id: 6498183,
+            filename: "example.jar".to_string(),
+        };
+        let error = download_curseforge_with(
+            &source,
+            |_, _, _| Err("HTTP 403".to_string()),
+            |_| Err("HTTP 404".to_string()),
+        )
+        .unwrap_err();
+        assert!(error.contains("CurseForge API failed: HTTP 403"));
+        assert!(error.contains("ForgeCDN fallback failed: HTTP 404"));
+    }
 
     fn layout() -> PackLayout {
         PackLayout {

@@ -62,8 +62,8 @@ Binary name: `bkmpw`.
 - `refresh` does not rewrite an existing metadata file's `side`; declared
   metadata wins over folder placement.
 - `install-local` prefers an existing local jar before any network request.
-- CurseForge `metadata:curseforge` can use ForgeCDN URL mapping from
-  `file-id` + filename before falling back to the official API.
+- CurseForge `metadata:curseforge` downloads through the official API when a
+  key is available, then falls back to ForgeCDN URL mapping from `file-id` + filename.
 - `add-curseforge` can resolve slugs, URLs, and project IDs through the
   CurseForge API. Without an API key, it can still write metadata when
   project ID, file ID, filename, and hash are supplied explicitly.
@@ -295,12 +295,16 @@ and the index; run `download-files` or `sync` separately to download the new fil
 - GitHub metadata uses `[update.github]` to query the latest release or a pinned tag. Only metadata created by the newer `add-github` command includes this update source automatically.
 - Plain URL metadata has no inferable upstream version and is skipped by `--all`.
 
-CurseForge API keys can also be supplied with `CURSEFORGE_API_KEY`. Local jars
-are used first, so a complete pack does not need any key at install time.
+CurseForge API keys are selected in this order: `[curseforge].api-key`, the
+`CURSEFORGE_API_KEY` environment variable, then the default key compiled into
+published binaries from the `STUDIO_CURSEFORGE_API_KEY` GitHub Actions secret.
+Ordinary local builds have no default key. Local jars are used first, so a
+complete pack does not need any key at install time.
 
-With `cdn-fallback = true`, CurseForge file IDs are first mapped to ForgeCDN
-URLs like `https://edge.forgecdn.net/files/...`. If that fails and an API key
-exists, the official API is tried.
+When a key is available, downloads first ask the official API for a URL. With
+`cdn-fallback = true`, an API lookup or download failure falls back to a
+ForgeCDN URL like `https://edge.forgecdn.net/files/...`. Without a key, the
+ForgeCDN URL is tried directly. CLI downloads report both errors if both fail.
 
 Common `add-curseforge` forms:
 

@@ -57,8 +57,8 @@
 - `refresh` 不会根据文件夹位置改写已有 metadata 的 `side`；metadata 里
   已声明的值优先。
 - `install-local` 优先使用已存在的本地 jar，缺失时才联网。
-- CurseForge `metadata:curseforge` 会先尝试用 `file-id` + 文件名映射
-  ForgeCDN 地址，再按需回退到官方 API。
+- CurseForge `metadata:curseforge` 有 key 时先通过官方 API 下载；失败后可用
+  `file-id` + 文件名映射 ForgeCDN 地址回退。
 - `add-curseforge` 支持通过 CurseForge API 解析 slug/URL/project ID；也支持在
   没有 API key 时显式传入 project-id、file-id、filename 和 hash 直接落元数据。
 - `export-curseforge` 使用纯 Rust store ZIP 写出 CurseForge 包，不引入 zip 依赖。
@@ -267,12 +267,15 @@ CLI 与 TUI 的更新预览共用并发查询，默认同时检查 32 项；可�
 - GitHub metadata 会根据 `[update.github]` 查询 latest release 或指定 tag。只有通过新版 `add-github` 添加的 metadata 才会自动带这个更新信息。
 - 普通直链 metadata 没有可推断的上游版本，`--all` 会跳过。
 
-CurseForge API key 也可以通过环境变量 `CURSEFORGE_API_KEY` 提供。安装时会
-优先使用本地 jar，所以完整包不需要在安装阶段提供 key。
+CurseForge API key 优先使用 `[curseforge].api-key`，其次是环境变量
+`CURSEFORGE_API_KEY`，最后是发布构建时从 GitHub Actions secret
+`STUDIO_CURSEFORGE_API_KEY` 注入的默认 key。普通本地构建没有默认 key。
+安装时会优先使用本地 jar，所以完整包不需要在安装阶段提供 key。
 
-`cdn-fallback = true` 时，CurseForge file ID 会先映射为
-`https://edge.forgecdn.net/files/...` 形式的 ForgeCDN 地址。如果失败且存在
-API key，再尝试官方 API。
+有 key 时先通过官方 API 获取下载地址；`cdn-fallback = true` 时，API 查询或
+下载失败后，再将 CurseForge file ID 映射为
+`https://edge.forgecdn.net/files/...` 形式的 ForgeCDN 地址。没有 key 时直接
+尝试 ForgeCDN。CLI 下载中两种方式都失败时会同时报告错误。
 
 `add-curseforge` 常用方式：
 

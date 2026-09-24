@@ -107,7 +107,15 @@ jobs:
         run: cargo test --locked
 
       - name: Build release binary
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        shell: bash
+        env:
+          STUDIO_CURSEFORGE_API_KEY: ${{ secrets.STUDIO_CURSEFORGE_API_KEY }}
+        run: |
+          if [[ -z "$STUDIO_CURSEFORGE_API_KEY" ]]; then
+            echo "STUDIO_CURSEFORGE_API_KEY repository secret is required" >&2
+            exit 1
+          fi
+          cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Prepare release assets
         shell: pwsh
