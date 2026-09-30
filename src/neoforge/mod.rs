@@ -1,5 +1,6 @@
 //! Loader upgrades are independent of packwiz's mod-file ownership ledger.
-#![allow(dead_code)] // Modules are connected to the CLI in the interface stage.
+#[cfg(test)]
+mod acceptance_tests;
 pub mod adapter;
 pub mod cli;
 pub mod compatibility;
@@ -125,7 +126,16 @@ pub fn detect(root: &Path, extra_scripts: &[String]) -> Result<Instance> {
             if matches.len() != 1 || matches[0]["disabled"] == true {
                 return Err(format!("expected one enabled Prism {uid} component"));
             }
-            string(matches[0], "version")
+            let version = string(matches[0], "version")?;
+            if matches[0]["cachedVersion"]
+                .as_str()
+                .is_some_and(|v| v != version)
+            {
+                return Err(format!(
+                    "Prism {uid} selected/cached versions conflict; refresh component in Prism first"
+                ));
+            }
+            Ok(version)
         };
         if components.iter().any(|c| {
             matches!(
@@ -292,8 +302,17 @@ pub fn stopped(instance: &Instance) -> Result<()> {
                 "close Prism Launcher before changing component files (PID {pid})"
             ));
         }
-        let java = name.starts_with("java");
+        let java = name.starts_with("java")
+            || process
+                .exe()
+                .and_then(|p| p.file_name())
+                .is_some_and(|p| p.to_string_lossy().to_lowercase().starts_with("java"));
         let root = normalized(&instance.root.to_string_lossy());
+        let game = instance
+            .game
+            .canonicalize()
+            .unwrap_or_else(|_| instance.game.clone());
+        let game_text = normalized(&game.to_string_lossy());
         let cmd = process
             .cmd()
             .iter()
@@ -301,8 +320,8 @@ pub fn stopped(instance: &Instance) -> Result<()> {
             .collect::<Vec<_>>()
             .join(" ");
         let cwd = process.cwd();
-        let inside = cwd.is_some_and(|p| p.starts_with(&instance.root));
-        if java && (inside || cmd.contains(&root) || cwd.is_none() && process.cmd().is_empty()) {
+        let inside = cwd.is_some_and(|p| p.starts_with(&instance.root) || p.starts_with(&game));
+        if java && (inside || cmd.contains(&root) || cmd.contains(&game_text) || cwd.is_none()) {
             return Err(format!(
                 "instance is running or Java process cannot be inspected (PID {pid}); stop it before upgrading"
             ));

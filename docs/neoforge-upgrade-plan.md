@@ -99,3 +99,9 @@
 - `bkmpw neoforge tui [实例目录]`：路径选择、当前安装显示、稳定候选选择、可滚动预检、取消/明确继续和升级；复用 prepare/execute。
 - CLI 提供 inspect/candidates/plan/upgrade/recover/rollback/backups/clean；upgrade 总是要求 --yes，未知还要求 --accept-unknown；永不从 stdin 等待。支持现有 --json/--json-lines 输出协议。
 - 两端共用核心，CLI 另支持本地安装器、Java、自定义直接脚本及显式外部源同步。9 个核心测试通过；界面与接入约 350 行。
+
+### 阶段 6a：恢复边界与回归验收
+
+- 增加 11 项生产 JAR/Prism/配置/事务验收，20 个 NeoForge 测试通过。覆盖压缩手动 JAR、FML 本体区别、依赖侧别、多 modId、Manifest 占位符、Fabric 阻止、嵌套未知、Prism 新旧游戏目录、缓存/补丁冲突、外部源配置恢复、损坏备份、临时文件碰撞和符号链接边界。
+- 自动恢复也锁定日志中明确记录的外部 pack 路径；无法读取 cwd 的 Java 保守阻止，并检查游戏实际路径。
+- Release 真实 Prism 样本切换已成功（复制原实例描述/设置到专用验收目录）；未触碰用户现有实例。服务端首次隔离安装遇到 cli-utils 官方依赖网络下载失败，CLI 退出 2，旧安装保持 21.1.242。继续验证重试。
