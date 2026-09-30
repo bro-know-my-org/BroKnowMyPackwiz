@@ -1,6 +1,7 @@
 //! Loader upgrades are independent of packwiz's mod-file ownership ledger.
 #![allow(dead_code)] // Modules are connected to the CLI in the interface stage.
 pub mod compatibility;
+pub mod transaction;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{

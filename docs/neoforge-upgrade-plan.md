@@ -72,3 +72,10 @@
 - 数字 Maven 精确/开闭/并集区间可判定；非数字比较、嵌套 JAR 和自定义语言加载器明确列为未知。未知库存下不将可能嵌套的缺失依赖误判为确定缺失。
 - 明确不兼容不能通过 --accept-unknown 绕过；默认拒绝未知。4 个核心测试通过；此阶段复杂代码 398 行。
 - 本地 Prism 11.1.0 的现有 NeoForge 实例确认使用 minecraft/ 和 mmc-pack.json（cachedVersion、cachedRequires）。仅只读核对，未修改用户实例。
+
+### 阶段 3：持久化文件事务
+
+- 411 行事务核心；独立 .bkmpw-neoforge/lock、old_<Unix 纳秒时间>、journal.json 和 ready/committed/restoring/rolled-back 标记。
+- 全部原文件与 SHA-256 先落盘，再允许切换；失败恢复、重复恢复、手动回滚和保留备份已通过测试。恢复不覆盖升级后用户改动；备份损坏阻止恢复并保留证据。
+- 只按明确的写入计划恢复/删除本次新建文件；不会扫描删除 libraries；packwiz.json 未参与事务。
+- 7 个 NeoForge 核心测试通过，含切换失败、持久化中断恢复、未受管文件保持和带空格路径。
