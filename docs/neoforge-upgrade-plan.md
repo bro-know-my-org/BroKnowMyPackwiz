@@ -65,3 +65,10 @@
 - 官方样本 `version.json`：NeoForge 21.1.242 / FML 4.0.43，目标 21.1.252 / FML 4.0.44。
 - Prism 官方 PackProfile.cpp 的 componentToJsonV1/componentFromJsonV1 和 setComponentVersion 使用 mmc-pack.json；gameRoot 支持 minecraft 和旧 .minecraft。官方 meta 的 net.neoforged 索引提供精确 net.minecraft requires.equals、release 类型和组件 SHA-256。
 - 实际检测依据服务端启动脚本+参数+server JAR，或 Prism 组件；不读取 pack.toml 作为安装依据。Prism 自定义加载器/游戏组件补丁拒绝自动迁移。
+
+### 阶段 2：静态兼容预检
+
+- 检查实际 mods/*.jar，支持压缩 ZIP、多个 modId、Manifest Implementation-Version 占位符、FML 独立约束、必需及不兼容依赖和侧别。
+- 数字 Maven 精确/开闭/并集区间可判定；非数字比较、嵌套 JAR 和自定义语言加载器明确列为未知。未知库存下不将可能嵌套的缺失依赖误判为确定缺失。
+- 明确不兼容不能通过 --accept-unknown 绕过；默认拒绝未知。4 个核心测试通过；此阶段复杂代码 398 行。
+- 本地 Prism 11.1.0 的现有 NeoForge 实例确认使用 minecraft/ 和 mmc-pack.json（cachedVersion、cachedRequires）。仅只读核对，未修改用户实例。
