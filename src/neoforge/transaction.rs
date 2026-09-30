@@ -428,4 +428,56 @@ mod tests {
         drop(_lock);
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    #[ignore = "subprocess helper invoked by interrupted_process_recovers"]
+    fn interrupted_child() {
+        let root = PathBuf::from(std::env::var_os("BKMPW_TEST_INTERRUPTION_ROOT").unwrap());
+        let changes = vec![
+            Change {
+                path: root.join("run.sh"),
+                source: root.join("new"),
+            },
+            Change {
+                path: root.join("library"),
+                source: root.join("new"),
+            },
+        ];
+        prepare(&root, &changes).unwrap();
+        replace(&changes[0].source, &changes[0].path).unwrap();
+        fs::write(root.join("child-ready"), "ready").unwrap();
+        loop {
+            std::thread::park();
+        }
+    }
+    #[test]
+    fn interrupted_process_recovers() {
+        let (root, _) = fixture();
+        let _lock = lock(&root).unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "neoforge::transaction::tests::interrupted_child",
+                "--ignored",
+            ])
+            .env("BKMPW_TEST_INTERRUPTION_ROOT", &root)
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !root.join("child-ready").exists() && std::time::Instant::now() < deadline {
+            if child.try_wait().unwrap().is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let ready = root.join("child-ready").exists();
+        let _ = child.kill();
+        child.wait().unwrap();
+        assert!(ready, "child did not reach the persistent switch point");
+        assert_eq!(super::super::read(&root.join("run.sh")).unwrap(), "new");
+        assert_eq!(recover(&root).unwrap().len(), 1);
+        assert_eq!(super::super::read(&root.join("run.sh")).unwrap(), "old");
+        drop(_lock);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

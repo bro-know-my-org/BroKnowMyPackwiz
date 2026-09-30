@@ -138,6 +138,44 @@ pub fn files(dir: &Path) -> Result<Vec<PathBuf>> {
     paths.sort();
     Ok(paths)
 }
+/// Seed only files with ownership evidence from the official target profile.
+/// The installer verifies Minecraft's raw server artifact against Mojang again.
+pub fn seed_server(instance: &Instance, stage: &Path, jar: &Path, target: &Target) -> Result<()> {
+    let profile: Value = serde_json::from_str(&super::zip_text(jar, "install_profile.json")?)
+        .map_err(|e| e.to_string())?;
+    for library in profile["libraries"]
+        .as_array()
+        .ok_or("missing installer libraries")?
+    {
+        let artifact = &library["downloads"]["artifact"];
+        let (Some(path), Some(expected)) = (artifact["path"].as_str(), artifact["sha1"].as_str())
+        else {
+            continue;
+        };
+        crate::pathutil::safe_slash_path(path)?;
+        let rel = format!("libraries/{path}");
+        let src = instance.root.join(&rel);
+        if src.is_file() && crate::sha1::sha1_file_hex(&src)? == expected {
+            let dst = stage.join(&rel);
+            fs::create_dir_all(dst.parent().ok_or("missing library parent")?)
+                .map_err(|e| e.to_string())?;
+            fs::copy(&src, dst).map_err(|e| e.to_string())?;
+        }
+    }
+    let rel = format!(
+        "libraries/net/minecraft/server/{0}/server-{0}.jar",
+        target.minecraft
+    );
+    crate::pathutil::safe_slash_path(&rel)?;
+    let src = instance.root.join(&rel);
+    if src.is_file() {
+        let dst = stage.join(&rel);
+        fs::create_dir_all(dst.parent().ok_or("missing Minecraft parent")?)
+            .map_err(|e| e.to_string())?;
+        fs::copy(src, dst).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
 pub fn install_server(stage: &Path, jar: &Path, java: &str, target: &Target) -> Result<()> {
     let output = Command::new(java)
         .arg("-version")
@@ -325,7 +363,7 @@ pub fn changes(
         )?;
         changes.push(Change { path, source });
     }
-    let state = json!({"format":1,"kind":instance.kind,"minecraft":target.minecraft,"neoforge":target.version,"fml":target.fml,"managed":managed});
+    let state = json!({"format":1,"status":"installed","kind":instance.kind,"minecraft":target.minecraft,"neoforge":target.version,"fml":target.fml,"scripts":instance.scripts,"managed":managed});
     changes.push(Change {
         path: instance.root.join(transaction::CONTROL).join("state.json"),
         source: staged_bytes(

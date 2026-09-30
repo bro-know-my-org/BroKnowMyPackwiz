@@ -180,6 +180,30 @@ pub fn detect(root: &Path, extra_scripts: &[String]) -> Result<Instance> {
         .filter(|s| root.join(s).is_file())
         .map(|s| s.to_string())
         .collect();
+    // Include direct custom launch entries in the instance root, so the TUI
+    // upgrades them too. Nested/wrapper entries can be selected with --script.
+    for entry in fs::read_dir(&root).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.is_file()
+            && path.extension().is_some_and(|e| {
+                ["sh", "bat", "cmd", "ps1"]
+                    .iter()
+                    .any(|s| e.eq_ignore_ascii_case(s))
+            })
+        {
+            let text = read(&path)?.replace('\\', "/");
+            if text.contains("libraries/net/neoforged/neoforge/") {
+                let name = path
+                    .file_name()
+                    .ok_or("missing script filename")?
+                    .to_string_lossy()
+                    .into_owned();
+                if !scripts.contains(&name) {
+                    scripts.push(name);
+                }
+            }
+        }
+    }
     for script in extra_scripts {
         crate::pathutil::safe_slash_path(script)?;
         if !scripts.contains(script) {
@@ -294,6 +318,56 @@ pub fn candidates(index: &Value, mc: &str) -> Result<Vec<String>> {
 }
 
 pub fn stopped(instance: &Instance) -> Result<()> {
+    // Supplement process inspection with Minecraft's OS-level world lock.
+    // File existence alone never means that a world is running.
+    let mut worlds = vec![instance.game.clone()];
+    for dir in [instance.game.clone(), instance.game.join("saves")] {
+        if dir.is_dir() {
+            for entry in fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+                let path = entry.map_err(|e| e.to_string())?.path();
+                if path.is_dir() {
+                    worlds.push(path);
+                }
+            }
+        }
+    }
+    for world in worlds {
+        let lock = world.join("session.lock");
+        if lock.exists() {
+            let file = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&lock)
+                .map_err(|e| format!("cannot inspect world lock {}: {e}", lock.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::fd::AsRawFd;
+                // Java FileChannel uses POSIX record locks, whereas fs2 uses
+                // flock on Unix; these lock namespaces do not conflict.
+                // SAFETY: flock contains integer fields; zero initializes a
+                // valid structure, and the live file owns this valid fd.
+                let mut record: libc::flock = unsafe { std::mem::zeroed() };
+                record.l_type = libc::F_WRLCK as _;
+                record.l_whence = libc::SEEK_SET as _;
+                // SAFETY: fcntl reads a correctly initialized flock pointer.
+                if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETLK, &record) } == -1 {
+                    return Err(format!(
+                        "world is running or lock cannot be inspected: {}: {}",
+                        lock.display(),
+                        std::io::Error::last_os_error()
+                    ));
+                }
+                record.l_type = libc::F_UNLCK as _;
+                // SAFETY: the same fd/record remain valid during unlock.
+                if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETLK, &record) } == -1 {
+                    return Err(std::io::Error::last_os_error().to_string());
+                }
+            }
+            fs2::FileExt::try_lock_exclusive(&file)
+                .map_err(|e| format!("world is running: {}: {e}", lock.display()))?;
+            fs2::FileExt::unlock(&file).map_err(|e| e.to_string())?;
+        }
+    }
     let system = sysinfo::System::new_all();
     for (pid, process) in system.processes() {
         let name = process.name().to_string_lossy().to_lowercase();

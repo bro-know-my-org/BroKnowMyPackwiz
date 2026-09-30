@@ -1,6 +1,6 @@
 # NeoForge 原地升级计划
 
-状态：实施中；本计划按 2026-09-30 用户确认需求重写。此前“客户端延期”和“TUI 后续”的假设作废。
+状态：首期实现完成，Linux 验收完成；Windows/macOS 本机验收和 Prism 登录后的进游戏验证待完成。本计划按 2026-09-30 用户确认需求重写。
 
 ## 已确认需求与边界
 
@@ -46,14 +46,14 @@
 - [x] 样本 SHA-256 和 install_profile.json 已核对。
 - [x] 服务端安装器实际输出、路径迁移及脚本分析。
 - [x] Prism 组件管理和原实例切换方式核对。
-- [ ] 服务端与 Prism 的 21.1.242 → 21.1.252 原地升级。
-- [ ] 参数、手动模组、配置、存档的保持。
-- [ ] 精确 Minecraft 版本阻止、稳定候选过滤、当前 beta 显示。
-- [ ] 兼容性阻止、未知确认、FML 与 NeoForge 区分。
-- [ ] 安装失败、切换失败、中断恢复、手动回滚。
-- [ ] 重复升级、备份保留、手动清理、自定义脚本和带空格路径。
-- [ ] Windows/Linux/macOS 路径和启动行为；未运行的平台必须标明。
-- [ ] cargo fmt --check、cargo test、cargo build --release 和 release 冒烟。
+- [x] 服务端与 Prism 的 21.1.242 → 21.1.252 原地升级（专用测试实例，Prism 组件级验证）。
+- [x] 参数、手动模组、配置、存档的保持。
+- [x] 精确 Minecraft 版本阻止、稳定候选过滤；当前版本不应用 beta 过滤。
+- [x] 兼容性阻止、未知确认、FML 与 NeoForge 区分。
+- [x] 安装失败、切换失败、中断恢复、手动回滚。
+- [x] 重复升级、备份保留、手动清理、自定义脚本和带空格路径。
+- [ ] Windows/macOS 本机路径和启动行为（Linux 已运行；跨平台路径字符串单元测试通过）。
+- [x] cargo fmt --check、cargo test、cargo build --release 和 release 冒烟。
 
 ## 实施证据与限制
 
@@ -105,3 +105,28 @@
 - 增加 11 项生产 JAR/Prism/配置/事务验收，20 个 NeoForge 测试通过。覆盖压缩手动 JAR、FML 本体区别、依赖侧别、多 modId、Manifest 占位符、Fabric 阻止、嵌套未知、Prism 新旧游戏目录、缓存/补丁冲突、外部源配置恢复、损坏备份、临时文件碰撞和符号链接边界。
 - 自动恢复也锁定日志中明确记录的外部 pack 路径；无法读取 cwd 的 Java 保守阻止，并检查游戏实际路径。
 - Release 真实 Prism 样本切换已成功（复制原实例描述/设置到专用验收目录）；未触碰用户现有实例。服务端首次隔离安装遇到 cli-utils 官方依赖网络下载失败，CLI 退出 2，旧安装保持 21.1.242。继续验证重试。
+
+### 阶段 6b：真实升级、故障和运行检查
+
+- 首次安装网络失败后，增加以官方目标 profile 的 SHA-1 为依据复用当前依赖；Minecraft 原始服务端 JAR 复制到隔离目录后仍由官方安装器核对 Mojang 哈希。不复制、接管无归属库。
+- 服务端真实升级成功：`server-upgrade-retry.json`。Java 21.0.12.1 使用保留的原 run.sh 启动，日志 `server-launch-new.log` 明确列出 Minecraft 1.21.1、NeoForge 21.1.252，并到达 EULA 检查（未接受 EULA，也未验证可游玩服务端）。
+- 重复请求返回 unchanged；手动回滚后 `server-launch-rollback.log` 列出 NeoForge 21.1.242，并再次到达 EULA 检查。外部 pack.toml 随回滚恢复旧字段。
+- Prism 原实例 mmc-pack.json 切换与回滚成功；instance.cfg 字节相同。手动 `.JAR`、配置和存档保持；packwiz.json 哨兵字节保持。Prism 11.1.0 在独立数据目录识别了同一实例 ID，但没有账户，因此未验证登录后实际游戏启动。
+- Release 故障验收：显式接受未知不能绕过不兼容；未知默认退出 2、明确接受后成功；跨版本 1.21.1 → 1.21.4 使用真实 21.4.158 安装描述退出 2；无 --yes 立即退出 2。
+- 安装器注入退出码 7 时原脚本不变、无切换备份、日志保留。单元验收覆盖切换/配置同步失败和杀死真实切换子进程后的日志恢复。
+- 实际 Java 进程（仅 cwd 指向实例）和 Java FileChannel 的 session.lock 均被 release CLI 阻止。Unix 同时检查 POSIX record lock 与 flock；不能将 flock 的成功误认为 Java 未持锁。
+- 根目录直接自定义 sh/bat/cmd/ps1 入口自动识别迁移；嵌套直接入口用 --script；封装脚本不能可靠推断时明确要求手动迁移。
+- TUI 在 PTY 完成实例选择、当前检测、候选显示和取消，退出 0 并恢复原终端属性。
+- 用 Vineflower 1.12.0 核对 FML 4.0.44 的 BuiltInLanguageLoader：javafml、lowcodefml 都读取 FML JAR 版本，支持当前预检版本来源。
+- 最新完整验证：cargo fmt --check 通过；cargo test **357 passed / 1 ignored**（ignored 是被父测试显式运行并杀死的子进程辅助入口）；cargo build --release 通过，仅有两项既有 dead_code 警告。
+
+以上运行产物均在 `/tmp/bkmpw-neoforge-analysis/`，关键汇总为 `release-smoke-summary.json`、`running-check-summary.json`、`installer-failure.json` 和 `tui-smoke.log`。测试使用专用目录；没有升级用户原 CDPR 实例。
+
+### 交付限制
+
+- Windows/macOS 已实现对应路径、脚本和进程 API 适配，但本次没有本机或交叉编译验证；目前运行证据仅 Linux x86_64。
+- Prism 客户端库下载/安装由原 Prism 在下次启动时执行；组件切换已验收，账户登录及可游玩客户端未验收。
+- 数字 Maven 区间可判定；非数字排序、自定义语言加载器、嵌套 JAR、旧 mods.toml 等保守归为未知，需要明确确认。静态预检不保证运行兼容。
+- 当前支持实际使用 --fml.neoForgeVersion / --fml.mcVersion 的标准参数文件布局；自定义 Prism 组件补丁、无法推断的脚本布局、非 UTF-8 脚本和符号链接/Windows reparse 写入路径需要手动迁移。
+- 未能读取 Java cwd 时保守阻止；Prism 组件写入要求整个 Prism 已退出。事务记录使用绝对路径，未完成恢复前不要移动实例或备份。
+- 其他启动器 TODO；不实现模组更新、跨 Minecraft 升级或自动试启动。
