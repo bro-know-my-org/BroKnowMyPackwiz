@@ -98,6 +98,7 @@ pub fn execute(plan: &Prepared, options: &Options) -> Result<Value> {
         return Ok(json!({"status":"unchanged","version":plan.target.version}));
     }
     if plan.instance.kind == Kind::Server {
+        adapter::seed_server(&plan.instance, &plan.stage, &plan.jar, &plan.target)?;
         adapter::install_server(&plan.stage, &plan.jar, &options.java, &plan.target)?;
     }
     super::stopped(&plan.instance)?;

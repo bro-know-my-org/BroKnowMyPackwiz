@@ -315,6 +315,79 @@ fn pack_declaration_alone_is_not_an_installation() {
     );
 }
 #[test]
+fn world_os_lock_blocks_even_without_a_visible_java_process() {
+    let f = Fixture::new();
+    fs::create_dir(f.0.join("world")).unwrap();
+    let file = fs::File::create(f.0.join("world/session.lock")).unwrap();
+    fs2::FileExt::lock_exclusive(&file).unwrap();
+    assert!(
+        stopped(&f.instance(Kind::Server))
+            .unwrap_err()
+            .contains("world is running")
+    );
+    fs2::FileExt::unlock(&file).unwrap();
+}
+#[test]
+fn adapter_never_claims_or_deletes_unrelated_libraries() {
+    let f = Fixture::new();
+    let instance = f.instance(Kind::Server);
+    let target = target();
+    let stage = f.0.join("stage");
+    let lib = stage.join("libraries/net/neoforged/neoforge/21.1.252");
+    fs::create_dir_all(&lib).unwrap();
+    let args = "--fml.neoForgeVersion 21.1.252 --fml.mcVersion 1.21.1 --fml.fmlVersion 4.0.44\n";
+    for name in ["unix_args.txt", "win_args.txt"] {
+        fs::write(lib.join(name), args).unwrap();
+    }
+    f.jar("artifact.jar", &[("a", "artifact")]);
+    for classifier in ["server", "universal"] {
+        fs::copy(
+            f.0.join("mods/artifact.jar"),
+            lib.join(format!("neoforge-21.1.252-{classifier}.jar")),
+        )
+        .unwrap();
+    }
+    fs::write(stage.join("libraries/shared.jar"), "target library").unwrap();
+    fs::create_dir_all(f.0.join("libraries")).unwrap();
+    fs::write(
+        f.0.join("libraries/shared.jar"),
+        "unowned different contents",
+    )
+    .unwrap();
+    fs::write(f.0.join("libraries/manual.jar"), "unowned keep").unwrap();
+    fs::write(
+        f.0.join("run.sh"),
+        "java -Xmx8G @libraries/net/neoforged/neoforge/21.1.242/unix_args.txt nogui\n",
+    )
+    .unwrap();
+    assert!(
+        adapter::changes(&instance, &target, &stage, None, None)
+            .err()
+            .unwrap()
+            .contains("unowned conflicting")
+    );
+    fs::remove_file(f.0.join("libraries/shared.jar")).unwrap();
+    let changes = adapter::changes(&instance, &target, &stage, None, None).unwrap();
+    let _lock = transaction::lock(&f.0).unwrap();
+    transaction::apply(&f.0, &changes, |_| Ok(())).unwrap();
+    assert_eq!(
+        read(&f.0.join("libraries/manual.jar")).unwrap(),
+        "unowned keep"
+    );
+    assert!(
+        json(&f.0.join(".bkmpw-neoforge/state.json")).unwrap()["managed"]
+            .get("libraries/manual.jar")
+            .is_none()
+    );
+    transaction::rollback(&f.0).unwrap();
+    assert!(!f.0.join("libraries/shared.jar").exists());
+    assert_eq!(
+        read(&f.0.join("libraries/manual.jar")).unwrap(),
+        "unowned keep"
+    );
+    drop(_lock);
+}
+#[test]
 fn corrupted_backup_refuses_restore_and_temp_collisions_are_preserved() {
     let f = Fixture::new();
     let _lock = transaction::lock(&f.0).unwrap();
