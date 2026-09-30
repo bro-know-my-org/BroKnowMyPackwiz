@@ -100,7 +100,9 @@ fn marker(dir: &Path, name: &str) -> Result<()> {
 }
 fn copy_synced(src: &Path, dst: &Path) -> Result<()> {
     fs::copy(src, dst).map_err(|e| format!("{} → {}: {e}", src.display(), dst.display()))?;
-    fs::File::open(dst)
+    fs::OpenOptions::new()
+        .write(true)
+        .open(dst)
         .and_then(|f| f.sync_all())
         .map_err(|e| e.to_string())
 }
@@ -154,6 +156,20 @@ fn prepare(root: &Path, changes: &[Change]) -> Result<PathBuf> {
             return Err("duplicate or non-absolute transaction path".into());
         }
         safe_path(&change.path)?;
+        let temp = change.path.with_file_name(format!(
+            "{}.bkmpw-loader-tmp",
+            change
+                .path
+                .file_name()
+                .ok_or("missing filename")?
+                .to_string_lossy()
+        ));
+        if temp.exists() {
+            return Err(format!(
+                "unowned temporary-file conflict {}; preserve it before retrying",
+                temp.display()
+            ));
+        }
         safe_path(&change.source)?;
         let before = if change.path.exists() {
             if !change.path.is_file() {
