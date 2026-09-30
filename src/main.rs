@@ -16,6 +16,7 @@ mod machine;
 mod metadata;
 mod modlist;
 mod murmur2;
+mod neoforge;
 mod operation;
 mod ops;
 mod packinfo;

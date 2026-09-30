@@ -44,8 +44,8 @@
 
 - [x] 读取 AGENTS.md 和旧计划，按已确认需求更新。
 - [x] 样本 SHA-256 和 install_profile.json 已核对。
-- [ ] 服务端安装器实际输出、路径迁移及脚本分析。
-- [ ] Prism 组件管理和原实例切换方式核对。
+- [x] 服务端安装器实际输出、路径迁移及脚本分析。
+- [x] Prism 组件管理和原实例切换方式核对。
 - [ ] 服务端与 Prism 的 21.1.242 → 21.1.252 原地升级。
 - [ ] 参数、手动模组、配置、存档的保持。
 - [ ] 精确 Minecraft 版本阻止、稳定候选过滤、当前 beta 显示。
@@ -58,3 +58,10 @@
 ## 实施证据与限制
 
 随每阶段追加证据、实际 diff 大小及验证结果。尚未完成项目不能标成已实现。
+
+### 阶段 1：证据和只读核心
+
+- 官方 `--installServer .` 在 `/tmp/bkmpw-neoforge-analysis/server old` 成功；产物包括版本目录的 server/universal JAR、unix_args.txt、win_args.txt，根目录 run.sh/run.bat/user_jvm_args.txt。库路径相对实例目录，可隔离安装后搬迁。
+- 官方样本 `version.json`：NeoForge 21.1.242 / FML 4.0.43，目标 21.1.252 / FML 4.0.44。
+- Prism 官方 PackProfile.cpp 的 componentToJsonV1/componentFromJsonV1 和 setComponentVersion 使用 mmc-pack.json；gameRoot 支持 minecraft 和旧 .minecraft。官方 meta 的 net.neoforged 索引提供精确 net.minecraft requires.equals、release 类型和组件 SHA-256。
+- 实际检测依据服务端启动脚本+参数+server JAR，或 Prism 组件；不读取 pack.toml 作为安装依据。Prism 自定义加载器/游戏组件补丁拒绝自动迁移。

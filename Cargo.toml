@@ -23,6 +23,8 @@ sys-locale = "0.3"
 toml_edit = "0.22"
 unicode-width = "0.2"
 ureq = { version = "3.0.12", default-features = false, features = ["rustls"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+sysinfo = "0.37"
 
 [[bin]]
 name = "bkmpw"
@@ -34,6 +36,3 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
-
-[dev-dependencies]
-zip = { version = "4", default-features = false }
