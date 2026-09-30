@@ -29,7 +29,7 @@ pub fn run(args: &[String]) -> Result<()> {
     );
     Ok(())
 }
-fn parse(args: &[String]) -> Result<(String, Options, bool, Option<String>)> {
+pub(super) fn parse(args: &[String]) -> Result<(String, Options, bool, Option<String>)> {
     let action = args.first().ok_or(HELP)?.clone();
     let root = args.get(1).filter(|s| !s.starts_with('-')).ok_or(HELP)?;
     let root = PathBuf::from(root)

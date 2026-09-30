@@ -122,6 +122,14 @@
 
 以上运行产物均在 `/tmp/bkmpw-neoforge-analysis/`，关键汇总为 `release-smoke-summary.json`、`running-check-summary.json`、`installer-failure.json` 和 `tui-smoke.log`。测试使用专用目录；没有升级用户原 CDPR 实例。
 
+### 阶段 6c：使用文档和完整 TUI 验收
+
+- 新增 [使用文档](neoforge-upgrade.md)。TUI 的 Java、嵌套直接脚本、本地安装器和显式源参数复用 CLI 参数解析与核心。
+- PTY 中实际完成选择实例 → 稳定目标 21.1.252 → 预检 → 确认 → Prism 原测试实例升级，并同步显式外部 pack.toml；随后回滚恢复源配置。instance.cfg 字节和终端属性保持，日志 `tui-upgrade-smoke.log` / `tui-upgrade-rollback.json`。
+- Release inspect 在 beta 组件夹具中如实输出 `21.1.0-beta`，记录 `current-beta-display.json`；稳定候选过滤有独立核心测试。
+- 最终代码再次通过 fmt、357 项测试（另 1 个子进程辅助入口 ignored）和 release 构建。
+- 共拆为 10 个可审查提交。机械核验确认前 9 个阶段均小于 800 行，复杂代码小于 500 行；第 10 阶段是约 170 行的界面参数接入及文档。首实现提交的额外 199 行是 Cargo.lock 机械依赖更新。
+
 ### 交付限制
 
 - Windows/macOS 已实现对应路径、脚本和进程 API 适配，但本次没有本机或交叉编译验证；目前运行证据仅 Linux x86_64。
