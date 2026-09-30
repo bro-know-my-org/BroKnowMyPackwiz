@@ -93,3 +93,9 @@
 - 共用 prepare/execute；下载与预检后复核真实安装和实际 JAR 指纹，切换后核对目标安装。实例、源目录和加载器锁独立持有。
 - 每次变更前自动恢复 ready 但未提交的事务；专门恢复入口不依赖安装布局仍然完整。
 - 用户选择目标，未知策略显式；已同版本时返回 unchanged。安装器失败保留 stage/日志，尚未改原实例；事务失败自动恢复。
+
+### 阶段 5：首期 CLI 与 TUI
+
+- `bkmpw neoforge tui [实例目录]`：路径选择、当前安装显示、稳定候选选择、可滚动预检、取消/明确继续和升级；复用 prepare/execute。
+- CLI 提供 inspect/candidates/plan/upgrade/recover/rollback/backups/clean；upgrade 总是要求 --yes，未知还要求 --accept-unknown；永不从 stdin 等待。支持现有 --json/--json-lines 输出协议。
+- 两端共用核心，CLI 另支持本地安装器、Java、自定义直接脚本及显式外部源同步。9 个核心测试通过；界面与接入约 350 行。

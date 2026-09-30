@@ -219,6 +219,7 @@ fn dispatch(
     emitter: &mut Emitter<'_>,
 ) -> Result<CommandResult, String> {
     match command {
+        "neoforge" => crate::neoforge::cli::dispatch(args).map(CommandResult::success),
         "version" => no_args(args, || {
             Ok(CommandResult::success(json!({"version": version})))
         }),
