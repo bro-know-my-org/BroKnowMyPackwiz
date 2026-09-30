@@ -77,6 +77,7 @@ fn main() {
     };
     let result = match command.as_str() {
         "tui" => tui::run(rest),
+        "neoforge" => neoforge::cli::run(rest),
         "-h" | "--help" | "help" => {
             print_help();
             Ok(())
@@ -134,6 +135,9 @@ fn print_help() {
     println!();
     println!("Usage:");
     println!("  bkmpw tui [pack-root]");
+    println!(
+        "  bkmpw neoforge <inspect|candidates|plan|upgrade|tui|recover|rollback|backups|clean> <instance> [options]"
+    );
     println!(
         "  bkmpw check-updates <pack-root> [--all|<name>...] [--mc-version v] [--loader name]"
     );
