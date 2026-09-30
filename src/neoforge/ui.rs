@@ -1,7 +1,4 @@
-use super::{
-    Result,
-    upgrade::{self, Options},
-};
+use super::{Result, upgrade};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
@@ -111,14 +108,31 @@ fn instance_path(initial: &str) -> Result<Option<PathBuf>> {
     }
 }
 pub fn run(args: &[String]) -> Result<()> {
-    if args.len() > 1 {
-        return Err("usage: bkmpw neoforge tui [instance]".into());
+    let usage = "usage: bkmpw neoforge tui [instance] [--java PATH] [--script RELATIVE_PATH] [--sync-source ROOT] [--installer JAR]";
+    if args.iter().any(|a| a == "--help") {
+        println!("{usage}");
+        return Ok(());
     }
-    let Some(root) = instance_path(args.first().map(String::as_str).unwrap_or(""))? else {
+    let has_root = args.first().is_some_and(|a| !a.starts_with("--"));
+    let tail = if has_root { &args[1..] } else { args };
+    if !tail.len().is_multiple_of(2)
+        || tail.chunks(2).any(|p| {
+            !matches!(
+                p[0].as_str(),
+                "--java" | "--script" | "--sync-source" | "--installer"
+            )
+        })
+    {
+        return Err(usage.into());
+    }
+    let Some(root) = instance_path(if has_root { args[0].as_str() } else { "" })? else {
         return Ok(());
     };
-    let _guards = upgrade::guards(&root, None)?;
-    let instance = super::detect(&root, &[])?;
+    let mut parsed = vec!["plan".into(), root.to_string_lossy().into_owned()];
+    parsed.extend_from_slice(tail);
+    let (_, mut options, _, _) = super::cli::parse(&parsed)?;
+    let _guards = upgrade::guards(&root, options.external.as_deref())?;
+    let instance = super::detect(&root, &options.scripts)?;
     println!(
         "Fetching stable candidates for Minecraft {}…",
         instance.minecraft
@@ -139,15 +153,7 @@ pub fn run(args: &[String]) -> Result<()> {
     else {
         return Ok(());
     };
-    let mut options = Options {
-        root,
-        target: candidates[selected].clone(),
-        java: "java".into(),
-        installer: None,
-        scripts: vec![],
-        external: None,
-        accept_unknown: false,
-    };
+    options.target = candidates[selected].clone();
     println!("Verifying official installer and checking installed mods…");
     let plan = upgrade::prepare(&options)?;
     let detail = serde_json::to_string_pretty(&plan.summary()).map_err(|e| e.to_string())?;
