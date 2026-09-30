@@ -187,12 +187,16 @@ fn prepare(root: &Path, changes: &[Change]) -> Result<PathBuf> {
     sync_dir(&root.join(CONTROL))?;
     Ok(dir)
 }
-pub fn apply(root: &Path, changes: &[Change], verify: impl Fn() -> Result<()>) -> Result<PathBuf> {
+pub fn apply(
+    root: &Path,
+    changes: &[Change],
+    verify: impl Fn(bool) -> Result<()>,
+) -> Result<PathBuf> {
     let dir = prepare(root, changes)?;
     let journal: Journal = serde_json::from_value(super::json(&dir.join("journal.json"))?)
         .map_err(|e| e.to_string())?;
     let result = (|| {
-        verify()?;
+        verify(false)?;
         for (change, entry) in changes.iter().zip(&journal.entries) {
             let current = if change.path.exists() {
                 Some(hash(&change.path)?)
@@ -210,7 +214,7 @@ pub fn apply(root: &Path, changes: &[Change], verify: impl Fn() -> Result<()>) -
                 return Err("post-write hash mismatch".into());
             }
         }
-        verify()?;
+        verify(true)?;
         marker(&dir, "committed")
     })();
     if let Err(e) = result {
@@ -359,7 +363,7 @@ mod tests {
         let (root, changes) = fixture();
         let _lock = lock(&root).unwrap();
         fs::write(root.join("manual.jar"), "keep").unwrap();
-        let dir = apply(&root, &changes, || Ok(())).unwrap();
+        let dir = apply(&root, &changes, |_| Ok(())).unwrap();
         assert_eq!(super::super::read(&root.join("run.sh")).unwrap(), "new");
         rollback(&root).unwrap();
         assert!(!root.join("library").exists());
@@ -379,7 +383,7 @@ mod tests {
         let _lock = lock(&root).unwrap();
         let calls = std::cell::Cell::new(0);
         assert!(
-            apply(&root, &changes, || {
+            apply(&root, &changes, |_| {
                 calls.set(calls.get() + 1);
                 if calls.get() == 2 {
                     Err("switch failure".into())
@@ -402,7 +406,7 @@ mod tests {
     fn refuses_to_overwrite_post_upgrade_user_edits() {
         let (root, changes) = fixture();
         let _lock = lock(&root).unwrap();
-        apply(&root, &changes, || Ok(())).unwrap();
+        apply(&root, &changes, |_| Ok(())).unwrap();
         fs::write(root.join("run.sh"), "user edit").unwrap();
         assert!(rollback(&root).unwrap_err().contains("modified since"));
         drop(_lock);

@@ -3,6 +3,7 @@
 pub mod adapter;
 pub mod compatibility;
 pub mod transaction;
+pub mod upgrade;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
