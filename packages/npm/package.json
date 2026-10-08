@@ -14,6 +14,8 @@
     "@bro-know-my/packwiz-darwin-arm64": "0.0.0",
     "@bro-know-my/packwiz-darwin-x64": "0.0.0",
     "@bro-know-my/packwiz-linux-x64": "0.0.0",
+    "@bro-know-my/packwiz-linux-arm64": "0.0.0",
+    "@bro-know-my/packwiz-win32-arm64": "0.0.0",
     "@bro-know-my/packwiz-win32-x64": "0.0.0"
   },
   "engines": {

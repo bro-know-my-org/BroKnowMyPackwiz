@@ -1,0 +1,13 @@
+{
+  "name": "@bro-know-my/packwiz-linux-arm64",
+  "version": "0.0.0",
+  "description": "Linux ARM64 native binary for @bro-know-my/packwiz.",
+  "license": "MIT",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "files": ["bkmpw", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bro-know-my-org/BroKnowMyPackwiz.git"
+  }
+}
