@@ -7,6 +7,8 @@ const packages = {
   "darwin arm64": ["@bro-know-my/packwiz-darwin-arm64", "bkmpw"],
   "darwin x64": ["@bro-know-my/packwiz-darwin-x64", "bkmpw"],
   "linux x64": ["@bro-know-my/packwiz-linux-x64", "bkmpw"],
+  "linux arm64": ["@bro-know-my/packwiz-linux-arm64", "bkmpw"],
+  "win32 arm64": ["@bro-know-my/packwiz-win32-arm64", "bkmpw.exe"],
   "win32 x64": ["@bro-know-my/packwiz-win32-x64", "bkmpw.exe"]
 };
 
