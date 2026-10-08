@@ -127,6 +127,10 @@ jobs:
       - name: Test npm platform selection
         run: node --test tests/npm-platforms.test.cjs
 
+      - name: Test npm publication recovery
+        if: runner.os == 'Linux'
+        run: node --test tests/npm-publish.test.cjs
+
       - name: Build release binary
         shell: bash
         env:
@@ -220,17 +224,36 @@ jobs:
       - name: Set up npm for trusted publishing
         run: npm install --global npm@11
 
+      - name: Locate original npm archives from an earlier attempt
+        id: archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --paginate --jq '.artifacts[] | select(.name == "npm-packages" and .expired == false) | .id')
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: Restore original npm archives for recovery
+        if: steps.archives.outputs.id != ''
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ steps.archives.outputs.id }}
+          path: target/npm
+          merge-multiple: true
+
       - name: Download platform packages
+        if: steps.archives.outputs.id == ''
         uses: actions/download-artifact@v8
         with:
           pattern: npm-platform-*
           path: packages/npm-platforms
 
       - name: Restore executable permissions
+        if: steps.archives.outputs.id == ''
         shell: bash
         run: find packages/npm-platforms/npm-platform-* -type f -name bkmpw -exec chmod 755 {} +
 
       - name: Sync main package version
+        if: steps.archives.outputs.id == ''
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -246,19 +269,27 @@ jobs:
           fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
           NODE
 
-      - name: Publish platform packages
+      - name: Pack all npm packages
+        if: steps.archives.outputs.id == ''
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p target/npm
           while IFS= read -r -d '' package_json; do
             dir="$(dirname "$package_json")"
-            npm publish "$dir" --access public --provenance
+            npm pack "$dir" --pack-destination target/npm
           done < <(find packages/npm-platforms/npm-platform-* -name package.json -print0)
+          npm pack ./packages/npm --pack-destination target/npm
 
-      - name: Pack main npm package
-        run: npm pack --dry-run
-        working-directory: packages/npm
+      - name: Upload complete npm archives before publication
+        if: steps.archives.outputs.id == ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-packages
+          path: target/npm/*.tgz
+          if-no-files-found: error
 
-      - name: Publish main package
-        working-directory: packages/npm
-        run: npm publish --access public --provenance
+      - name: Publish platforms then launcher with integrity checks
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node packages/npm/publish.mjs target/npm "$VERSION"
