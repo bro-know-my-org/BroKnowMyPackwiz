@@ -18,7 +18,7 @@ impl Fixture {
             SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         fs::create_dir_all(root.join("mods")).unwrap();
-        Self(root)
+        Self(root.canonicalize().unwrap())
     }
     fn instance(&self, kind: Kind) -> Instance {
         Instance {

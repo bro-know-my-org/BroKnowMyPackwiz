@@ -360,6 +360,7 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
         fs::write(root.join("run.sh"), "old").unwrap();
         fs::write(root.join("new"), "new").unwrap();
         let changes = vec![
