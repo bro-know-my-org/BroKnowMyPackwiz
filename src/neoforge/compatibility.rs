@@ -1,4 +1,4 @@
-use super::{Instance, Kind, Result, Target};
+use super::{Instance, Kind, Result, Target, maven::compare};
 use serde::Serialize;
 use std::{cmp::Ordering, collections::BTreeMap, fs, path::Path};
 use toml_edit::DocumentMut;
@@ -41,36 +41,23 @@ struct ModJar {
     doc: DocumentMut,
 }
 
-// Conservative subset of Maven VersionRange: numeric versions, exact and union
-// intervals. Unsupported qualifiers must produce Unknown, never a guessed pass.
-fn numeric(v: &str) -> Result<Vec<u64>> {
-    let mut numbers = v
-        .split('.')
-        .map(|n| {
-            n.parse::<u64>()
-                .map_err(|_| format!("unsupported Maven version {v}"))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    while numbers.last() == Some(&0) {
-        numbers.pop();
-    }
-    Ok(numbers)
-}
-fn compare(a: &str, b: &str) -> Result<Ordering> {
-    Ok(numeric(a)?.cmp(&numeric(b)?))
-}
 pub fn matches(range: &str, version: &str) -> Result<bool> {
+    if range.len() > 4096 || range.bytes().filter(|b| matches!(b, b']' | b')')).count() > 64 {
+        return Err("version range exceeds complexity limit".into());
+    }
+    compare(version, version)?;
     let mut tail = range.trim();
     if tail.is_empty() {
         return Err("empty version range".into());
     }
     if !tail.starts_with(['[', '(']) {
         // Maven bare versions are recommendations rather than hard restrictions.
-        numeric(tail)?;
-        numeric(version)?;
+        compare(tail, version)?;
         return Ok(true);
     }
     let mut matched = false;
+    let mut previous_high: Option<String> = None;
+    let mut interval_count = 0;
     loop {
         let open = tail.chars().next().ok_or("invalid range")?;
         if !matches!(open, '[' | '(') {
@@ -79,12 +66,33 @@ pub fn matches(range: &str, version: &str) -> Result<bool> {
         let end = tail.find([']', ')']).ok_or("unterminated version range")?;
         let close = tail.as_bytes()[end] as char;
         let body = &tail[1..end];
+        let low_bound = body.split_once(',').map_or(body, |(low, _)| low).trim();
+        if interval_count > 0
+            && (low_bound.is_empty()
+                || previous_high.as_deref().is_none_or(|high| {
+                    !matches!(
+                        compare(low_bound, high),
+                        Ok(Ordering::Equal | Ordering::Greater)
+                    )
+                }))
+        {
+            return Err("overlapping or unordered range union".into());
+        }
         let result = if let Some((low, high)) = body.split_once(',') {
+            if high.contains(',') {
+                return Err("invalid version interval".into());
+            }
             let low = low.trim();
             let high = high.trim();
-            if !low.is_empty() && !high.is_empty() && compare(low, high)? == Ordering::Greater {
-                return Err("reversed version interval".into());
+            if !low.is_empty() && !high.is_empty() {
+                let order = compare(low, high)?;
+                if order == Ordering::Greater
+                    || order == Ordering::Equal && (open != '[' || close != ']')
+                {
+                    return Err("reversed or empty version interval".into());
+                }
             }
+            previous_high = (!high.is_empty()).then(|| high.to_owned());
             let lower = low.is_empty()
                 || match compare(version, low)? {
                     Ordering::Greater => true,
@@ -102,12 +110,14 @@ pub fn matches(range: &str, version: &str) -> Result<bool> {
             if open != '[' || close != ']' || body.is_empty() {
                 return Err("invalid exact version range".into());
             }
+            previous_high = Some(body.to_owned());
             if body == version {
                 true
             } else {
                 compare(version, body)? == Ordering::Equal
             }
         };
+        interval_count += 1;
         matched |= result;
         tail = tail[end + 1..].trim();
         if tail.is_empty() {
@@ -305,15 +315,17 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                         continue;
                     }
                 }
-                let mandatory = dependency.get("mandatory").and_then(|v| v.as_bool());
-                let ty = dependency.get("type").and_then(|v| v.as_str());
-                if ty == Some("optional")
-                    || ty == Some("discouraged")
-                    || ty.is_none() && mandatory == Some(false)
-                {
+                let type_name = dependency
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_ascii_lowercase);
+                let ty = type_name
+                    .as_deref()
+                    .or_else(|| (!dependency.contains_key("type")).then_some("required"));
+                if ty == Some("optional") || ty == Some("discouraged") {
                     continue;
                 }
-                if !matches!(ty, Some("required" | "incompatible")) && mandatory != Some(true) {
+                if !matches!(ty, Some("required" | "incompatible")) {
                     report.add(&jar.path, "unknown dependency requirement type", false);
                     continue;
                 }
@@ -322,7 +334,9 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                     continue;
                 };
                 let incompatible = ty == Some("incompatible");
-                let range = dependency.get("versionRange").and_then(|v| v.as_str());
+                let range = dependency
+                    .get("versionRange")
+                    .map_or(Some("*"), |v| v.as_str());
                 match versions.get(id) {
                     Some(Some(version)) => {
                         if let Some(range) = range {
@@ -342,7 +356,7 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                                 check(&mut report, &jar.path, id, range, version);
                             }
                         } else {
-                            report.add(&jar.path, format!("{id}: missing versionRange"), false);
+                            report.add(&jar.path, format!("{id}: invalid versionRange"), false);
                         }
                     }
                     Some(None) => report.add(
@@ -382,8 +396,42 @@ mod tests {
         assert!(matches("[4,)", "4.0.44").unwrap());
         assert!(!matches("[21,)", "4.0.44").unwrap());
         assert!(matches("[1.0]", "1").unwrap());
-        assert!(matches("[1-beta,)", "1").is_err());
+        assert!(matches("[1-beta,)", "1").unwrap());
         assert!(matches("[3,1]", "2").is_err());
+    }
+    #[test]
+    fn maven_qualifiers() {
+        for (range, version, expected) in [
+            ("*", "2101.7.2-build.377", true),
+            (
+                "[2101.7.2-build.376,2101.7.2-build.378)",
+                "2101.7.2-build.377",
+                true,
+            ),
+            ("[2,3)", "2.1+mc1.21.1", true),
+            ("[1]", "1-release", true),
+            ("[1,)", "1-rc1", false),
+            ("[1-beta2]", "1b2", true),
+            // Maven 3.8.5 intentionally differs from 3.9.9 for .alpha1.
+            ("[1-alpha1]", "1.alpha1", false),
+            ("[1,2)", "999999999999999999999", false),
+        ] {
+            assert_eq!(
+                matches(range, version).unwrap(),
+                expected,
+                "{range}: {version}"
+            );
+        }
+        for range in [
+            "[2,1]",
+            "[1,1)",
+            "[1,2,3]",
+            "[1,3],[2,4]",
+            "[1],",
+            "[${version}]",
+        ] {
+            assert!(matches(range, "1").is_err(), "{range}");
+        }
     }
     #[test]
     fn unknown_confirmation_never_overrides_blockers() {

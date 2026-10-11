@@ -126,6 +126,21 @@ fn required_mod_dependencies_versions_and_sides() {
     );
 }
 #[test]
+fn dependency_defaults_ignore_legacy_mandatory() {
+    let f = Fixture::new();
+    let deps = "[[dependencies.main]]\nmodId=\"missing\"\nmandatory=false\n";
+    f.jar(
+        "main.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("main", "1", "*", deps),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.unknown.is_empty());
+    assert_eq!(report.blocked.len(), 1);
+}
+#[test]
 fn unsupported_metadata_and_nested_jars_are_unknown_with_file_reasons() {
     let f = Fixture::new();
     f.jar(

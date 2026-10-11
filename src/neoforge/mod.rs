@@ -4,6 +4,7 @@ mod acceptance_tests;
 pub mod adapter;
 pub mod cli;
 pub mod compatibility;
+mod maven;
 pub mod transaction;
 pub mod ui;
 pub mod upgrade;
