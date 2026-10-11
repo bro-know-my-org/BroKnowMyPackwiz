@@ -118,6 +118,7 @@ fn visit_temp_files(
 ) {
     let entries = match fs::read_dir(current) {
         Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
         Err(err) => {
             result.warnings.push(format!(
                 "failed to read temp cleanup directory {}: {err}",
@@ -269,6 +270,19 @@ mod tests {
         assert!(root.join("mods").join("foo.jar").exists());
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_roots_are_normal_but_other_read_errors_warn() {
+        let root = temp_root("cleanup-missing");
+        let roots = ["mods", "resourcepacks", "shaderpacks"].map(PathBuf::from);
+        let result = cleanup_stale_temp_files(&root, &roots, Duration::ZERO);
+        assert_eq!(result.removed, 0);
+        assert!(result.warnings.is_empty());
+        fs::write(root.join("mods"), b"not a directory").unwrap();
+        let result = cleanup_stale_temp_files(&root, &roots, Duration::ZERO);
+        assert_eq!(result.warnings.len(), 1);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
