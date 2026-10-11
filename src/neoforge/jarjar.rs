@@ -56,6 +56,7 @@ type Coordinate = (String, String);
 pub struct Jar {
     pub path: PathBuf,
     pub nested: bool,
+    pub uncertain: bool,
     data: Option<Vec<u8>>,
 }
 impl Jar {
@@ -81,7 +82,17 @@ struct Node {
     unknown_coordinates: bool,
     readable: bool,
 }
-fn expand(index: usize, nodes: &mut Vec<Node>, budget: &mut u64) {
+fn nested_bytes(archive: &mut Archive, path: &str, budget: &mut u64) -> Result<Vec<u8>> {
+    let size = archive.by_name(path).map_err(|e| e.to_string())?.size();
+    let limit = (*budget).min(32 * 1024 * 1024);
+    if size > limit {
+        return Err("nested JAR exceeds remaining byte budget".into());
+    }
+    // Reserve before decompression: CRC/read failures still consume work.
+    *budget -= size;
+    bytes(archive, path, limit)
+}
+fn expand(index: usize, nodes: &mut Vec<Node>, budget: &mut u64, references: &mut usize) {
     if nodes[index].children.is_some() {
         return;
     }
@@ -102,6 +113,13 @@ fn expand(index: usize, nodes: &mut Vec<Node>, budget: &mut u64) {
             serde_json::from_str(&text(&mut archive, "META-INF/jarjar/metadata.json")?)
                 .map_err(|e| e.to_string())?;
         for dep in metadata.jars {
+            if *references == 0 {
+                node.errors
+                    .push("nested JAR reference limit exceeded".into());
+                node.unknown_coordinates = true;
+                break;
+            }
+            *references -= 1;
             let result = (|| -> Result<Vec<u8>> {
                 if node.depth == 8 {
                     return Err("nested JAR depth exceeds limit".into());
@@ -109,9 +127,7 @@ fn expand(index: usize, nodes: &mut Vec<Node>, budget: &mut u64) {
                 crate::pathutil::safe_slash_path(&dep.path)?;
                 compare(&dep.version.artifact, &dep.version.artifact)?;
                 matches(&dep.version.range, &dep.version.artifact)?;
-                let data = bytes(&mut archive, &dep.path, (*budget).min(32 * 1024 * 1024))?;
-                *budget -= data.len() as u64;
-                Ok(data)
+                nested_bytes(&mut archive, &dep.path, budget)
             })();
             match result {
                 Ok(data) => children.push((dep, data)),
@@ -135,6 +151,7 @@ fn expand(index: usize, nodes: &mut Vec<Node>, budget: &mut u64) {
         let jar = Jar {
             path: PathBuf::from(format!("{}!/{}", path.display(), dep.path)),
             nested: true,
+            uncertain: false,
             data: Some(data),
         };
         if let Err(e) = jar.open() {
@@ -174,6 +191,7 @@ pub fn inventory(paths: Vec<PathBuf>, report: &mut Report) -> (Vec<Jar>, bool) {
             jar: Jar {
                 path,
                 nested: false,
+                uncertain: false,
                 data: None,
             },
             depth: 0,
@@ -187,8 +205,11 @@ pub fn inventory(paths: Vec<PathBuf>, report: &mut Report) -> (Vec<Jar>, bool) {
     let roots = nodes.len();
     let mut selected = BTreeMap::<Coordinate, usize>::new();
     let mut budget = 128 * 1024 * 1024;
+    let mut references = 1024;
+    let mut comparisons = 65536usize;
     let mut active = BTreeSet::new();
     let mut stable = false;
+    let mut provisional = BTreeSet::new();
     for _ in 0..32 {
         active.clear();
         let mut pending = (0..roots).collect::<Vec<_>>();
@@ -196,7 +217,7 @@ pub fn inventory(paths: Vec<PathBuf>, report: &mut Report) -> (Vec<Jar>, bool) {
             if !active.insert(index) {
                 continue;
             }
-            expand(index, &mut nodes, &mut budget);
+            expand(index, &mut nodes, &mut budget, &mut references);
             for edge in nodes[index].children.as_ref().unwrap() {
                 if let Some(child) = selected.get(&edge.id) {
                     pending.push(*child);
@@ -211,6 +232,7 @@ pub fn inventory(paths: Vec<PathBuf>, report: &mut Report) -> (Vec<Jar>, bool) {
         }
         let mut next = BTreeMap::new();
         let mut unresolved = vec![];
+        provisional.clear();
         for (id, group) in candidates {
             let uncertain = active
                 .iter()
@@ -219,14 +241,20 @@ pub fn inventory(paths: Vec<PathBuf>, report: &mut Report) -> (Vec<Jar>, bool) {
                 .iter()
                 .filter(|c| {
                     !uncertain
-                        && group
-                            .iter()
-                            .all(|r| matches(&r.version.range, &c.version.artifact) == Ok(true))
+                        && group.iter().all(|r| {
+                            if comparisons == 0 {
+                                return false;
+                            }
+                            comparisons -= 1;
+                            matches(&r.version.range, &c.version.artifact) == Ok(true)
+                        })
                 })
                 .max_by(|a, b| compare(&a.version.artifact, &b.version.artifact).unwrap());
+            let chosen = chosen.filter(|_| comparisons > 0);
             if let Some(chosen) = chosen {
                 next.insert(id, chosen.node);
             } else {
+                provisional.extend(group.iter().map(|edge| edge.node));
                 unresolved.push((nodes[group[0].node].jar.path.clone(), id));
             }
         }
@@ -254,20 +282,71 @@ pub fn inventory(paths: Vec<PathBuf>, report: &mut Report) -> (Vec<Jar>, bool) {
         }
         incomplete = true;
         active = (0..roots).collect();
+        provisional = (roots..nodes.len()).collect();
+    }
+    // An unresolved parent can provide further mod IDs. Walk its raw descendants
+    // under the same limits, using them only as uncertainty hints.
+    let mut pending = provisional.iter().copied().collect::<Vec<_>>();
+    while let Some(index) = pending.pop() {
+        expand(index, &mut nodes, &mut budget, &mut references);
+        for edge in nodes[index].children.as_ref().unwrap() {
+            if provisional.insert(edge.node) {
+                pending.push(edge.node);
+            }
+        }
     }
     let output = nodes
         .into_iter()
         .enumerate()
-        .filter_map(|(index, node)| {
-            if !active.contains(&index) {
+        .filter_map(|(index, mut node)| {
+            if !active.contains(&index) && !provisional.contains(&index) {
                 return None;
             }
             for error in node.errors {
                 report.add(&node.jar.path, format!("nested JAR: {error}"), false);
                 incomplete = true;
             }
+            node.jar.uncertain = provisional.contains(&index);
             node.readable.then_some(node.jar)
         })
         .collect();
     (output, incomplete)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn repeated_crc_failures_consume_the_byte_budget() {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file(
+                "bad.jar",
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(&vec![0; 1024 * 1024]).unwrap();
+        let mut data = writer.finish().unwrap().into_inner();
+        let offset = zip::ZipArchive::new(Cursor::new(&data))
+            .unwrap()
+            .by_name("bad.jar")
+            .unwrap()
+            .data_start() as usize;
+        data[offset] ^= 1;
+        let mut archive: Archive =
+            zip::ZipArchive::new(Box::new(Cursor::new(data)) as Box<dyn Input>).unwrap();
+        let mut budget = 2 * 1024 * 1024;
+        assert!(nested_bytes(&mut archive, "bad.jar", &mut budget).is_err());
+        assert_eq!(budget, 1024 * 1024);
+        assert!(nested_bytes(&mut archive, "bad.jar", &mut budget).is_err());
+        assert_eq!(budget, 0);
+        assert!(
+            nested_bytes(&mut archive, "bad.jar", &mut budget)
+                .unwrap_err()
+                .contains("budget")
+        );
+    }
 }

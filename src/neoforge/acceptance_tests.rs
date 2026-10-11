@@ -275,6 +275,127 @@ fn all_spi_descriptors_are_validated_and_locator_inventory_is_unknown() {
             .any(|f| f.file.ends_with("locator.jar"))
     );
 }
+#[test]
+fn unreadable_nested_candidate_does_not_publish_an_older_version() {
+    let f = Fixture::new();
+    let v1 = f.jar_data(&metadata(
+        "lib",
+        "1",
+        "*",
+        &dependency("lib", "minecraft", "[1.20]", "BOTH"),
+    ));
+    f.bundle(
+        "valid.jar",
+        &metadata("valid", "1", "*", ""),
+        &v1,
+        ("lib", "1", "*"),
+    );
+    f.bundle(
+        "broken.jar",
+        &metadata("broken", "1", "*", ""),
+        b"not a jar",
+        ("lib", "2", "*"),
+    );
+    f.jar(
+        "main.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("main", "1", "*", &dependency("main", "lib", "[2]", "BOTH")),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.reason.contains("nested JAR"))
+    );
+    assert!(report.authorize(true).is_ok());
+    f.jar(
+        "external.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("lib", "1", "*", ""),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+    assert!(report.authorize(true).is_ok());
+    fs::remove_file(f.0.join("mods/valid.jar")).unwrap();
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.reason.contains("incomplete inventory"))
+    );
+}
+#[test]
+fn repeated_jarjar_references_exhaust_work_budget_as_unknown() {
+    let f = Fixture::new();
+    let child = f.jar_data(&metadata("lib", "1", "*", ""));
+    let entry = serde_json::json!({"identifier":{"group":"test","artifact":"lib"},"version":{"range":"*","artifactVersion":"1"},"path":"lib.jar"});
+    let doc = serde_json::json!({"jars":vec![entry; 2000]}).to_string();
+    f.jar_bytes(
+        "root.jar",
+        &[
+            ("META-INF/jarjar/metadata.json", doc.as_bytes()),
+            ("lib.jar", &child),
+        ],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty());
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.reason.contains("reference limit"))
+    );
+}
+#[test]
+fn nonconverging_jarjar_selection_does_not_publish_external_versions() {
+    let f = Fixture::new();
+    let v2 = f.jar_data(&metadata("lib", "2", "*", ""));
+    f.bundle(
+        "v1.jar",
+        &metadata("lib", "1", "*", ""),
+        &v2,
+        ("lib", "2", "[2]"),
+    );
+    let v1 = fs::read(f.0.join("mods/v1.jar")).unwrap();
+    fs::remove_file(f.0.join("mods/v1.jar")).unwrap();
+    f.bundle(
+        "root.jar",
+        &metadata("root", "1", "*", ""),
+        &v1,
+        ("lib", "1", "*"),
+    );
+    f.jar(
+        "external.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("lib", "0", "*", ""),
+        )],
+    );
+    f.jar(
+        "main.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("main", "1", "*", &dependency("main", "lib", "[2]", "BOTH")),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.reason.contains("did not converge"))
+    );
+    assert!(report.authorize(true).is_ok());
+}
 #[cfg(target_os = "linux")]
 #[test]
 fn inventory_uses_bounded_file_descriptors() {
@@ -311,6 +432,63 @@ fn inventory_uses_bounded_file_descriptors() {
     assert_eq!(report.checked, 80);
     assert!(report.blocked.is_empty());
     assert!(report.unknown.is_empty(), "{:?}", report.unknown);
+}
+#[test]
+fn unresolved_parent_preserves_descendant_uncertainty() {
+    let f = Fixture::new();
+    let lib = f.jar_data(&metadata("lib", "2", "*", ""));
+    f.bundle(
+        "container.jar",
+        &metadata("container", "1", "*", ""),
+        &lib,
+        ("lib", "2", "*"),
+    );
+    let container = fs::read(f.0.join("mods/container.jar")).unwrap();
+    fs::remove_file(f.0.join("mods/container.jar")).unwrap();
+    f.bundle(
+        "root.jar",
+        &metadata("root", "1", "*", ""),
+        &container,
+        ("container", "1", "[2]"),
+    );
+    f.jar(
+        "external.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("lib", "0", "*", ""),
+        )],
+    );
+    f.jar(
+        "main.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("main", "1", "*", &dependency("main", "lib", "[2]", "BOTH")),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+    assert!(report.authorize(true).is_ok());
+    // Long unions must fail before repeated candidate comparisons/decompression.
+    let range = (0..100)
+        .map(|i| format!("[{i}]"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let entry = serde_json::json!({"identifier":{"group":"test","artifact":"container"},"version":{"range":range,"artifactVersion":"1"},"path":"lib.jar"});
+    let doc = serde_json::json!({"jars":vec![entry; 200]}).to_string();
+    f.jar_bytes(
+        "long.jar",
+        &[
+            ("META-INF/jarjar/metadata.json", doc.as_bytes()),
+            ("lib.jar", &container),
+        ],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.reason.contains("complexity limit"))
+    );
 }
 #[test]
 fn cross_depth_jarjar_selection_is_global_and_conflicts_stay_unknown() {

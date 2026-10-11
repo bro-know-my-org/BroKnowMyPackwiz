@@ -274,6 +274,7 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
     for jar in archives {
         let path = jar.path.clone();
         let nested = jar.nested;
+        let uncertain = jar.uncertain;
         let mut archive = match jar.open() {
             Ok(a) => a,
             Err(e) => {
@@ -330,6 +331,18 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                 continue;
             }
         };
+        if uncertain {
+            if let Some(mods) = doc.get("mods").and_then(|v| v.as_array_of_tables()) {
+                for id in mods
+                    .iter()
+                    .filter_map(|m| m.get("modId").and_then(|v| v.as_str()))
+                {
+                    ambiguous.insert(id.to_owned());
+                    primary.remove(id);
+                }
+            }
+            continue;
+        }
         if metadata == "META-INF/mods.toml" {
             report.add(
                 &path,
