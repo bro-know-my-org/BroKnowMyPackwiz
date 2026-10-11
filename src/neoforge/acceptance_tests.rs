@@ -126,6 +126,23 @@ fn required_mod_dependencies_versions_and_sides() {
     );
 }
 #[test]
+fn minecraft_alias_allows_121_mods_but_rejects_real_incompatibility() {
+    let f = Fixture::new();
+    for (id, range) in [("jei", "[1.21,1.21.1)"), ("old", "[1.20,1.21)")] {
+        f.jar(
+            &format!("{id}.jar"),
+            &[(
+                "META-INF/neoforge.mods.toml",
+                &metadata(id, "1", "*", &dependency(id, "minecraft", range, "BOTH")),
+            )],
+        );
+    }
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.unknown.is_empty());
+    assert_eq!(report.blocked.len(), 1);
+    assert!(report.blocked[0].file.ends_with("old.jar"));
+}
+#[test]
 fn dependency_defaults_ignore_legacy_mandatory() {
     let f = Fixture::new();
     let deps = "[[dependencies.main]]\nmodId=\"missing\"\nmandatory=false\n";

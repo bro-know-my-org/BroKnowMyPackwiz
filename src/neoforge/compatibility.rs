@@ -127,8 +127,22 @@ pub fn matches(range: &str, version: &str) -> Result<bool> {
     }
     Ok(matched)
 }
+fn dependency_matches(id: &str, range: &str, version: &str) -> Result<bool> {
+    if matches(range, version)? {
+        return Ok(true);
+    }
+    // Explicit FML 4 VersionSupportMatrix aliases for Minecraft 1.21.1.
+    // No generic fallback to other patch releases.
+    if id == "minecraft" && version == "1.21.1" {
+        return matches(range, "1.21");
+    }
+    if id == "neoforge" && version.starts_with("21.1.") {
+        return matches(range, "21.0.166");
+    }
+    Ok(false)
+}
 fn check(report: &mut Report, path: &Path, label: &str, range: &str, version: &str) {
-    match matches(range, version) {
+    match dependency_matches(label, range, version) {
         Ok(true) => {}
         Ok(false) => report.add(
             path,
@@ -341,7 +355,7 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                     Some(Some(version)) => {
                         if let Some(range) = range {
                             if incompatible {
-                                match matches(range, version) {
+                                match dependency_matches(id, range, version) {
                                     Ok(true) => report.add(
                                         &jar.path,
                                         format!(
@@ -398,6 +412,14 @@ mod tests {
         assert!(matches("[1.0]", "1").unwrap());
         assert!(matches("[1-beta,)", "1").unwrap());
         assert!(matches("[3,1]", "2").is_err());
+    }
+    #[test]
+    fn fml_121_aliases() {
+        assert!(dependency_matches("minecraft", "[1.21,1.21.1)", "1.21.1").unwrap());
+        assert!(!dependency_matches("minecraft", "[1.20,1.21)", "1.21.1").unwrap());
+        assert!(!dependency_matches("lib", "[1.21]", "1.21.1").unwrap());
+        assert!(dependency_matches("neoforge", "[21.0,21.1)", "21.1.251").unwrap());
+        assert!(!dependency_matches("neoforge", "[21.0,21.1)", "21.2.1").unwrap());
     }
     #[test]
     fn maven_qualifiers() {
