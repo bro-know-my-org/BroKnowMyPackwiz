@@ -1,6 +1,11 @@
-use super::{Instance, Kind, Result, Target, maven::compare};
+use super::{Instance, Kind, Result, Target, jarjar, maven::compare};
 use serde::Serialize;
-use std::{cmp::Ordering, collections::BTreeMap, fs, path::Path};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 use toml_edit::DocumentMut;
 
 #[derive(Debug, Serialize)]
@@ -141,6 +146,50 @@ fn dependency_matches(id: &str, range: &str, version: &str) -> Result<bool> {
     }
     Ok(false)
 }
+fn spi_entrypoint(archive: &mut jarjar::Archive) -> Result<Option<bool>> {
+    // FML 4 TransformerDiscovererConstants.SERVICES: these JARs load in the
+    // service layer and do not need neoforge.mods.toml, even with Fabric metadata.
+    let mut recognized = false;
+    let mut dynamic_inventory = false;
+    let names = archive
+        .file_names()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    for service in [
+        "cpw.mods.modlauncher.api.ITransformationService",
+        "net.neoforged.neoforgespi.locating.IModFileCandidateLocator",
+        "net.neoforged.neoforgespi.locating.IModFileReader",
+        "net.neoforged.neoforgespi.locating.IDependencyLocator",
+        "net.neoforged.neoforgespi.earlywindow.GraphicsBootstrapper",
+        "net.neoforged.neoforgespi.earlywindow.ImmediateWindowProvider",
+    ] {
+        let name = format!("META-INF/services/{service}");
+        if !names.contains(&name) {
+            continue;
+        }
+        let text = jarjar::text(archive, &name)?;
+        let providers = text
+            .lines()
+            .map(|line| line.split('#').next().unwrap().trim())
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>();
+        if providers.is_empty()
+            || providers
+                .iter()
+                .any(|p| !names.contains(&format!("{}.class", p.replace('.', "/"))))
+        {
+            return Err(format!("{service}: missing SPI provider class"));
+        }
+        recognized = true;
+        dynamic_inventory |= matches!(
+            service,
+            "net.neoforged.neoforgespi.locating.IModFileCandidateLocator"
+                | "net.neoforged.neoforgespi.locating.IModFileReader"
+                | "net.neoforged.neoforgespi.locating.IDependencyLocator"
+        );
+    }
+    Ok(recognized.then_some(dynamic_inventory))
+}
 fn check(report: &mut Report, path: &Path, label: &str, range: &str, version: &str) {
     match dependency_matches(label, range, version) {
         Ok(true) => {}
@@ -156,8 +205,8 @@ fn check(report: &mut Report, path: &Path, label: &str, range: &str, version: &s
         ),
     }
 }
-fn manifest_version(path: &Path) -> Option<String> {
-    let text = super::zip_text(path, "META-INF/MANIFEST.MF").ok()?;
+fn manifest_version(archive: &mut jarjar::Archive) -> Option<String> {
+    let text = jarjar::text(archive, "META-INF/MANIFEST.MF").ok()?;
     // Manifest continuation lines are prefixed by one space.
     let unfolded = text.replace("\r\n ", "").replace("\n ", "");
     unfolded
@@ -191,7 +240,7 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
     {
         report.checked += 1;
         let file = fs::File::open(&path).map_err(|e| e.to_string())?;
-        let mut archive = match zip::ZipArchive::new(file) {
+        let mut archive = match zip::ZipArchive::new(Box::new(file) as Box<dyn jarjar::Input>) {
             Ok(z) => z,
             Err(e) => {
                 report.add(&path, format!("unreadable JAR: {e}"), false);
@@ -211,10 +260,22 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
             );
             incomplete_inventory = true;
         }
+        let spi = spi_entrypoint(&mut archive);
+        match &spi {
+            Ok(Some(dynamic)) => incomplete_inventory |= dynamic,
+            Err(e) => {
+                report.add(&path, e, false);
+                incomplete_inventory = true;
+            }
+            _ => {}
+        }
         let metadata = ["META-INF/neoforge.mods.toml", "META-INF/mods.toml"]
             .into_iter()
             .find(|n| names.iter().any(|s| s == n));
         let Some(metadata) = metadata else {
+            if !matches!(spi, Ok(None)) {
+                continue;
+            }
             let foreign = names
                 .iter()
                 .any(|n| n == "fabric.mod.json" || n == "quilt.mod.json");
@@ -231,8 +292,7 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
             continue;
         };
         // Opening by name also validates decompression and CRC.
-        drop(archive.by_name(metadata));
-        let doc = match super::zip_text(&path, metadata)
+        let doc = match jarjar::text(&mut archive, metadata)
             .and_then(|text| text.parse::<DocumentMut>().map_err(|e| e.to_string()))
         {
             Ok(doc) => doc,
@@ -278,7 +338,7 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                     };
                     let version = m.get("version").and_then(|v| v.as_str()).and_then(|v| {
                         if v == "${file.jarVersion}" {
-                            manifest_version(&path)
+                            manifest_version(&mut archive)
                         } else if v.contains("${") {
                             None
                         } else {

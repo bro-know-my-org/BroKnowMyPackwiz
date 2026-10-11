@@ -143,6 +143,111 @@ fn minecraft_alias_allows_121_mods_but_rejects_real_incompatibility() {
     assert!(report.blocked[0].file.ends_with("old.jar"));
 }
 #[test]
+fn universal_spi_is_accepted_and_pure_fabric_still_blocks() {
+    let f = Fixture::new();
+    f.jar(
+        "universal.jar",
+        &[
+            ("fabric.mod.json", "{}"),
+            (
+                "META-INF/services/net.neoforged.neoforgespi.locating.IModFileCandidateLocator",
+                "# Universal loader\ncustomskinloader.bootstrap.neoforge.v2.CommonModLocator\n",
+            ),
+            (
+                "customskinloader/bootstrap/neoforge/v2/CommonModLocator.class",
+                "fixture",
+            ),
+        ],
+    );
+    f.jar("fabric.jar", &[("fabric.mod.json", "{}")]);
+    f.jar(
+        "invalid-spi.jar",
+        &[
+            ("fabric.mod.json", "{}"),
+            (
+                "META-INF/services/cpw.mods.modlauncher.api.ITransformationService",
+                "missing.Provider",
+            ),
+        ],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert_eq!(report.blocked.len(), 1);
+    assert!(report.blocked[0].file.ends_with("fabric.jar"));
+    assert_eq!(report.unknown.len(), 1);
+    assert!(report.unknown[0].file.ends_with("invalid-spi.jar"));
+}
+#[test]
+fn all_spi_descriptors_are_validated_and_locator_inventory_is_unknown() {
+    let f = Fixture::new();
+    let transform = "META-INF/services/cpw.mods.modlauncher.api.ITransformationService";
+    let locator = "META-INF/services/net.neoforged.neoforgespi.locating.IModFileCandidateLocator";
+    f.jar(
+        "locator.jar",
+        &[
+            (transform, "valid.Provider"),
+            ("valid/Provider.class", "fixture"),
+            (locator, "missing.Locator"),
+        ],
+    );
+    let doc = metadata(
+        "main",
+        "1",
+        "*",
+        &dependency("main", "dynamic", "[1,)", "BOTH"),
+    );
+    f.jar("main.jar", &[("META-INF/neoforge.mods.toml", &doc)]);
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty());
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.file.ends_with("locator.jar"))
+    );
+    f.jar(
+        "locator.jar",
+        &[
+            (locator, "valid.Locator"),
+            ("valid/Locator.class", "fixture"),
+        ],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty());
+    assert_eq!(report.unknown.len(), 1);
+    assert!(
+        report.unknown[0]
+            .reason
+            .contains("required dependency dynamic missing")
+    );
+    let own = metadata("locator", "1", "*", "");
+    f.jar(
+        "locator.jar",
+        &[
+            ("META-INF/neoforge.mods.toml", &own),
+            (locator, "valid.Locator"),
+            ("valid/Locator.class", "fixture"),
+        ],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty());
+    assert_eq!(report.unknown.len(), 1);
+    f.jar(
+        "locator.jar",
+        &[
+            ("META-INF/neoforge.mods.toml", &own),
+            (locator, "missing.Locator"),
+        ],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty());
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.file.ends_with("locator.jar"))
+    );
+}
+#[test]
 fn dependency_defaults_ignore_legacy_mandatory() {
     let f = Fixture::new();
     let deps = "[[dependencies.main]]\nmodId=\"missing\"\nmandatory=false\n";
