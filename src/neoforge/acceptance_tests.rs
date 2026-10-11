@@ -31,6 +31,15 @@ impl Fixture {
         }
     }
     fn jar(&self, name: &str, entries: &[(&str, &str)]) {
+        self.jar_bytes(
+            name,
+            &entries
+                .iter()
+                .map(|(n, c)| (*n, c.as_bytes()))
+                .collect::<Vec<_>>(),
+        );
+    }
+    fn jar_bytes(&self, name: &str, entries: &[(&str, &[u8])]) {
         let file = fs::File::create(self.0.join("mods").join(name)).unwrap();
         let mut zip = zip::ZipWriter::new(file);
         for (name, content) in entries {
@@ -40,9 +49,28 @@ impl Fixture {
                     .compression_method(zip::CompressionMethod::Deflated),
             )
             .unwrap();
-            zip.write_all(content.as_bytes()).unwrap();
+            zip.write_all(content).unwrap();
         }
         zip.finish().unwrap();
+    }
+    fn jar_data(&self, doc: &str) -> Vec<u8> {
+        self.jar("fixture.jar", &[("META-INF/neoforge.mods.toml", doc)]);
+        let path = self.0.join("mods/fixture.jar");
+        let data = fs::read(&path).unwrap();
+        fs::remove_file(path).unwrap();
+        data
+    }
+    fn bundle(&self, name: &str, doc: &str, child: &[u8], spec: (&str, &str, &str)) {
+        let (id, version, range) = spec;
+        let nested = serde_json::json!({"jars":[{"identifier":{"group":"test","artifact":id},"version":{"range":range,"artifactVersion":version},"path":"META-INF/jarjar/library.jar"}]}).to_string();
+        self.jar_bytes(
+            name,
+            &[
+                ("META-INF/neoforge.mods.toml", doc.as_bytes()),
+                ("META-INF/jarjar/metadata.json", nested.as_bytes()),
+                ("META-INF/jarjar/library.jar", child),
+            ],
+        );
     }
 }
 impl Drop for Fixture {
@@ -247,6 +275,91 @@ fn all_spi_descriptors_are_validated_and_locator_inventory_is_unknown() {
             .any(|f| f.file.ends_with("locator.jar"))
     );
 }
+#[cfg(target_os = "linux")]
+#[test]
+fn inventory_uses_bounded_file_descriptors() {
+    const CHILD: &str = "BKMPW_FD_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "neoforge::acceptance_tests::inventory_uses_bounded_file_descriptors",
+            ])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        return;
+    }
+    let f = Fixture::new();
+    for i in 0..80 {
+        f.jar(
+            &format!("{i}.jar"),
+            &[(
+                "META-INF/neoforge.mods.toml",
+                &metadata(&format!("mod{i}"), "1", "*", ""),
+            )],
+        );
+    }
+    let limit = libc::rlimit {
+        rlim_cur: 32,
+        rlim_max: 32,
+    };
+    // SAFETY: this runs only in the dedicated child; limit points to a live rlimit.
+    assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) }, 0);
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert_eq!(report.checked, 80);
+    assert!(report.blocked.is_empty());
+    assert!(report.unknown.is_empty(), "{:?}", report.unknown);
+}
+#[test]
+fn cross_depth_jarjar_selection_is_global_and_conflicts_stay_unknown() {
+    for (range, compatible) in [("[1,3)", true), ("[2,3)", true), ("[3,4)", false)] {
+        let f = Fixture::new();
+        let v1 = f.jar_data(&metadata(
+            "lib",
+            "1",
+            "*",
+            &dependency("lib", "minecraft", "[1.20]", "BOTH"),
+        ));
+        let v2 = f.jar_data(&metadata("lib", "2", "*", ""));
+        f.bundle(
+            "root-a.jar",
+            &metadata("a", "1", "*", ""),
+            &v1,
+            ("lib", "1", "[1,3)"),
+        );
+        f.bundle(
+            "container.jar",
+            &metadata("container", "1", "*", ""),
+            &v2,
+            ("lib", "2", range),
+        );
+        let container = fs::read(f.0.join("mods/container.jar")).unwrap();
+        fs::remove_file(f.0.join("mods/container.jar")).unwrap();
+        f.bundle(
+            "root-b.jar",
+            &metadata("b", "1", "*", ""),
+            &container,
+            ("container", "1", "*"),
+        );
+        f.jar(
+            "main.jar",
+            &[(
+                "META-INF/neoforge.mods.toml",
+                &metadata("main", "1", "*", &dependency("main", "lib", "[2]", "BOTH")),
+            )],
+        );
+        let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+        assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+        assert_eq!(
+            report.unknown.is_empty(),
+            compatible,
+            "{:?}",
+            report.unknown
+        );
+    }
+}
 #[test]
 fn unresolved_primary_duplicates_do_not_publish_provisional_versions_or_dependencies() {
     let f = Fixture::new();
@@ -397,6 +510,56 @@ fn ambiguous_group_collisions_ignore_older_candidates_and_file_order() {
                 .contains("duplicate/reserved modId helper")
         );
     }
+}
+#[test]
+fn jarjar_selects_shared_dependency_and_checks_its_metadata() {
+    let f = Fixture::new();
+    for version in ["1", "2"] {
+        f.jar(
+            "lib.jar",
+            &[(
+                "META-INF/neoforge.mods.toml",
+                &metadata(
+                    "lib",
+                    version,
+                    "*",
+                    &dependency("lib", "minecraft", "[1.21,1.21.1)", "BOTH"),
+                ),
+            )],
+        );
+        let data = fs::read(f.0.join("mods/lib.jar")).unwrap();
+        fs::remove_file(f.0.join("mods/lib.jar")).unwrap();
+        let nested = serde_json::json!({"jars":[{"identifier":{"group":"test", "artifact":"lib"}, "version":{"range":"[1,3)","artifactVersion":version},"path":"META-INF/jarjar/lib.jar"}]}).to_string();
+        let owner = format!("owner{version}");
+        let doc = metadata(
+            &owner,
+            "1+mc1.21.1",
+            "*",
+            &dependency(&owner, "lib", "[2]", "BOTH"),
+        );
+        f.jar_bytes(
+            &format!("{owner}.jar"),
+            &[
+                ("META-INF/neoforge.mods.toml", doc.as_bytes()),
+                ("META-INF/jarjar/metadata.json", nested.as_bytes()),
+                ("META-INF/jarjar/lib.jar", &data),
+            ],
+        );
+    }
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert_eq!(report.checked, 2);
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+    assert!(report.unknown.is_empty(), "{:?}", report.unknown);
+    // Corrupt referenced nested content must remain unknown, never silently pass.
+    f.jar("broken.jar", &[("META-INF/neoforge.mods.toml", &metadata("broken", "1", "*", "")), ("META-INF/jarjar/metadata.json", "{\"jars\":[{\"identifier\":{\"group\":\"test\",\"artifact\":\"broken\"},\"version\":{\"range\":\"*\",\"artifactVersion\":\"1\"},\"path\":\"missing.jar\"}]}")]);
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty());
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.file.ends_with("broken.jar") && f.reason.contains("nested JAR"))
+    );
 }
 #[test]
 fn fml_selects_newest_primary_mod_and_blocks_secondary_collisions() {

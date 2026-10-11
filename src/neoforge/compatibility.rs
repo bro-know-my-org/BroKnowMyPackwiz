@@ -266,15 +266,16 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
     let mut versions: BTreeMap<String, Option<String>> = BTreeMap::new();
     versions.insert("minecraft".into(), Some(target.minecraft.clone()));
     versions.insert("neoforge".into(), Some(target.version.clone()));
-    let mut incomplete_inventory = false;
-    for path in paths
+    let paths = paths
         .into_iter()
         .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar")))
-    {
-        report.checked += 1;
-        let file = fs::File::open(&path).map_err(|e| e.to_string())?;
-        let mut archive = match zip::ZipArchive::new(Box::new(file) as Box<dyn jarjar::Input>) {
-            Ok(z) => z,
+        .collect();
+    let (archives, mut incomplete_inventory) = jarjar::inventory(paths, &mut report);
+    for jar in archives {
+        let path = jar.path.clone();
+        let nested = jar.nested;
+        let mut archive = match jar.open() {
+            Ok(a) => a,
             Err(e) => {
                 report.add(&path, format!("unreadable JAR: {e}"), false);
                 incomplete_inventory = true;
@@ -282,17 +283,6 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
             }
         };
         let names = archive.file_names().map(str::to_owned).collect::<Vec<_>>();
-        if names.iter().any(|n| {
-            n == "META-INF/jarjar/metadata.json"
-                || n.starts_with("META-INF/jars/") && n.ends_with(".jar")
-        }) {
-            report.add(
-                &path,
-                "nested JAR dependencies require manual review",
-                false,
-            );
-            incomplete_inventory = true;
-        }
         let spi = spi_entrypoint(&mut archive);
         match &spi {
             Ok(Some(dynamic)) => incomplete_inventory |= dynamic,
@@ -307,6 +297,11 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
             .find(|n| names.iter().any(|s| s == n));
         let Some(metadata) = metadata else {
             if !matches!(spi, Ok(None)) {
+                continue;
+            }
+            if nested {
+                // JarJar readers treat metadata-free contents as libraries;
+                // Fabric metadata does not turn a bundled library into a mod.
                 continue;
             }
             let foreign = names
