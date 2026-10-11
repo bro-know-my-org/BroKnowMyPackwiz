@@ -20,7 +20,7 @@ pub struct Report {
     pub unknown: Vec<Finding>,
 }
 impl Report {
-    fn add(&mut self, file: &Path, reason: impl Into<String>, blocked: bool) {
+    pub(super) fn add(&mut self, file: &Path, reason: impl Into<String>, blocked: bool) {
         let finding = Finding {
             file: file.display().to_string(),
             reason: reason.into(),
@@ -44,6 +44,25 @@ impl Report {
 struct ModJar {
     path: std::path::PathBuf,
     doc: DocumentMut,
+    manifest: Option<String>,
+}
+impl ModJar {
+    fn ids(&self) -> BTreeSet<String> {
+        self.doc
+            .get("mods")
+            .and_then(|v| v.as_array_of_tables())
+            .into_iter()
+            .flat_map(|mods| mods.iter())
+            .filter_map(|m| m.get("modId").and_then(|v| v.as_str()).map(str::to_owned))
+            .collect()
+    }
+    fn version(&self, m: &toml_edit::Table) -> Option<String> {
+        match m.get("version").and_then(|v| v.as_str()) {
+            Some("${file.jarVersion}") => self.manifest.clone(),
+            Some(v) if !v.contains("${") => Some(v.to_owned()),
+            _ => None,
+        }
+    }
 }
 
 pub fn matches(range: &str, version: &str) -> Result<bool> {
@@ -190,13 +209,24 @@ fn spi_entrypoint(archive: &mut jarjar::Archive) -> Result<Option<bool>> {
     }
     Ok(recognized.then_some(dynamic_inventory))
 }
-fn check(report: &mut Report, path: &Path, label: &str, range: &str, version: &str) {
+fn check(
+    report: &mut Report,
+    path: &Path,
+    label: &str,
+    range: &str,
+    version: &str,
+    authoritative: bool,
+) {
     match dependency_matches(label, range, version) {
         Ok(true) => {}
         Ok(false) => report.add(
             path,
-            format!("{label} requires {range}, target/installed is {version}"),
-            true,
+            if authoritative {
+                format!("{label} requires {range}, target/installed is {version}")
+            } else {
+                format!("{label}: incomplete inventory; cannot resolve {range} against {version}")
+            },
+            authoritative,
         ),
         Err(e) => report.add(
             path,
@@ -230,6 +260,9 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
         .collect::<Result<Vec<_>>>()?;
     paths.sort();
     let mut jars = Vec::new();
+    let mut primary = BTreeMap::<String, Vec<ModJar>>::new();
+    let mut ambiguous = BTreeSet::<String>::new();
+    let mut occupied = BTreeMap::<String, (std::path::PathBuf, BTreeSet<String>)>::new();
     let mut versions: BTreeMap<String, Option<String>> = BTreeMap::new();
     versions.insert("minecraft".into(), Some(target.minecraft.clone()));
     versions.insert("neoforge".into(), Some(target.version.clone()));
@@ -309,6 +342,92 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                 false,
             );
         }
+        let jar = ModJar {
+            path,
+            doc,
+            manifest: manifest_version(&mut archive),
+        };
+        let first = jar
+            .doc
+            .get("mods")
+            .and_then(|v| v.as_array_of_tables())
+            .and_then(|mods| mods.get(0));
+        let id = first.and_then(|m| m.get("modId")).and_then(|v| v.as_str());
+        if let Some(id) = id {
+            if matches!(id, "minecraft" | "neoforge") {
+                jars.push(jar);
+                continue;
+            }
+            if ambiguous.contains(id) {
+                continue;
+            }
+            primary.entry(id.to_owned()).or_default().push(jar);
+        } else {
+            jars.push(jar);
+        }
+    }
+    let uncertain_ids = ambiguous.clone();
+    for (id, mut group) in primary {
+        if uncertain_ids.contains(&id) {
+            continue;
+        }
+        if group.len() == 1 {
+            jars.push(group.pop().unwrap());
+            continue;
+        }
+        let mut best: Option<(String, ModJar)> = None;
+        let mut unresolved = vec![];
+        for jar in group {
+            let first = jar.doc["mods"]
+                .as_array_of_tables()
+                .unwrap()
+                .get(0)
+                .unwrap();
+            match jar.version(first).filter(|v| compare(v, v).is_ok()) {
+                Some(version) => {
+                    if best
+                        .as_ref()
+                        .is_none_or(|(old, _)| compare(&version, old) == Ok(Ordering::Greater))
+                    {
+                        best = Some((version, jar));
+                    }
+                }
+                None => unresolved.push(jar),
+            }
+        }
+        if unresolved.is_empty() {
+            jars.push(best.unwrap().1);
+            continue;
+        }
+        if let Some((_, jar)) = best {
+            unresolved.push(jar);
+        }
+        let path = unresolved[0].path.clone();
+        let mut ids = unresolved[0].ids();
+        for jar in &unresolved[1..] {
+            let candidate = jar.ids();
+            ids.retain(|id| candidate.contains(id));
+        }
+        report.add(
+            &path,
+            format!("{id}: unresolved duplicate version selection"),
+            false,
+        );
+        incomplete_inventory = true;
+        ambiguous.extend(unresolved.iter().flat_map(ModJar::ids));
+        occupied.insert(id, (path, ids));
+    }
+    let mut occupied_ids = BTreeSet::new();
+    for (path, ids) in occupied.values() {
+        for id in ids {
+            if !occupied_ids.insert(id.clone()) || versions.contains_key(id) {
+                report.add(path, format!("duplicate/reserved modId {id}"), true);
+            }
+        }
+    }
+    for jar in &jars {
+        let path = &jar.path;
+        let doc = &jar.doc;
         match doc.get("modLoader").and_then(|v| v.as_str()) {
             Some("javafml" | "lowcodefml") => {
                 match doc.get("loaderVersion").and_then(|v| v.as_str()) {
@@ -318,6 +437,7 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                         "FML loaderVersion (not NeoForge)",
                         range,
                         &target.fml,
+                        true,
                     ),
                     None => report.add(&path, "missing FML loaderVersion", false),
                 }
@@ -336,19 +456,11 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                         report.add(&path, "missing modId", false);
                         continue;
                     };
-                    let version = m.get("version").and_then(|v| v.as_str()).and_then(|v| {
-                        if v == "${file.jarVersion}" {
-                            manifest_version(&mut archive)
-                        } else if v.contains("${") {
-                            None
-                        } else {
-                            Some(v.to_owned())
-                        }
-                    });
+                    let version = jar.version(m).filter(|_| !ambiguous.contains(id));
                     if version.is_none() {
                         report.add(&path, format!("{id}: unresolved mod version"), false);
                     }
-                    if versions.contains_key(id) {
+                    if versions.contains_key(id) || occupied_ids.contains(id) {
                         report.add(&path, format!("duplicate/reserved modId {id}"), true);
                     } else {
                         versions.insert(id.to_owned(), version);
@@ -360,7 +472,6 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                 incomplete_inventory = true;
             }
         }
-        jars.push(ModJar { path, doc });
     }
     for jar in jars {
         let Some(deps) = jar.doc.get("dependencies") else {
@@ -413,6 +524,8 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                     .map_or(Some("*"), |v| v.as_str());
                 match versions.get(id) {
                     Some(Some(version)) => {
+                        let authoritative =
+                            !incomplete_inventory || matches!(id, "minecraft" | "neoforge");
                         if let Some(range) = range {
                             if incompatible {
                                 match dependency_matches(id, range, version) {
@@ -421,13 +534,13 @@ pub fn inspect(instance: &Instance, target: &Target) -> Result<Report> {
                                         format!(
                                             "incompatible with {id} {range}; installed {version}"
                                         ),
-                                        true,
+                                        authoritative,
                                     ),
                                     Ok(false) => {}
                                     Err(e) => report.add(&jar.path, format!("{id}: {e}"), false),
                                 }
                             } else {
-                                check(&mut report, &jar.path, id, range, version);
+                                check(&mut report, &jar.path, id, range, version, authoritative);
                             }
                         } else {
                             report.add(&jar.path, format!("{id}: invalid versionRange"), false);

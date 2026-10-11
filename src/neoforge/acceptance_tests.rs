@@ -248,6 +248,63 @@ fn all_spi_descriptors_are_validated_and_locator_inventory_is_unknown() {
     );
 }
 #[test]
+fn unresolved_primary_duplicates_do_not_publish_provisional_versions_or_dependencies() {
+    let f = Fixture::new();
+    f.jar(
+        "a-known.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata(
+                "lib",
+                "1",
+                "*",
+                &dependency("lib", "minecraft", "[1.20]", "BOTH"),
+            ),
+        )],
+    );
+    f.jar(
+        "b-unknown.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("lib", "${file.jarVersion}", "*", ""),
+        )],
+    );
+    f.jar(
+        "main.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("main", "1", "*", &dependency("main", "lib", "[2,)", "BOTH")),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty());
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.reason.contains("unresolved duplicate"))
+    );
+    assert!(
+        report
+            .unknown
+            .iter()
+            .any(|f| f.reason.contains("required dependency lib missing"))
+    );
+    assert!(report.authorize(true).is_ok());
+    let secondary = metadata("other", "1", "*", "") + "\n[[mods]]\nmodId=\"lib\"\nversion=\"1\"\n";
+    f.jar(
+        "secondary.jar",
+        &[("META-INF/neoforge.mods.toml", &secondary)],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert_eq!(report.blocked.len(), 1, "{:?}", report.blocked);
+    assert!(
+        report.blocked[0]
+            .reason
+            .contains("duplicate/reserved modId lib")
+    );
+}
+#[test]
 fn dependency_defaults_ignore_legacy_mandatory() {
     let f = Fixture::new();
     let deps = "[[dependencies.main]]\nmodId=\"missing\"\nmandatory=false\n";
@@ -261,6 +318,128 @@ fn dependency_defaults_ignore_legacy_mandatory() {
     let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
     assert!(report.unknown.is_empty());
     assert_eq!(report.blocked.len(), 1);
+}
+#[test]
+fn ambiguous_primary_candidates_preserve_common_secondary_collisions() {
+    let f = Fixture::new();
+    for (name, version) in [("a.jar", "1"), ("b.jar", "${file.jarVersion}")] {
+        let doc =
+            metadata("lib", version, "*", "") + "\n[[mods]]\nmodId=\"helper\"\nversion=\"1\"\n";
+        f.jar(name, &[("META-INF/neoforge.mods.toml", &doc)]);
+    }
+    f.jar(
+        "external.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("helper", "1", "*", ""),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert_eq!(report.blocked.len(), 1, "{:?}", report.blocked);
+    assert!(
+        report.blocked[0]
+            .reason
+            .contains("duplicate/reserved modId helper")
+    );
+    // A third candidate without helper makes that collision uncertain.
+    f.jar(
+        "c.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("lib", "${file.jarVersion}", "*", ""),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty(), "{:?}", report.blocked);
+}
+#[test]
+fn ambiguous_group_collisions_ignore_older_candidates_and_file_order() {
+    for order in [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ] {
+        let f = Fixture::new();
+        for (position, candidate) in order.into_iter().enumerate() {
+            let version = ["1", "${file.jarVersion}", "0"][candidate];
+            let mut doc = metadata("lib", version, "*", "");
+            if candidate != 2 {
+                doc += "\n[[mods]]\nmodId=\"helper\"\nversion=\"1\"\n";
+            }
+            f.jar(
+                &format!("{position}.jar"),
+                &[("META-INF/neoforge.mods.toml", &doc)],
+            );
+        }
+        f.jar(
+            "external.jar",
+            &[(
+                "META-INF/neoforge.mods.toml",
+                &metadata("helper", "1", "*", ""),
+            )],
+        );
+        let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+        assert_eq!(report.blocked.len(), 1, "{:?}", report.blocked);
+        fs::remove_file(f.0.join("mods/external.jar")).unwrap();
+        for (name, version) in [("b1.jar", "1"), ("b2.jar", "${file.jarVersion}")] {
+            let doc = metadata("other", version, "*", "")
+                + "\n[[mods]]\nmodId=\"helper\"\nversion=\"1\"\n";
+            f.jar(name, &[("META-INF/neoforge.mods.toml", &doc)]);
+        }
+        let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+        assert_eq!(report.blocked.len(), 1, "{:?}", report.blocked);
+        assert!(
+            report.blocked[0]
+                .reason
+                .contains("duplicate/reserved modId helper")
+        );
+    }
+}
+#[test]
+fn fml_selects_newest_primary_mod_and_blocks_secondary_collisions() {
+    let f = Fixture::new();
+    f.jar(
+        "old.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata(
+                "lib",
+                "1",
+                "*",
+                &dependency("lib", "minecraft", "[1.20]", "BOTH"),
+            ),
+        )],
+    );
+    f.jar(
+        "new.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("lib", "2", "*", ""),
+        )],
+    );
+    let defaults = "[[dependencies.main]]\nmodId=\"lib\"\n[[dependencies.main]]\nmodId=\"minecraft\"\ntype=\"REQUIRED\"\nversionRange=\"[1.21,1.21.1)\"\n[[dependencies.main]]\nmodId=\"missing\"\ntype=\"OPTIONAL\"\n";
+    f.jar(
+        "main.jar",
+        &[(
+            "META-INF/neoforge.mods.toml",
+            &metadata("main", "1", "*", defaults),
+        )],
+    );
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert!(report.blocked.is_empty());
+    assert!(report.unknown.is_empty());
+    let multi = metadata("other", "1", "*", "") + "\n[[mods]]\nmodId=\"lib\"\nversion=\"3\"\n";
+    f.jar("multi.jar", &[("META-INF/neoforge.mods.toml", &multi)]);
+    let report = compatibility::inspect(&f.instance(Kind::Server), &target()).unwrap();
+    assert_eq!(report.blocked.len(), 1);
+    assert!(
+        report.blocked[0]
+            .reason
+            .contains("duplicate/reserved modId lib")
+    );
 }
 #[test]
 fn unsupported_metadata_and_nested_jars_are_unknown_with_file_reasons() {
