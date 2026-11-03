@@ -1,85 +1,187 @@
 # bro-know-my-packwiz
 
-[中文 README](README.md)
+**Maintain modpack metadata, sync instances, and ship client and server packs.**
+
+[![Release](https://img.shields.io/github/v/release/bro-know-my-org/BroKnowMyPackwiz)](https://github.com/bro-know-my-org/BroKnowMyPackwiz/releases)
+[![npm version](https://img.shields.io/npm/v/%40bro-know-my%2Fpackwiz?logo=npm)](https://www.npmjs.com/package/@bro-know-my/packwiz)
+[![Rust](https://img.shields.io/badge/built_with-Rust-dea584?logo=rust)](Cargo.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+[中文](README.md) · [Install](#install) · [Quick Start](#quick-start) · [Publish](#publish-a-pack) · [Documentation](#documentation)
+
+`bro-know-my-packwiz` is a Rust tool for Minecraft modpack maintenance and
+distribution. Its binary, `bkmpw`, supports packwiz-style `.pw` / `.pw.toml`
+metadata through a scriptable CLI and an interactive TUI.
+
+| Your task | What bkmpw provides |
+| --- | --- |
+| Add content | Mods from CurseForge, GitHub Releases, direct URLs or local files; resource packs and shader packs |
+| Maintain versions | Update checks, metadata updates, version pins, Markdown / CSV mod lists |
+| Sync instances | Client/server selection, local file reuse, hash verification, parallel downloads and retries |
+| Publish packs | CurseForge manifests, full client/server archives, download-based server installers |
+| Automate | JSON / JSON Lines output for CI, scripts and process integrations |
 
 > [!NOTE]
-> This repository is still actively maintained. Longer gaps between commits usually mean there are no known issues to fix and no new feature ideas at the moment—not that the project is abandoned. Feature requests and improvement ideas are welcome, so feel free to open an issue and make a wish!
+> This project is actively maintained. Longer gaps between commits usually mean
+> there are no pending fixes or planned features. Suggestions are welcome in
+> [Issues](https://github.com/bro-know-my-org/BroKnowMyPackwiz/issues).
 
-## Contents
+## Install
 
-- [Attribution / Credits](#attribution--credits)
-- [What This Is](#what-this-is)
-- [Differences From Upstream packwiz](#differences-from-upstream-packwiz)
-- [Commands](#commands)
-- [Interactive Terminal](#interactive-terminal)
-- [Config](#config)
-- [Machine Interface](#machine-interface)
-- [Size Policy](#size-policy)
+**Binary download:** choose your OS and architecture from
+[GitHub Releases](https://github.com/bro-know-my-org/BroKnowMyPackwiz/releases),
+rename the binary to `bkmpw` (`bkmpw.exe` on Windows), and put it on `PATH`.
+On Linux / macOS, run `chmod +x bkmpw`. Release assets include `.sha256` files.
 
-## Attribution / Credits
+**npm:** requires Node.js 18 or newer. npm selects the matching platform package.
 
-**This project is explicitly inspired by the packwiz ecosystem.**
+```sh
+npm install -g @bro-know-my/packwiz
+bkmpw --help
+```
+
+**Cargo from Git:** requires a Rust toolchain and a platform linker.
+
+```sh
+cargo install --git https://github.com/bro-know-my-org/BroKnowMyPackwiz --locked
+bkmpw --help
+```
+
+Targets cover Windows, macOS and Linux (glibc) on x64 / ARM64; check the assets
+of your chosen release. v0.2.5 lacks Linux ARM64 and Windows ARM64 npm packages.
+See the [npm package notes](packages/npm/README.md).
+
+<details>
+<summary>Build from source</summary>
+
+With a Rust toolchain and a platform linker, run from the repository root:
+
+```sh
+cargo build --release --locked
+./target/release/bkmpw --help
+```
+
+In Windows PowerShell, use `.\target\release\bkmpw.exe --help`.
+Examples below assume `bkmpw` is on `PATH`; you can also use the built binary's path.
+
+</details>
+
+## Quick Start
+
+This example adds a CurseForge mod and publishes a CF pack. Initialize the pack first:
+
+```sh
+bkmpw init my-pack
+```
+
+Edit `my-pack/pack.toml` to set the pack name, Minecraft version and loader version.
+Create `my-pack/.gitignore` with this rule so local jars are not also scanned
+as ordinary publish files:
+
+```gitignore
+mods/*.jar
+```
+
+To add a mod, supply **one project identifier: a slug, project URL or project ID**.
+Choose one of these commands to resolve the latest file matching the pack versions:
+
+```sh
+bkmpw add-curseforge my-pack both always-eat
+bkmpw add-curseforge my-pack both https://www.curseforge.com/minecraft/mc-mods/always-eat
+bkmpw add-curseforge my-pack both 1259229
+```
+
+To use your own CurseForge API key, set `CURSEFORGE_API_KEY` or
+`[curseforge].api-key` in `.pw/config.toml`; see [Config](#config).
+
+Then check, download and export:
+
+```sh
+# Refresh the index and check the pack
+bkmpw refresh my-pack
+bkmpw check my-pack
+
+# Download managed files and generate a CurseForge pack
+bkmpw download-files my-pack
+bkmpw export-curseforge my-pack cf.zip both
+```
+
+For a specific version or another source, manually specify a file ID or use the
+full `add-github`, `add-url` or `add-file` arguments; see [Commands](#commands)
+and [Config](#config). To sync a server runtime directory, run
+`bkmpw sync my-pack server-instance server`.
+
+For interactive use, run `bkmpw tui my-pack` to add, update and export in your
+terminal.
+
+> [!TIP]
+> `check-updates` previews updates. `update` writes metadata and the index.
+> Run `download-files` or `sync` afterwards to fetch the new files.
+
+### Layout And Side Selection
+
+```text
+my-pack/
+├── pack.toml              # Pack info, Minecraft and loader versions
+├── index.toml             # Index generated by refresh
+├── .gitignore             # Exclude local jars from duplicate scanning
+├── .pw/config.toml        # Scan, install and export configuration
+├── mods/
+│   ├── example.pw.toml    # Default destination for new mod metadata
+│   ├── example.jar        # Runtime mod file
+│   ├── common/            # Optional: manually grouped metadata for both sides
+│   ├── client/            # Optional: client-only metadata
+│   └── server/            # Optional: server-only metadata
+├── resourcepacks/         # Resource pack metadata and files
+├── shaderpacks/           # Shader pack metadata and files
+└── roots/                 # Optional common / client / server root overlays
+```
+
+`side` accepts `both`, `client` or `server`. New mod metadata is not sorted into
+side folders automatically. If you move it into `mods/common`, `mods/client` or
+`mods/server`, placement takes priority during install/export. `refresh` does
+not rewrite the metadata's `side` field. Legacy `.pw` files remain supported.
+Bare resource/shader pack filenames install next to their metadata.
 
 > [!IMPORTANT]
-> This project intentionally follows the public packwiz metadata model and
-> selected installer workflows. It is an independent Rust CLI implementation,
-> not a vendored copy of upstream source code.
->
-> - packwiz: https://github.com/packwiz/packwiz
-> - packwiz-installer: https://github.com/packwiz/packwiz-installer
+> `download-files` fills missing files without cleaning unrelated content.
+> `sync`, `install-files-headless` and `install-files-retry` clean only obsolete
+> files recorded in the previous `packwiz.json` under `mods/`, `resourcepacks/`
+> and `shaderpacks/`. Unmanaged, manually added jars are kept.
 
-`bro-know-my-packwiz` is a Rust CLI for packwiz-style modpack maintenance and
-distribution workflows.
+## Publish A Pack
 
-Binary name: `bkmpw`.
+| Delivery | Command | Output |
+| --- | --- | --- |
+| CurseForge | `bkmpw export-curseforge my-pack cf.zip both` | `manifest.json` and `overrides/` |
+| Full client | `bkmpw export-client my-pack client.zip` | Client files wrapped in an instance directory |
+| Full server | `bkmpw export-server my-pack server.zip` | Server files at the ZIP root |
+| Server installer | `bkmpw export-server-installer my-pack installer.zip` | Metadata and scripts; mods download on the target machine |
 
-## What This Is
+CurseForge exports follow metadata: `metadata:curseforge` entries and entries with
+an `[export.curseforge]` mapping go into `manifest.json` for platform downloads.
+Local files without CF mappings, including jars added with `add-file`, are bundled
+under `overrides/`. Export uses existing metadata; it does not automatically look
+up local jars on CF. Local files can also carry a manually supplied
+[CF export mapping](docs/metadata-format.md#curseforge-export-mapping).
 
-- A packwiz-style metadata refresh, local install/download, CurseForge export,
-  and full client/server package export tool.
-- A pack-oriented tool with deliberate defaults and configurable behavior.
-- A smaller command surface than upstream packwiz, focused on modpack
-  maintenance, sync, and distribution workflows.
+Use `download-files` to fill local managed files before a full export. Server
+installers bundle neither mod jars nor your local binary; their scripts download
+and verify `bkmpw`, so mods need working remote download sources for this delivery method.
+See [release preparation](docs/workflows.md#release-preparation-all-four-exports)
+for templates, root overlays and isolated staging.
 
-## Differences From Upstream packwiz
+## Documentation
 
-- Project config is read from `.pw/config.toml`.
-- Scan filtering applies `.gitignore` first, then the configured
-  `.packwizignore`.
-- Metadata layout defaults to side-oriented folders:
-  - `mods/server/*.pw.toml`
-  - `mods/client/*.pw.toml`
-  - `mods/common/*.pw.toml`
-  - `mods/*.jar`
-- `resourcepacks/*.pw` / `resourcepacks/*.pw.toml` and
-  `shaderpacks/*.pw` / `shaderpacks/*.pw.toml` are also scanned; bare
-  filenames install next to their metadata file.
-- Direct `mods/*.pw.toml` and old `mods/*.pw` metadata are still accepted for
-  compatibility and treated as common/both by default.
-- `add-url` / `add-curseforge` / `add-github` / `add-file` now write new mod
-  metadata to `mods/*.pw.toml` by default instead of auto-sorting into
-  `mods/common|client|server`, so developers can move it manually.
-- `refresh` does not rewrite an existing metadata file's `side`; declared
-  metadata wins over folder placement.
-- `install-local` prefers an existing local jar before any network request.
-- CurseForge `metadata:curseforge` downloads through the official API when a
-  key is available, then falls back to ForgeCDN URL mapping from `file-id` + filename.
-- `add-curseforge` can resolve slugs, URLs, and project IDs through the
-  CurseForge API. Without an API key, it can still write metadata when
-  project ID, file ID, filename, and hash are supplied explicitly.
-- `export-curseforge` writes CurseForge packs as pure Rust store ZIP files
-  without adding a zip dependency.
-- GitHub download metadata can add `[export.curseforge]`; CurseForge export
-  uses that project/file ID while local sync still uses `[download]`.
-- `modlist` writes `modlist.md` and `modlist.csv`.
-- Parallel install/download jobs are configured by `[install].jobs` or the
-  `CDPR_DOWNLOAD_THREADS` environment variable, then optionally overridden by
-  the CLI jobs argument.
-- Install supports retry, retry delay, and force overwrite behavior for the
-  pack's devtool-style batch download workflow.
-- Installed files are recorded in a small `packwiz.json` manifest.
+- Maintenance: [Workflows](docs/workflows.md) · [Metadata format](docs/metadata-format.md)
+- Advanced: [NeoForge in-place upgrades](docs/neoforge-upgrade.md) (Chinese; standard servers and Prism instances)
+- Integration: [Machine protocol](docs/machine-protocol.md) · [Architecture](docs/architecture.md) · [Testing](docs/testing.md)
+- On this page: [Interactive terminal](#interactive-terminal) · [Commands](#commands) · [Config](#config) · [Machine interface](#machine-interface)
 
 ## Interactive Terminal
+
+<details>
+<summary>Pages, shortcuts and task recovery</summary>
 
 Run `bkmpw tui [pack-root]` in an interactive terminal; omit the directory to open
 the current directory. After building from source, use
@@ -107,7 +209,7 @@ Additional dependency changes are shown for confirmation.
   `Delete` confirms bulk metadata removal.
 - Add: search CurseForge and select files/dependencies; `G` selects GitHub
   release assets, `U` adds a direct URL and `A` adds a local file. CurseForge
-  uses `CURSEFORGE_API_KEY` or `[curseforge].api-key`. Metadata alone is saved
+  can use your own key via `CURSEFORGE_API_KEY` or `[curseforge].api-key`. Metadata alone is saved
   by default; downloading can be included in the same task.
 - Pack: use arrows or the wheel to select checks, installation, synchronization,
   template preparation and exports; Enter opens the task form.
@@ -129,7 +231,14 @@ have passed. Windows/macOS interactive terminal acceptance remains suspended at
 the user’s request. See the [plan](docs/tui-plan.md) and [progress](docs/tui-progress.md)
 (Chinese) for scope and evidence.
 
+</details>
+
 ## Commands
+
+Run `bkmpw --help` for the commands and syntax supported by your installed version.
+
+<details>
+<summary>Common command syntax</summary>
 
 ```text
 bkmpw init [pack-root]
@@ -139,12 +248,14 @@ bkmpw scan [pack-root]
 bkmpw refresh [pack-root]
 bkmpw list [pack-root]
 bkmpw check [pack-root]
+bkmpw check-updates <pack-root> [<name>...] [--mc-version v] [--loader neoforge]
 bkmpw modlist <pack-root> [output-dir]
 bkmpw export-client <pack-root> [output.zip] [root-dir]
 bkmpw export-curseforge <pack-root> [output.zip] [side]
 bkmpw export-server <pack-root> [output.zip]
 bkmpw export-server-installer <pack-root> [output.zip]
 bkmpw prepare-server <pack-root> [output-dir]
+bkmpw prepare-pack <pack-root>
 bkmpw add-url <pack-root> <side> <name> <filename> <url> <sha256>
 bkmpw add-resourcepack <pack-root> <name> <filename> <url> <sha256>
 bkmpw add-shaderpack <pack-root> <name> <filename> <url> <sha256>
@@ -163,7 +274,18 @@ bkmpw install-local <source-root> <target-root> <side> [jobs] [--force] [--retri
 bkmpw hash <sha1|sha256|sha512|murmur2> <file>
 ```
 
+</details>
+
+All four `export-*` commands support optional `[release]` preparation: expand
+templates, validate metadata and refresh the index in a temporary directory.
+See [release preparation](docs/workflows.md#release-preparation-all-four-exports).
+
 ## Config
+
+Scan filtering applies `.gitignore` first, then the configured `.packwizignore`.
+
+<details>
+<summary>Defaults, download options, sources and export details</summary>
 
 Default config lives at `.pw/config.toml`:
 
@@ -269,9 +391,8 @@ latest = true
 ```
 
 `latest = true` reuses `[update.curseforge].project-id`; you can also set
-`project-id = 123456` directly under `[export.curseforge]`. Export needs
-`CURSEFORGE_API_KEY` or `[curseforge].api-key` because it queries the latest
-matching file.
+`project-id = 123456` directly under `[export.curseforge]`. Export queries the
+latest matching file.
 
 Update:
 
@@ -291,25 +412,23 @@ The TUI displays the completed query count.
 names or metadata paths and `--mc-version` / `--loader`. `update` writes metadata
 and the index; run `download-files` or `sync` separately to download the new files.
 
-- CurseForge metadata uses `[update.curseforge]` to query the latest matching file and update `filename`, hash, and `file-id`; it needs `CURSEFORGE_API_KEY` or `[curseforge].api-key`.
+- CurseForge metadata uses `[update.curseforge]` to query the latest matching file and update `filename`, hash, and `file-id`.
 - GitHub metadata uses `[update.github]` to query the latest release or a pinned tag. Only metadata created by the newer `add-github` command includes this update source automatically.
 - Plain URL metadata has no inferable upstream version and is skipped by `--all`.
 
-CurseForge API keys are selected in this order: `[curseforge].api-key`, the
-`CURSEFORGE_API_KEY` environment variable, then the default key compiled into
-published binaries from the `STUDIO_CURSEFORGE_API_KEY` GitHub Actions secret.
-Ordinary local builds have no default key. Local jars are used first, so a
-complete pack does not need any key at install time.
+To use your own CurseForge API key, set `[curseforge].api-key` or the
+`CURSEFORGE_API_KEY` environment variable. A nonempty config value takes priority.
+Installation prefers existing local jars.
 
-When a key is available, downloads first ask the official API for a URL. With
+Downloads first ask the official API for a URL. With
 `cdn-fallback = true`, an API lookup or download failure falls back to a
-ForgeCDN URL like `https://edge.forgecdn.net/files/...`. Without a key, the
-ForgeCDN URL is tried directly. CLI downloads report both errors if both fail.
+ForgeCDN URL like `https://edge.forgecdn.net/files/...`.
+CLI downloads report both errors if both fail.
 
 Common `add-curseforge` forms:
 
 ```text
-# With CURSEFORGE_API_KEY, resolve by slug/URL/project ID and pick the latest file
+# Resolve by slug/URL/project ID and pick the latest file (choose one)
 bkmpw add-curseforge . both always-eat
 bkmpw add-curseforge . both https://www.curseforge.com/minecraft/mc-mods/always-eat
 bkmpw add-curseforge . both 1259229
@@ -317,20 +436,20 @@ bkmpw add-curseforge . both 1259229
 # Pin a file ID
 bkmpw add-curseforge . both 1259229 6498183
 
-# Without an API key, provide the required metadata explicitly
+# Manually provide complete metadata for a fixed version
 bkmpw add-curseforge . both 1259229 6498183 --name "Always Eat" --filename "AlwaysEat-neoforge-1.0.0.jar" --hash "5948137fed00d7bf3fe688e1aecc310b4fa5aaf7"
 ```
 
-Slug/URL resolution needs `CURSEFORGE_API_KEY` or `[curseforge].api-key`. Without
-a key, `project-id + file-id + filename + hash` still produces installable and
-exportable metadata.
+Normally, supply one of a slug, URL or project ID. Providing
+`project-id + file-id + filename + hash` manually writes installable and
+exportable metadata directly.
 
 `export-curseforge <pack-root> [output.zip] [side]` refreshes first, then writes
 a CurseForge-format zip: `metadata:curseforge` files and files with
 `[export.curseforge]` go into `manifest.json`; config and other publish files go
 under `overrides/`. If `[export.curseforge] latest = true`, the file ID is
 resolved from the Minecraft version and loader in `pack.toml`. The zip uses
-store mode instead of compression to avoid extra dependencies.
+store mode instead of compression.
 
 Root overlays:
 
@@ -372,6 +491,15 @@ but writes a directory instead of a zip. The default directory is
 `.bkmpw/server-pack`. Existing output is removed before writing, so CI can add
 extra files and compress the directory without carrying stale build contents.
 
+Set `[export] include-metadata = true` in `.pw/config.toml` to retain side-applicable
+`.pw` / `.pw.toml` files in all four exports, including optional entries that
+are not enabled by default. This also covers resource packs, shader packs and
+custom metadata roots. CurseForge puts them under `overrides/`.
+`prepare-server` follows the same rule. The default is false; server installers
+already retain selected metadata regardless of this setting.
+
+</details>
+
 ## Machine Interface
 
 Desktop shells, CI jobs, and other process integrations can request structured
@@ -395,13 +523,23 @@ query `protocol-version` and ignore unknown optional fields. See
 [`docs/machine-protocol.md`](docs/machine-protocol.md) for the schema,
 compatibility rules, and supported commands.
 
-## Size Policy
+## Development
 
-- Release builds optimize for size.
-- HTTP/HTTPS downloads use `ureq` + `rustls`.
-- CurseForge API response handling avoids a JSON dependency and extracts only
-  the `downloadUrl` field needed for install.
+Before handing off changes, run:
+
+```sh
+cargo fmt --check
+cargo test
+cargo build --release
+```
+
+## Attribution / Credits
+
+Inspired by the [packwiz](https://github.com/packwiz/packwiz) ecosystem, this project
+follows its public metadata model and selected
+[packwiz-installer](https://github.com/packwiz/packwiz-installer) workflows.
+It is an independent Rust CLI implementation, without copied or vendored upstream source.
 
 ## License
 
-MIT.
+[MIT](LICENSE).

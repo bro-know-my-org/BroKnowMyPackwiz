@@ -1,76 +1,175 @@
 # bro-know-my-packwiz
 
-[English README](README.en.md)
+**用元数据维护整合包，用同一套流程同步实例、发布客户端和服务端。**
+
+[![Release](https://img.shields.io/github/v/release/bro-know-my-org/BroKnowMyPackwiz)](https://github.com/bro-know-my-org/BroKnowMyPackwiz/releases)
+[![npm version](https://img.shields.io/npm/v/%40bro-know-my%2Fpackwiz?logo=npm)](https://www.npmjs.com/package/@bro-know-my/packwiz)
+[![Rust](https://img.shields.io/badge/built_with-Rust-dea584?logo=rust)](Cargo.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+[English](README.en.md) · [下载安装](#安装) · [快速开始](#快速开始) · [发布整合包](#发布整合包) · [文档导航](#文档导航)
+
+`bro-know-my-packwiz` 是面向 Minecraft 整合包维护与分发的 Rust 工具，命令名为
+`bkmpw`。支持 packwiz-style `.pw` / `.pw.toml` 元数据，提供可脚本化 CLI 和交互式 TUI。
+
+| 你要做什么 | bkmpw 提供什么 |
+| --- | --- |
+| 收录内容 | 从 CurseForge、GitHub Release、直链或本地文件添加模组，也支持资源包和光影包 |
+| 维护版本 | 检查更新、更新元数据、锁定版本，生成 Markdown / CSV 模组清单 |
+| 同步实例 | 按客户端或服务端安装，复用本地文件，校验哈希，并行下载和重试 |
+| 发布整合包 | 导出 CurseForge 包、客户端全量包、服务端全量包或下载型安装包 |
+| 自动化 | JSON / JSON Lines 输出，供 CI、脚本和其他进程集成 |
 
 > [!NOTE]
-> 本仓库仍在积极维护中。较长时间没有新提交，通常只是因为目前没有发现需要修复的问题，也暂时没有新的功能想法，并不代表项目已停止维护。如果你有功能需求或改进建议，欢迎提交 Issue 来许愿！
+> 项目持续维护中。提交间隔较长通常意味着暂时没有待修复问题或新功能计划。
+> 欢迎通过 [Issue](https://github.com/bro-know-my-org/BroKnowMyPackwiz/issues) 提出需求。
 
-## 目录
+## 安装
 
-- [致谢与来源说明](#致谢与来源说明)
-- [这是什么](#这是什么)
-- [和上游 packwiz 的差异](#和上游-packwiz-的差异)
-- [命令](#命令)
-- [交互式终端界面](#交互式终端界面)
-- [配置](#配置)
-- [机器接口](#机器接口)
-- [体积策略](#体积策略)
+**下载二进制：** 前往 [GitHub Releases](https://github.com/bro-know-my-org/BroKnowMyPackwiz/releases)，
+选择对应系统和架构的文件，重命名为 `bkmpw`（Windows 为 `bkmpw.exe`），放入 `PATH`。
+Linux / macOS 还需执行 `chmod +x bkmpw`。发布附件提供 `.sha256` 校验文件。
 
-## 致谢与来源说明
+**通过 npm 安装：** 需要 Node.js 18 或更高版本，由 npm 选择平台包。
 
-**本项目明确受到 packwiz 生态启发。**
+```sh
+npm install -g @bro-know-my/packwiz
+bkmpw --help
+```
+
+**通过 Cargo 从 Git 安装：** 需要 Rust 工具链和当前平台的链接器。
+
+```sh
+cargo install --git https://github.com/bro-know-my-org/BroKnowMyPackwiz --locked
+bkmpw --help
+```
+
+目标平台包括 Windows、macOS 和 Linux（glibc）的 x64 / ARM64；实际附件以所选版本为准。
+v0.2.5 不包含 Linux ARM64 和 Windows ARM64 npm 平台包，详见 [npm 包说明](packages/npm/README.md)。
+
+<details>
+<summary>从源码构建</summary>
+
+需要 Rust 工具链和当前平台的链接器。在仓库根目录运行：
+
+```sh
+cargo build --release --locked
+./target/release/bkmpw --help
+```
+
+Windows PowerShell 使用 `.\target\release\bkmpw.exe --help`。
+后文命令假定 `bkmpw` 已在 `PATH` 中，也可替换为构建产物的路径。
+
+</details>
+
+## 快速开始
+
+以添加 CurseForge 模组并发布 CF 整合包为例，先初始化：
+
+```sh
+bkmpw init my-pack
+```
+
+编辑 `my-pack/pack.toml`，填写整合包名称、Minecraft 和加载器版本。
+创建 `my-pack/.gitignore`，加入以下规则，避免本地 jar 被重复扫描为普通发布文件：
+
+```gitignore
+mods/*.jar
+```
+
+添加模组时，项目标识只需填 **slug、项目 URL、项目 ID 中的一种**。
+下面三条命令任选一条，工具会查询适配整合包版本的最新文件：
+
+```sh
+bkmpw add-curseforge my-pack both always-eat
+bkmpw add-curseforge my-pack both https://www.curseforge.com/minecraft/mc-mods/always-eat
+bkmpw add-curseforge my-pack both 1259229
+```
+
+如需换成自己的 CurseForge API key，可设置 `CURSEFORGE_API_KEY` 或
+`.pw/config.toml` 的 `[curseforge].api-key`，详见[配置](#配置)。
+
+然后检查、下载并导出：
+
+```sh
+# 刷新索引并检查整合包
+bkmpw refresh my-pack
+bkmpw check my-pack
+
+# 下载受管文件并生成 CurseForge 包
+bkmpw download-files my-pack
+bkmpw export-curseforge my-pack cf.zip both
+```
+
+有指定版本或特殊来源时，也可以手动指定 file ID，或使用 `add-github`、
+`add-url`、`add-file` 的完整参数，见[命令](#命令)和[配置示例](#配置)。
+要同步到服务端运行目录，可运行 `bkmpw sync my-pack server-instance server`。
+
+喜欢交互操作，可以直接运行 `bkmpw tui my-pack`，在终端内添加、更新和导出。
+
+> [!TIP]
+> `check-updates` 只查看更新；`update` 修改元数据和索引。
+> 要下载新文件，再运行 `download-files` 或 `sync`。
+
+### 目录与 side
+
+```text
+my-pack/
+├── pack.toml              # 整合包信息、Minecraft 和加载器版本
+├── index.toml             # refresh 生成的索引
+├── .gitignore             # 排除本地 jar 等不应重复扫描的文件
+├── .pw/config.toml        # 扫描、安装和导出配置
+├── mods/
+│   ├── example.pw.toml    # 新增模组元数据默认写在这里
+│   ├── example.jar        # 模组实际文件
+│   ├── common/            # 可手动整理：两端共用的元数据
+│   ├── client/            # 可手动整理：仅客户端的元数据
+│   └── server/            # 可手动整理：仅服务端的元数据
+├── resourcepacks/         # 资源包元数据与文件
+├── shaderpacks/           # 光影包元数据与文件
+└── roots/                 # 可选：common / client / server 根目录覆盖文件
+```
+
+`side` 可取 `both`、`client`、`server`。新增模组不会自动分桶；手动移动到
+`mods/common`、`mods/client` 或 `mods/server` 后，安装和导出以目录位置为准。
+`refresh` 不会据此改写元数据中的 `side` 字段。旧式 `.pw` 文件仍可使用。
+资源包和光影包的裸文件名安装到元数据所在目录。
 
 > [!IMPORTANT]
-> 本项目沿用了公开的 packwiz 元数据模型，并借鉴了 packwiz-installer 的
-> 部分安装工作流。它是独立实现的 Rust CLI，不是对上游源码的直接复制或
-> vendored copy。
->
-> - packwiz: https://github.com/packwiz/packwiz
-> - packwiz-installer: https://github.com/packwiz/packwiz-installer
+> `download-files` 只补齐文件，不清理无关内容。`sync`、`install-files-headless`
+> 和 `install-files-retry` 只清理上次 `packwiz.json` 记录中已不再需要的
+> `mods/`、`resourcepacks/`、`shaderpacks/` 文件；未受管的手动 jar 不会被删除。
 
-`bro-know-my-packwiz` 是一个面向 packwiz-style 整合包维护与分发流程的 Rust CLI。
+## 发布整合包
 
-二进制名称：`bkmpw`。
+| 交付方式 | 命令 | 产物 |
+| --- | --- | --- |
+| CurseForge 分发 | `bkmpw export-curseforge my-pack cf.zip both` | `manifest.json` 与 `overrides/` |
+| 客户端全量包 | `bkmpw export-client my-pack client.zip` | 以实例目录包裹的客户端文件 |
+| 服务端全量包 | `bkmpw export-server my-pack server.zip` | 文件直接放在 ZIP 根目录 |
+| 下载型服务端包 | `bkmpw export-server-installer my-pack installer.zip` | 元数据与安装脚本，模组在目标机器下载 |
 
-## 这是什么
+CurseForge 导出按元数据分发：`metadata:curseforge` 或带 `[export.curseforge]`
+映射的条目写入 `manifest.json`，由平台下载对应文件；没有 CF 映射的本地文件
+（包括 `add-file` 添加的 jar）会打进 `overrides/`，随包分发。导出依据已有元数据，
+不会自动查询本地 jar 是否已发布到 CF；本地文件也可手动补充 CF 映射，见[元数据格式](docs/metadata-format.md#curseforge-export-mapping)。
 
-- 支持 packwiz-style 元数据刷新、本地安装/下载、CurseForge 导出和全量包/服务端包导出。
-- 带有明确默认布局和可配置行为的 pack-oriented 工具。
-- 命令面比上游 packwiz 更小，聚焦整合包维护、同步和分发流程。
+全量导出前先用 `download-files` 补齐本地受管文件。下载型服务端包不夹带模组 jar
+或本机二进制，安装脚本会下载并校验 `bkmpw`，因此模组需具有可用的远程下载源。
+发布模板、根目录覆盖和隔离准备见
+[发布流程](docs/workflows.md#release-preparation-all-four-exports)。
 
-## 和上游 packwiz 的差异
+## 文档导航
 
-- 项目配置从 `.pw/config.toml` 读取。
-- 扫描过滤时先应用 `.gitignore`，再应用配置里的 `.packwizignore`。
-- 元数据默认采用按 side 分桶的目录：
-  - `mods/server/*.pw.toml`
-  - `mods/client/*.pw.toml`
-  - `mods/common/*.pw.toml`
-  - `mods/*.jar`
-- 也会扫描 `resourcepacks/*.pw` / `resourcepacks/*.pw.toml` 和
-  `shaderpacks/*.pw` / `shaderpacks/*.pw.toml`，裸文件名会安装到 metadata
-  所在目录。
-- 兼容直接放在 `mods/*.pw.toml` 的元数据，也兼容旧式 `mods/*.pw`；默认按
-  common/both 处理。
-- `add-url` / `add-curseforge` / `add-github` / `add-file` 新增的 mod metadata
-  默认写到 `mods/*.pw.toml`，不自动塞进 `mods/common|client|server`，方便开发者再手动分桶。
-- `refresh` 不会根据文件夹位置改写已有 metadata 的 `side`；metadata 里
-  已声明的值优先。
-- `install-local` 优先使用已存在的本地 jar，缺失时才联网。
-- CurseForge `metadata:curseforge` 有 key 时先通过官方 API 下载；失败后可用
-  `file-id` + 文件名映射 ForgeCDN 地址回退。
-- `add-curseforge` 支持通过 CurseForge API 解析 slug/URL/project ID；也支持在
-  没有 API key 时显式传入 project-id、file-id、filename 和 hash 直接落元数据。
-- `export-curseforge` 使用纯 Rust store ZIP 写出 CurseForge 包，不引入 zip 依赖。
-- GitHub 下载源可以额外声明 `[export.curseforge]`，导出 CF 包时改用
-  CurseForge project/file ID，本地同步仍按 `[download]` 下载。
-- `modlist` 可生成 `modlist.md` 和 `modlist.csv`。
-- 并行安装/下载数量由 `[install].jobs`、`CDPR_DOWNLOAD_THREADS` 或 CLI 的
-  可选 jobs 参数控制，优先级依次升高。
-- 安装支持 retry、重试等待时间和 force 覆盖，方便吸收原 devtool 的批量下载习惯。
-- 安装结果会写入一个小型 `packwiz.json` manifest。
+- 日常维护：[工作流](docs/workflows.md) · [元数据格式](docs/metadata-format.md)
+- 进阶操作：[NeoForge 原地升级](docs/neoforge-upgrade.md)（标准服务端与 Prism 实例）
+- 集成开发：[机器协议](docs/machine-protocol.md) · [架构](docs/architecture.md) · [测试](docs/testing.md)
+- 本页参考：[交互式终端界面](#交互式终端界面) · [命令](#命令) · [配置](#配置) · [机器接口](#机器接口)
 
 ## 交互式终端界面
+
+<details>
+<summary>展开页面说明、快捷键与任务恢复规则</summary>
 
 在交互式终端运行 `bkmpw tui [pack-root]`，省略目录时打开当前目录。
 从源码构建后可运行 `./target/release/bkmpw tui /path/to/pack`；Windows 使用
@@ -90,8 +189,8 @@ TUI 提供文件、添加、整合包、任务、设置五个页面，支持中�
   切换不会修改后续更新规则；要留在该版本，可切换完成后按 `P` 锁定。
   默认只更新元数据，可勾选同时下载；额外依赖变更会再次显示确认。
 - 添加页：CurseForge 搜索、文件和依赖选择；`G` 选择 GitHub Release 附件，
-  `U` 添加直链，`A` 添加本地文件。CurseForge 使用 `CURSEFORGE_API_KEY`
-  或 `[curseforge].api-key`。默认只保存元数据，可勾选同时下载。
+  `U` 添加直链，`A` 添加本地文件。可通过 `CURSEFORGE_API_KEY`
+  或 `[curseforge].api-key` 换成自己的 key。默认只保存元数据，可勾选同时下载。
 - 整合包页：方向键或滚轮选择检查、安装、同步、模板准备及导出操作，回车打开表单。
 - 任务页：空格暂停/继续，`C` 取消任务，`R` 重试恢复，`K` 保留外部内容，
   `O` 恢复原内容；处理冲突前先查看目标路径和保留的备份。
@@ -106,7 +205,14 @@ Windows/Linux/macOS 的远程 CI 测试、release 构建与 CLI 烟测已通过�
 Windows/macOS 的真实终端交互验收仍按用户要求挂起。
 详细范围与证据见 [实施计划](docs/tui-plan.md) 和 [进展记录](docs/tui-progress.md)。
 
+</details>
+
 ## 命令
+
+运行 `bkmpw --help` 查看当前版本的命令与用法。
+
+<details>
+<summary>展开常用命令语法</summary>
 
 ```text
 bkmpw init [pack-root]
@@ -116,6 +222,7 @@ bkmpw scan [pack-root]
 bkmpw refresh [pack-root]
 bkmpw list [pack-root]
 bkmpw check [pack-root]
+bkmpw check-updates <pack-root> [<name>...] [--mc-version v] [--loader neoforge]
 bkmpw modlist <pack-root> [output-dir]
 bkmpw export-client <pack-root> [output.zip] [root-dir]
 bkmpw export-curseforge <pack-root> [output.zip] [side]
@@ -141,11 +248,18 @@ bkmpw install-local <source-root> <target-root> <side> [jobs] [--force] [--retri
 bkmpw hash <sha1|sha256|sha512|murmur2> <file>
 ```
 
+</details>
+
 四种 `export-*` 支持通过 `[release]` 配置启用发布准备：在临时目录展开模板、
 校验元数据并刷新索引，不覆盖开发实例。`prepare-pack` 用于显式展开本地模板。
 配置示例和行为说明见 [发布流程](docs/workflows.md#release-preparation-all-four-exports)。
 
 ## 配置
+
+扫描先应用 `.gitignore`，再应用配置指定的 `.packwizignore`。
+
+<details>
+<summary>展开默认配置、下载选项、来源示例与导出细节</summary>
 
 默认配置位于 `.pw/config.toml`：
 
@@ -246,8 +360,7 @@ latest = true
 ```
 
 `latest = true` 会复用 `[update.curseforge].project-id`；也可以在
-`[export.curseforge]` 里显式写 `project-id = 123456`。导出时需要
-`CURSEFORGE_API_KEY` 或 `[curseforge].api-key`，因为它要查询最新适配文件。
+`[export.curseforge]` 里显式写 `project-id = 123456`。导出时会查询最新适配文件。
 
 更新：
 
@@ -263,24 +376,22 @@ bkmpw update <pack-root> <name> [<name>...]
 CLI 与 TUI 的更新预览共用并发查询，默认同时检查 32 项；可用 `.pw/config.toml` 的 `[install].jobs` 调整（预览上限 64，最少 1；已有配置保留原值）。TUI 会显示查询完成数量。
 `update` 会修改元数据和索引；下载新文件需另运行 `download-files` 或 `sync`。
 
-- CurseForge metadata 会根据 `[update.curseforge]` 查询最新匹配文件并更新 `filename`、hash 和 `file-id`；需要 `CURSEFORGE_API_KEY` 或 `[curseforge].api-key`。
+- CurseForge metadata 会根据 `[update.curseforge]` 查询最新匹配文件并更新 `filename`、hash 和 `file-id`。
 - GitHub metadata 会根据 `[update.github]` 查询 latest release 或指定 tag。只有通过新版 `add-github` 添加的 metadata 才会自动带这个更新信息。
 - 普通直链 metadata 没有可推断的上游版本，`--all` 会跳过。
 
-CurseForge API key 优先使用 `[curseforge].api-key`，其次是环境变量
-`CURSEFORGE_API_KEY`，最后是发布构建时从 GitHub Actions secret
-`STUDIO_CURSEFORGE_API_KEY` 注入的默认 key。普通本地构建没有默认 key。
-安装时会优先使用本地 jar，所以完整包不需要在安装阶段提供 key。
+如需换成自己的 CurseForge API key，可设置 `[curseforge].api-key` 或环境变量
+`CURSEFORGE_API_KEY`；配置文件中的非空值优先。安装时优先复用本地 jar。
 
-有 key 时先通过官方 API 获取下载地址；`cdn-fallback = true` 时，API 查询或
+下载先通过官方 API 获取地址；`cdn-fallback = true` 时，API 查询或
 下载失败后，再将 CurseForge file ID 映射为
-`https://edge.forgecdn.net/files/...` 形式的 ForgeCDN 地址。没有 key 时直接
-尝试 ForgeCDN。CLI 下载中两种方式都失败时会同时报告错误。
+`https://edge.forgecdn.net/files/...` 形式的 ForgeCDN 地址。
+CLI 下载中两种方式都失败时会同时报告错误。
 
 `add-curseforge` 常用方式：
 
 ```text
-# 有 CURSEFORGE_API_KEY 时，按 slug/URL/project-id 自动查项目和最新文件
+# 按 slug/URL/project-id 自动查项目和最新文件（三选一）
 bkmpw add-curseforge . both always-eat
 bkmpw add-curseforge . both https://www.curseforge.com/minecraft/mc-mods/always-eat
 bkmpw add-curseforge . both 1259229
@@ -288,19 +399,18 @@ bkmpw add-curseforge . both 1259229
 # 指定 file-id
 bkmpw add-curseforge . both 1259229 6498183
 
-# 没有 API key 时，显式提供必要元数据
+# 手动指定固定版本的完整元数据
 bkmpw add-curseforge . both 1259229 6498183 --name "Always Eat" --filename "AlwaysEat-neoforge-1.0.0.jar" --hash "5948137fed00d7bf3fe688e1aecc310b4fa5aaf7"
 ```
 
-slug/URL 自动解析需要 `CURSEFORGE_API_KEY` 或 `[curseforge].api-key`。没有 key
-时无法从 CurseForge 搜索项目，但仍可用 `project-id + file-id + filename + hash`
-直接写出可下载、可导出的 metadata。
+通常只需提供 slug、URL 或 project-id 中的一种。手动提供
+`project-id + file-id + filename + hash` 时，会直接写出可下载、可导出的 metadata。
 
 `export-curseforge <pack-root> [output.zip] [side]` 会先 refresh，然后生成
 CurseForge 格式的 zip：`metadata:curseforge` 和带 `[export.curseforge]` 的文件写入
 `manifest.json`，配置和其它发布文件写入 `overrides/`。如果
 `[export.curseforge] latest = true`，会按 `pack.toml` 里的 Minecraft 版本和 loader
-查最新适配文件。zip 使用 store 模式，不压缩，换取零额外依赖和小体积。
+查最新适配文件。zip 使用 store 模式，不压缩。
 
 在 `.pw/config.toml` 中设置 `[export] include-metadata = true`，四种导出都会保留
 当前导出 side 适用的 `.pw` / `.pw.toml` 元数据（包括未默认启用的可选条目、
@@ -342,6 +452,8 @@ GitHub latest release 下载当前平台的 `bkmpw`、校验 `.sha256`，再执�
 zip。默认目录是 `.bkmpw/server-pack`。运行前会删除旧输出目录，避免 CI 补文件、压缩发包时
 混入上次构建遗留内容。
 
+</details>
+
 ## 机器接口
 
 桌面壳、CI 和其它进程集成可以使用稳定的机器输出，不需要解析普通终端文本：
@@ -362,12 +474,22 @@ stderr。机器模式保留正常退出码，例如 `check` 校验失败时仍�
 可选字段。完整字段、兼容规则和支持命令见
 [`docs/machine-protocol.md`](docs/machine-protocol.md)。
 
-## 体积策略
+## 开发
 
-- release 构建按体积优化。
-- HTTP/HTTPS 下载使用 `ureq` + `rustls`。
-- CurseForge API 响应处理不引入 JSON 依赖，只提取安装所需的 `downloadUrl`。
+提交改动前运行：
+
+```sh
+cargo fmt --check
+cargo test
+cargo build --release
+```
+
+## 致谢与来源说明
+
+本项目受到 [packwiz](https://github.com/packwiz/packwiz) 生态启发，沿用公开的
+packwiz 元数据模型，并借鉴 [packwiz-installer](https://github.com/packwiz/packwiz-installer)
+的部分安装工作流。项目是独立实现的 Rust CLI，没有直接复制或 vendoring 上游源码。
 
 ## License
 
-MIT。
+[MIT](LICENSE)。

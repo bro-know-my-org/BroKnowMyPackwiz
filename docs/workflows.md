@@ -113,7 +113,7 @@ Update one metadata entry:
 bkmpw update <pack-root> "Mod Name"
 ```
 
-CurseForge update needs `CURSEFORGE_API_KEY` or `[curseforge].api-key`.
+To use your own CurseForge API key, set `CURSEFORGE_API_KEY` or `[curseforge].api-key`.
 
 ## Export CurseForge Pack
 
@@ -121,8 +121,9 @@ CurseForge update needs `CURSEFORGE_API_KEY` or `[curseforge].api-key`.
 bkmpw export-curseforge <pack-root> <output.zip> both
 ```
 
-If any metadata uses `[export.curseforge] latest = true`, export needs
-`CURSEFORGE_API_KEY` or `[curseforge].api-key`.
+If any metadata uses `[export.curseforge] latest = true`, export resolves the
+latest matching file. To use your own API key, set `CURSEFORGE_API_KEY` or
+`[curseforge].api-key`.
 
 ## Release Preparation (All Four Exports)
 

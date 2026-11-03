@@ -40,8 +40,8 @@ file-id = 789012
 ```
 
 Install first tries local files. If it must download from CurseForge, it uses
-the official API when an API key exists, then ForgeCDN fallback if enabled.
-Without a key, it tries ForgeCDN directly.
+the official API, then ForgeCDN fallback if enabled. To use your own API key,
+set `CURSEFORGE_API_KEY` or `[curseforge].api-key`.
 
 ## GitHub Update Source
 
@@ -99,8 +99,8 @@ latest = true
 ```
 
 Export resolves Minecraft version and loader from `pack.toml`, then queries
-CurseForge for the latest matching file. This requires `CURSEFORGE_API_KEY` or
-`[curseforge].api-key`.
+CurseForge for the latest matching file. To use your own API key, set
+`CURSEFORGE_API_KEY` or `[curseforge].api-key`.
 
 ## Optional Files
 
