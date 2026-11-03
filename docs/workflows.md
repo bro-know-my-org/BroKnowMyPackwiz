@@ -22,6 +22,10 @@ The crates.io package and binary are both named `bkmpw`:
 cargo install bkmpw --locked
 ```
 
+Cargo installs compile from source on the user's machine and do not include a
+default CurseForge API key. For CurseForge API queries, set `CURSEFORGE_API_KEY`
+or `[curseforge].api-key` in the pack's `.pw/config.toml`.
+
 The `Publish Cargo Crate` workflow runs on `v*.*.*` tags, alongside the existing
 GitHub Release and npm workflows. It also accepts a `version` through manual
 dispatch, with or without a leading `v`. The workflow replaces the local

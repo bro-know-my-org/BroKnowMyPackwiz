@@ -45,6 +45,11 @@ cargo install bkmpw --locked
 bkmpw --help
 ```
 
+> [!IMPORTANT]
+> Cargo 安装会在本机从源码编译，默认不包含 CurseForge API key。
+> 使用 CurseForge 查询和自动添加功能前，请设置环境变量 `CURSEFORGE_API_KEY`，
+> 或在整合包的 `.pw/config.toml` 中配置 `[curseforge].api-key`。
+
 目标平台包括 Windows、macOS 和 Linux（glibc）的 x64 / ARM64；实际附件以所选版本为准。
 v0.2.5 不包含 Linux ARM64 和 Windows ARM64 npm 平台包，详见 [npm 包说明](packages/npm/README.md)。
 
@@ -60,6 +65,7 @@ cargo build --release --locked
 
 Windows PowerShell 使用 `.\target\release\bkmpw.exe --help`。
 后文命令假定 `bkmpw` 已在 `PATH` 中，也可替换为构建产物的路径。
+从源码构建同样需要自行配置 CurseForge API key，才能使用对应的 API 查询功能。
 
 </details>
 

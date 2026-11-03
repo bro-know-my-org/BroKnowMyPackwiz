@@ -48,6 +48,12 @@ cargo install bkmpw --locked
 bkmpw --help
 ```
 
+> [!IMPORTANT]
+> Cargo installs compile from source on your machine and do not include a default
+> CurseForge API key. Before using CurseForge API queries or automatic project
+> resolution, set `CURSEFORGE_API_KEY` or configure `[curseforge].api-key` in
+> the pack's `.pw/config.toml`.
+
 Targets cover Windows, macOS and Linux (glibc) on x64 / ARM64; check the assets
 of your chosen release. v0.2.5 lacks Linux ARM64 and Windows ARM64 npm packages.
 See the [npm package notes](packages/npm/README.md).
@@ -64,6 +70,7 @@ cargo build --release --locked
 
 In Windows PowerShell, use `.\target\release\bkmpw.exe --help`.
 Examples below assume `bkmpw` is on `PATH`; you can also use the built binary's path.
+Source builds likewise require your own CurseForge API key for its API queries.
 
 </details>
 
