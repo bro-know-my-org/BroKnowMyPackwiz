@@ -10,9 +10,15 @@
 !/README.en.md
 !/TODO.md
 !/LICENSE
+# Public documentation allowlist. Other docs remain local.
 !/docs/
-!/docs/**
-docs/generated/
+/docs/**
+!/docs/README.md
+!/docs/architecture.md
+!/docs/workflows.md
+!/docs/metadata-format.md
+!/docs/machine-protocol.md
+!/docs/testing.md
 !/.github/
 !/.github/workflows/
 !/.github/workflows/**

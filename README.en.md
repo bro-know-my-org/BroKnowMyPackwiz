@@ -175,7 +175,7 @@ for templates, root overlays and isolated staging.
 ## Documentation
 
 - Maintenance: [Workflows](docs/workflows.md) · [Metadata format](docs/metadata-format.md)
-- Advanced: [NeoForge in-place upgrades](docs/neoforge-upgrade.md) (Chinese; standard servers and Prism instances)
+- Advanced: `bkmpw neoforge tui` upgrades standard NeoForge servers and Prism instances in place
 - Integration: [Machine protocol](docs/machine-protocol.md) · [Architecture](docs/architecture.md) · [Testing](docs/testing.md)
 - On this page: [Interactive terminal](#interactive-terminal) · [Commands](#commands) · [Config](#config) · [Machine interface](#machine-interface)
 
@@ -229,8 +229,7 @@ before upgrading the tool with `bkmpw self-update`.
 Linux release terminal, offline tasks, external editor, and real GitHub/CurseForge
 add-and-download smoke tests have passed. Windows/Linux/macOS CI tests, release builds and CLI smoke tests
 have passed. Windows/macOS interactive terminal acceptance remains suspended at
-the user’s request. See the [plan](docs/tui-plan.md) and [progress](docs/tui-progress.md)
-(Chinese) for scope and evidence.
+the user’s request.
 
 </details>
 

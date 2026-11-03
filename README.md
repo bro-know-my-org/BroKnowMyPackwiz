@@ -163,7 +163,7 @@ CurseForge 导出按元数据分发：`metadata:curseforge` 或带 `[export.curs
 ## 文档导航
 
 - 日常维护：[工作流](docs/workflows.md) · [元数据格式](docs/metadata-format.md)
-- 进阶操作：[NeoForge 原地升级](docs/neoforge-upgrade.md)（标准服务端与 Prism 实例）
+- 进阶操作：`bkmpw neoforge tui` 可原地升级标准 NeoForge 服务端与 Prism 实例
 - 集成开发：[机器协议](docs/machine-protocol.md) · [架构](docs/architecture.md) · [测试](docs/testing.md)
 - 本页参考：[交互式终端界面](#交互式终端界面) · [命令](#命令) · [配置](#配置) · [机器接口](#机器接口)
 
@@ -204,7 +204,6 @@ TUI 提供文件、添加、整合包、任务、设置五个页面，支持中�
 Linux release 真实终端、离线任务、外部编辑器，以及真实 GitHub/CurseForge 添加与下载已验证。
 Windows/Linux/macOS 的远程 CI 测试、release 构建与 CLI 烟测已通过；
 Windows/macOS 的真实终端交互验收仍按用户要求挂起。
-详细范围与证据见 [实施计划](docs/tui-plan.md) 和 [进展记录](docs/tui-progress.md)。
 
 </details>
 
