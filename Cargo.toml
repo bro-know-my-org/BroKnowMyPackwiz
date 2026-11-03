@@ -1,5 +1,5 @@
 [package]
-name = "bro-know-my-packwiz"
+name = "bkmpw"
 # Local placeholder; release workflows set the version from the tag.
 version = "0.0.0"
 edition = "2024"

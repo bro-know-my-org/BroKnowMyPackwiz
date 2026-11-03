@@ -14,6 +14,25 @@ Use the release binary for manual smoke tests:
 .\target\release\bkmpw.exe --help
 ```
 
+## Publish The Cargo Crate
+
+The crates.io package and binary are both named `bkmpw`:
+
+```sh
+cargo install bkmpw --locked
+```
+
+The `Publish Cargo Crate` workflow runs on `v*.*.*` tags, alongside the existing
+GitHub Release and npm workflows. It also accepts a `version` through manual
+dispatch, with or without a leading `v`. The workflow replaces the local
+`0.0.0` placeholder, updates the workspace lock entry, tests the CLI, and verifies
+the crate package before publishing to crates.io.
+
+Publishing uses the organization or repository secret `CARGO_REGISTRY_TOKEN`;
+the organization secret must be accessible to this repository and its token
+must allow publishing `bkmpw`. Published crate versions are immutable: use a new
+version instead of rerunning publication for an already published version.
+
 ## Initialize A Pack
 
 ```powershell

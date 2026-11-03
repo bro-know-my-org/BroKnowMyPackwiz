@@ -4,6 +4,7 @@
 
 [![Release](https://img.shields.io/github/v/release/bro-know-my-org/BroKnowMyPackwiz)](https://github.com/bro-know-my-org/BroKnowMyPackwiz/releases)
 [![npm version](https://img.shields.io/npm/v/%40bro-know-my%2Fpackwiz?logo=npm)](https://www.npmjs.com/package/@bro-know-my/packwiz)
+[![crates.io](https://img.shields.io/crates/v/bkmpw?logo=rust)](https://crates.io/crates/bkmpw)
 [![Rust](https://img.shields.io/badge/built_with-Rust-dea584?logo=rust)](Cargo.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -40,10 +41,10 @@ npm install -g @bro-know-my/packwiz
 bkmpw --help
 ```
 
-**Cargo from Git:** requires a Rust toolchain and a platform linker.
+**Cargo:** requires a Rust toolchain and a platform linker.
 
 ```sh
-cargo install --git https://github.com/bro-know-my-org/BroKnowMyPackwiz --locked
+cargo install bkmpw --locked
 bkmpw --help
 ```
 

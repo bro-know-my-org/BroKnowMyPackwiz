@@ -1,0 +1,88 @@
+name: Publish Cargo Crate
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Crate version, for example 0.2.9"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cargo-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish bkmpw to crates.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-crate-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-crate-
+
+      - name: Set crate version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          python3 <<'PY'
+          import os
+          import pathlib
+          import re
+
+          version = (os.environ["INPUT_VERSION"] if os.environ["EVENT_NAME"] == "workflow_dispatch"
+                     else os.environ["GITHUB_REF_NAME"]).removeprefix("v")
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version):
+              raise SystemExit("Version must look like 1.2.3 or 1.2.3-beta.1")
+          path = pathlib.Path("Cargo.toml")
+          manifest, count = re.subn(r'(?m)^version\s*=\s*"[^"]+"',
+                                    f'version = "{version}"', path.read_text(), count=1)
+          if count != 1:
+              raise SystemExit("Expected a package version in Cargo.toml")
+          path.write_text(manifest)
+          PY
+          cargo update --workspace
+
+      - name: Check format
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Verify crate package
+        run: cargo publish --dry-run --locked --allow-dirty --registry crates-io
+
+      - name: Publish crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo "CARGO_REGISTRY_TOKEN organization or repository secret is required" >&2
+            exit 1
+          fi
+          cargo publish --locked --allow-dirty --registry crates-io
